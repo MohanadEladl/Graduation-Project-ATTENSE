@@ -28,6 +28,8 @@ from core.validation.alert_validator import (
     validate_deny_alert,
 )
 from infrastructure.eventstore.event_emitter import EventEmitter
+from infrastructure.thehive.hive_client import HiveClient
+from infrastructure.cortex.enrichment_service import EnrichmentReport
 from schemas.requests.alert_requests import (
     RaiseAlertRequest,
     InvestigateAlertRequest,
@@ -38,9 +40,14 @@ from schemas.responses.action_response import ActionResponse
 logger = logging.getLogger(__name__)
 
 
-def raise_alert(body: RaiseAlertRequest, emitter: EventEmitter) -> ActionResponse:
+def raise_alert(
+    body: RaiseAlertRequest,
+    emitter: EventEmitter,
+    hive: HiveClient,
+    enrichment_report: EnrichmentReport,
+) -> ActionResponse:
     """
-    Simulate the SIEM detecting an anomaly and raising an alert.
+    Simulate the SIEM detecting an anomaly and raising an alert, and forward it to TheHive.
 
     Called by: system / SIEM automation
     Pre-condition: incident not already CONTAINED or ENDED.
@@ -59,6 +66,40 @@ def raise_alert(body: RaiseAlertRequest, emitter: EventEmitter) -> ActionRespons
         raw_log=body.raw_log,
     )
     emitter.emit(incident, store, event)
+
+    # Convert Cortex-Lite enrichment report IOCs to TheHive artifacts format
+    artifacts = []
+    for ip in enrichment_report.iocs_found.get("ips", []):
+        artifacts.append({"dataType": "ip", "data": ip, "message": "Attacker IP"})
+    for url in enrichment_report.iocs_found.get("urls", []):
+        artifacts.append({"dataType": "url", "data": url, "message": "Malicious URL"})
+    for h in enrichment_report.iocs_found.get("hashes", []):
+        artifacts.append({"dataType": "hash", "data": h, "message": "Malicious File Hash"})
+
+    # Create the Alert in TheHive
+    try:
+        res = hive.create_alert(
+            incident_id=incident.incident_id,
+            title=body.rule_name or "SIEM Alert",
+            severity=body.severity,
+            artifacts=artifacts,
+        )
+        alert_id = res.get("id") or res.get("_id")
+        if alert_id:
+            logger.info(
+                "[AlertService] Alert created in TheHive: alert_id=%s for incident '%s'.",
+                alert_id, incident.incident_id,
+            )
+        else:
+            logger.warning(
+                "[AlertService] TheHive created alert but returned no ID: %s",
+                res,
+            )
+    except Exception as exc:
+        logger.warning(
+            "[AlertService] TheHive alert creation failed (non-fatal): %s",
+            exc,
+        )
 
     logger.info(
         "[AlertService] Alert RAISED for incident '%s' — rule='%s', severity='%s'.",

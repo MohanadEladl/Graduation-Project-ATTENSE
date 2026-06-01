@@ -7,7 +7,11 @@ FROM kalilinux/kali-rolling
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Pin to official Kali CDN (HTTP avoids ca-cert bootstrap issue in minimal images)
-RUN echo "deb http://kali.download/kali kali-rolling main contrib non-free non-free-firmware" \
+# Configure apt to retry on transient network failures (mid-download drops crash the layer)
+RUN echo 'Acquire::Retries "5";'           >  /etc/apt/apt.conf.d/99-retries \
+ && echo 'Acquire::http::Timeout "120";'   >> /etc/apt/apt.conf.d/99-retries \
+ && echo 'Acquire::https::Timeout "120";'  >> /etc/apt/apt.conf.d/99-retries \
+ && echo "deb http://kali.download/kali kali-rolling main contrib non-free non-free-firmware" \
         > /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -19,7 +23,6 @@ RUN echo "deb http://kali.download/kali kali-rolling main contrib non-free non-f
     python3 \
     python3-pip \
     netcat-openbsd \
-    wordlists \
     ca-certificates \
     dnsutils \
     iputils-ping \

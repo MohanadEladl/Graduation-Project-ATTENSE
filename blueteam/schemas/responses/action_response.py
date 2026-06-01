@@ -21,6 +21,14 @@ class ActionResponse(BaseModel):
     incident_status: str = Field(..., description="Incident status after this action.")
     timestamp: str = Field(..., description="ISO-8601 timestamp of the event.")
     message: str = Field(default="", description="Human-readable result message.")
+    enrichment: dict | None = Field(
+        default=None,
+        description=(
+            "Cortex-Lite threat intelligence enrichment. "
+            "Present on alert_raised events only. "
+            "None when enrichment is disabled or no IOCs were found."
+        ),
+    )
 
     @classmethod
     def from_event(
@@ -28,15 +36,17 @@ class ActionResponse(BaseModel):
         incident: Incident,
         event: Event,
         message: str = "",
+        enrichment: dict | None = None,
     ) -> "ActionResponse":
         """
         Factory method to build a response from an incident + event pair.
 
         Parameters
         ----------
-        incident : The incident after applying the event.
-        event    : The event that was just created and stored.
-        message  : Optional human-readable summary message.
+        incident    : The incident after applying the event.
+        event       : The event that was just created and stored.
+        message     : Optional human-readable summary message.
+        enrichment  : Optional Cortex-Lite threat intelligence report dict.
         """
         return cls(
             ok=True,
@@ -46,4 +56,5 @@ class ActionResponse(BaseModel):
             incident_status=incident.status,
             timestamp=event.timestamp.isoformat(),
             message=message,
+            enrichment=enrichment,
         )

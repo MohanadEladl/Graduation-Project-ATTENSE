@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # ── Sandbox / Target Agent ────────────────────────────────────────────────
     sandbox_url: str = "http://localhost:8020"
 
+    # ── Cortex-Lite: Threat Intelligence Enrichment ───────────────────────────
+    # Leave empty to disable gracefully — the alert workflow is unaffected.
+    virustotal_api_key: str = ""        # https://www.virustotal.com/gui/join-us
+    abuseipdb_api_key: str = ""         # https://www.abuseipdb.com/register
+
     # ── Event Store ───────────────────────────────────────────────────────────
     event_store_type: str = "memory"   # "memory" | "postgres" | "kafka"
 
