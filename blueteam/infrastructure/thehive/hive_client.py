@@ -59,26 +59,73 @@ class HiveClient:
             "title": title,
             "description": f"Automated case for incident {incident_id}",
             "severity": self._map_severity(severity),
-            "tags": [incident_id],
+            "tags": [incident_id, f"attense:incident-{incident_id}"],
         }
         return self._post("/api/case", payload)
 
-    def update_case_severity(self, incident_id: str, severity: str) -> dict:
+    def create_alert(
+        self,
+        incident_id: str,
+        title: str,
+        severity: str,
+        artifacts: list[dict],
+    ) -> dict:
         """
-        Update the severity of an existing Hive case.
+        Create a new alert in TheHive.
 
         Parameters
         ----------
-        incident_id : Used to locate the case by tag.
-        severity    : New severity label.
+        incident_id : Internal incident identifier.
+        title       : Alert title.
+        severity    : One of low | medium | high | critical.
+        artifacts   : List of observable dicts.
+        """
+        payload = {
+            "title": title,
+            "description": f"Automated alert for incident {incident_id}",
+            "severity": self._map_severity(severity),
+            "tags": [incident_id, f"attense:incident-{incident_id}"],
+            "type": "siem",
+            "source": "wazuh",
+            "sourceRef": incident_id,
+            "artifacts": artifacts,
+        }
+        return self._post("/api/alert", payload)
+
+    def update_case_severity(self, incident_id: str, severity: str) -> dict:
+        """
+        Update the severity of an existing Hive case by finding it via tags.
         """
         logger.info(
             "[HiveClient] Updating case severity for incident '%s' → %s",
             incident_id, severity,
         )
-        # In a real implementation, first find the case ID by incident tag,
-        # then PATCH /api/case/{id}. Stubbed here.
-        return {"status": "updated", "incident_id": incident_id, "severity": severity}
+        cases = self._get("/api/case")
+        if not isinstance(cases, list):
+            logger.warning("[HiveClient] Failed to retrieve case list from TheHive.")
+            return {}
+
+        target_case = None
+        for case in cases:
+            tags = case.get("tags", [])
+            if incident_id in tags or f"attense:incident-{incident_id}" in tags:
+                target_case = case
+                break
+
+        if not target_case:
+            logger.warning(
+                "[HiveClient] No case found in TheHive with tag containing incident_id '%s'",
+                incident_id,
+            )
+            return {}
+
+        case_id = target_case.get("id") or target_case.get("_id")
+        if not case_id:
+            logger.warning("[HiveClient] Case found but has no ID.")
+            return {}
+
+        payload = {"severity": self._map_severity(severity)}
+        return self._patch(f"/api/case/{case_id}", payload)
 
     def add_observable(self, case_id: str, data_type: str, value: str) -> dict:
         """
@@ -100,6 +147,21 @@ class HiveClient:
     # Internal helpers
     # ──────────────────────────────────────────────────────────────────────────
 
+    def _get(self, path: str) -> list | dict:
+        """Send a GET request to the Hive API. Returns [] or {} on error."""
+        url = f"{self.base_url}{path}"
+        try:
+            response = httpx.get(
+                url,
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            logger.warning("[HiveClient] GET request to %s failed: %s", url, exc)
+            return []
+
     def _post(self, path: str, payload: dict) -> dict:
         """Send a POST request to the Hive API. Returns {} on error."""
         url = f"{self.base_url}{path}"
@@ -114,6 +176,22 @@ class HiveClient:
             return response.json()
         except Exception as exc:
             logger.warning("[HiveClient] Request to %s failed: %s", url, exc)
+            return {}
+
+    def _patch(self, path: str, payload: dict) -> dict:
+        """Send a PATCH request to the Hive API. Returns {} on error."""
+        url = f"{self.base_url}{path}"
+        try:
+            response = httpx.patch(
+                url,
+                json=payload,
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            logger.warning("[HiveClient] PATCH request to %s failed: %s", url, exc)
             return {}
 
     @staticmethod

@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Maps (Hive objectType, operation) → ATTENSE event_type string
 HIVE_EVENT_MAP: dict[tuple[str, str], str] = {
+    ("Case",       "Create"):  "alert_investigation_started",
     ("Case",       "Update"):  "hive_case_updated",
     ("Case",       "Delete"):  "hive_case_closed",
     ("Alert",      "Update"):  "hive_alert_updated",

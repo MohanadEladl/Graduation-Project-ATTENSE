@@ -25,7 +25,7 @@ services:
       wazuh-manager:
         condition: service_healthy
     ports:
-      - "8080:80"
+      - "8081:80"
     volumes:
       - target_nginx_logs:/var/log/nginx
       - target_flask_logs:/app/logs
@@ -41,8 +41,7 @@ services:
 
   # ── Manager: Wazuh Manager ──────────────────────────────────────────────────
   wazuh-manager:
-    build:
-      context: ./wazuh-manager
+    image: wazuh/wazuh-manager:4.9.2
     container_name: attense_wazuh_manager
     hostname: wazuh.manager
     restart: unless-stopped
@@ -108,11 +107,11 @@ services:
     volumes:
       - attense_ssd_volume:/attense/data:ro
     healthcheck:
-      test: ["CMD-SHELL", "grep -q python /proc/1/comm"]
+      test: ["CMD-SHELL", "grep -q '^python' /proc/1/comm"]
       interval: 15s
       timeout: 3s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     networks:
       - attense_net
 
@@ -223,14 +222,22 @@ services:
     depends_on:
       - attense-app
       - signal-store
+      - thehive
     environment:
       ATTENSE_APP_PATH: /attense_app
-      # Hive runs on localhost inside this container — not a sibling service
-      HIVE_URL: "http://localhost:9000"
-      HIVE_API_KEY: "changeme"
+      # Hive runs in its own container
+      HIVE_URL: "http://thehive:9000"
+      HIVE_API_KEY: "REDACTED-THEHIVE-API-KEY"
       WEBHOOK_SECRET: "changeme-webhook"
       SANDBOX_URL: "http://target-agent:8020"
       LOG_LEVEL: "INFO"
+      # ── Cortex-Lite: Threat Intelligence Enrichment ──────────────────────────
+      # Register free keys and fill these in to enable IOC enrichment:
+      #   VirusTotal : https://www.virustotal.com/gui/join-us
+      #   AbuseIPDB  : https://www.abuseipdb.com/register
+      # Leave empty to run without enrichment — alert workflow is unaffected.
+      VIRUSTOTAL_API_KEY: "REDACTED-VIRUSTOTAL-API-KEY"
+      ABUSEIPDB_API_KEY: "REDACTED-ABUSEIPDB-API-KEY"
     volumes:
       - ./attense-app:/attense_app:ro
       - blueteam_cassandra_data:/var/lib/cassandra
@@ -245,7 +252,61 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 60s
+    networks:
+      - attense_net
+
+  # ── Cassandra: TheHive Database ─────────────────────────────────────────────
+  cassandra:
+    image: cassandra:3.11
+    container_name: attense_cassandra
+    hostname: cassandra
+    restart: unless-stopped
+    environment:
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
+      - CASSANDRA_CLUSTER_NAME=hive
+    volumes:
+      - blueteam_cassandra_data:/var/lib/cassandra
+    networks:
+      - attense_net
+
+  # ── Elasticsearch: TheHive Indexer ──────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
+    container_name: attense_elasticsearch
+    hostname: elasticsearch
+    restart: unless-stopped
+    environment:
+      - http.host=0.0.0.0
+      - discovery.type=single-node
+      - cluster.name=hive
+      - thread_pool.search.queue_size=100000
+      - thread_pool.write.queue_size=10000
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+    volumes:
+      - blueteam_elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - attense_net
+
+  # ── TheHive: Case Management UI ─────────────────────────────────────────────
+  thehive:
+    image: thehiveproject/thehive4:4.1.24-1
+    container_name: attense_thehive
+    hostname: thehive
+    restart: unless-stopped
+    depends_on:
+      - cassandra
+      - elasticsearch
+    environment:
+      - JVM_OPTS=-Xms512m -Xmx512m
+    command: >
+      --secret "attense-super-secret-key-that-is-at-least-64-bytes-long-for-thehive-so-it-starts"
+      --cql-hostnames cassandra
+    volumes:
+      - ./thehive/application.conf:/etc/thehive/application.conf
+    ports:
+      - "9000:9000"
     networks:
       - attense_net
 

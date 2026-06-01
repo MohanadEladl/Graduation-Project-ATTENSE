@@ -35,13 +35,14 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.dependencies import get_event_emitter, get_hive_client, get_sandbox_connector
+from api.dependencies import get_event_emitter, get_hive_client, get_sandbox_connector, get_enrichment_service
 from core.services.alert_service import raise_alert, investigate_alert, deny_alert
 from core.services.incident_service import confirm_incident
 from core.services.containment_service import initiate_containment, complete_containment
 from infrastructure.eventstore.event_emitter import EventEmitter
 from infrastructure.thehive.hive_client import HiveClient
 from infrastructure.sandbox.target_connector import TargetConnector
+from infrastructure.cortex.enrichment_service import EnrichmentService
 from schemas.requests.alert_requests import (
     RaiseAlertRequest,
     InvestigateAlertRequest,
@@ -72,15 +73,35 @@ router = APIRouter(prefix="/blueteam", tags=["Blue Team"])
 def api_raise_alert(
     body: RaiseAlertRequest,
     emitter: EventEmitter = Depends(get_event_emitter),
+    hive: HiveClient = Depends(get_hive_client),
+    enrichment_svc: EnrichmentService = Depends(get_enrichment_service),
 ) -> ActionResponse:
     """
     Simulates the SIEM detecting an anomaly and raising an alert.
     This triggers the Blue Team investigation window.
 
+    After the alert is stored, Cortex-Lite automatically enriches any
+    IOCs found in the raw log (IP reputation via AbuseIPDB, threat
+    intelligence via VirusTotal). The enrichment result is attached to
+    the response so the analyst has context before starting triage.
+
     Emits: `alert_raised`
     """
     try:
-        return raise_alert(body=body, emitter=emitter)
+        # ── Cortex-Lite: auto-enrich IOCs from the raw alert log ─────────────
+        enrichment_report = enrichment_svc.enrich_alert(
+            raw_log=body.raw_log,
+            siem_id=body.siem_id,
+            target_id=body.target_id,
+        )
+        response = raise_alert(
+            body=body,
+            emitter=emitter,
+            hive=hive,
+            enrichment_report=enrichment_report,
+        )
+        response.enrichment = enrichment_report.to_dict()
+        return response
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
