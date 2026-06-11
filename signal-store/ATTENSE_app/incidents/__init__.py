@@ -1,1 +1,0 @@
-from ATTENSE_app.incidents.incident import Incident

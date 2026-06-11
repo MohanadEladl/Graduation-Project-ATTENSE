@@ -82,6 +82,7 @@ services:
     volumes:
       - wazuh_alerts:/wazuh/alerts:ro
       - attense_ssd_volume:/attense/data
+      - ./attense-app:/attense_app:ro
     ports:
       - "8005:8000"
     healthcheck:

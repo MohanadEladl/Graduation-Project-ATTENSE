@@ -6,8 +6,7 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ── COPY CORE LOGIC ─────────────────────────
-COPY ATTENSE_app /app/ATTENSE_app
+# Expect ATTENSE_app to be mounted at runtime (no copy here)
 
 # ── Copy API package ────────────────────────
 COPY app /app/app
@@ -18,7 +17,7 @@ COPY signal_mapper_nginx.py /app/signal_mapper_nginx.py
 
 # ── Runtime ─────────────────────────────────
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/attense_app
 ENV MODE=wazuh
 ENV OUTPUT_MODE=file
 ENV OUTPUT_PATH=/attense/data/mapped_events.jsonl
