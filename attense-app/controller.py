@@ -4,6 +4,8 @@ import time
 import os
 import logging
 import docker
+import threading
+import uvicorn
 from pathlib import Path
 from ATTENSE_app.incidents.incident import Incident
 from ATTENSE_app.events.event import Event
@@ -75,6 +77,17 @@ class AttenseController:
 
     def run(self):
         logger.info(f"Starting Attense Controller, watching {DATA_PATH}")
+        # Start Blue Team FastAPI app in background thread (served by this container)
+        def _start_blueteam():
+            try:
+                # Import here to avoid import-time side effects when controller is used in tests
+                from ATTENSE_app.blueteam.main import app as blueteam_app
+                uvicorn.run(blueteam_app, host="0.0.0.0", port=8010, log_level="info")
+            except Exception as e:
+                logger.error(f"Failed to start Blue Team app: {e}", exc_info=True)
+
+        t = threading.Thread(target=_start_blueteam, daemon=True)
+        t.start()
         
         while True:
             if not os.path.exists(DATA_PATH):

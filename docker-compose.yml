@@ -76,7 +76,7 @@ services:
       WAZUH_ALERTS_PATH: /wazuh/alerts/alerts.json
       OUTPUT_MODE: http
       OUTPUT_PATH: /attense/data/mapped_events.jsonl
-      EVENT_STORE_URL: "http://blueteam:8010/blueteam/raise-alert"
+      EVENT_STORE_URL: "http://attense-app:8010/blueteam/raise-alert"
       INCIDENT_ID: "phase3-incident-001"
       MODE: wazuh
     volumes:
@@ -212,50 +212,7 @@ services:
     networks:
       - attense_net
 
-  # ── Blue Team Service: FastAPI + Hive + Cassandra + Elasticsearch (all-in-one) ─
-  blueteam:
-    build:
-      context: ./blueteam
-      dockerfile: Dockerfile
-    container_name: attense_blueteam
-    hostname: blueteam
-    restart: unless-stopped
-    depends_on:
-      - attense-app
-      - signal-store
-      - thehive
-    environment:
-      ATTENSE_APP_PATH: /attense_app
-      # Hive runs in its own container
-      HIVE_URL: "http://thehive:9000"
-      HIVE_API_KEY: "REDACTED-THEHIVE-API-KEY"
-      WEBHOOK_SECRET: "changeme-webhook"
-      SANDBOX_URL: "http://target-agent:8020"
-      LOG_LEVEL: "INFO"
-      # ── Cortex-Lite: Threat Intelligence Enrichment ──────────────────────────
-      # Register free keys and fill these in to enable IOC enrichment:
-      #   VirusTotal : https://www.virustotal.com/gui/join-us
-      #   AbuseIPDB  : https://www.abuseipdb.com/register
-      # Leave empty to run without enrichment — alert workflow is unaffected.
-      VIRUSTOTAL_API_KEY: "REDACTED-VIRUSTOTAL-API-KEY"
-      ABUSEIPDB_API_KEY: "REDACTED-ABUSEIPDB-API-KEY"
-    volumes:
-      - ./attense-app:/attense_app:ro
-      - blueteam_cassandra_data:/var/lib/cassandra
-      - blueteam_elasticsearch_data:/usr/share/elasticsearch/data
-    ports:
-      # ONLY the BlueTeam API is exposed — port 8010 is the single external interface
-      - "8010:8010"
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/health',timeout=3).status==200 else 1)"
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-    networks:
-      - attense_net
+  # Blue Team endpoints now provided by `attense-app` (no separate service)
 
   # ── Cassandra: TheHive Database ─────────────────────────────────────────────
   cassandra:
