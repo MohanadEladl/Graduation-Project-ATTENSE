@@ -1,0 +1,15 @@
+{
+    "incidents": [
+        {
+            "id": 1,
+            "title": "Phishing Attempt",
+            "status": "Open"
+        }
+    ],
+    "reports": [
+        {
+            "id": 1,
+            "title": "Weekly Summary"
+        }
+    ]
+}
