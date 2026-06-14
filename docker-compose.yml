@@ -53,6 +53,8 @@ services:
       - wazuh_manager_etc:/var/ossec/etc
       - wazuh_manager_queue:/var/ossec/queue
       - wazuh_alerts:/var/ossec/logs/alerts
+      - ./wazuh/active-response/bin:/var/ossec/active-response/bin:rw
+      - ./wazuh/active-response/logs:/var/ossec/active-response/logs:rw
     healthcheck:
       test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-authd is running'"]
       interval: 10s
@@ -74,7 +76,7 @@ services:
         condition: service_healthy
     environment:
       WAZUH_ALERTS_PATH: /wazuh/alerts/alerts.json
-      OUTPUT_MODE: http
+      OUTPUT_MODE: file
       OUTPUT_PATH: /attense/data/mapped_events.jsonl
       EVENT_STORE_URL: "http://attense-app:8010/blueteam/raise-alert"
       INCIDENT_ID: "phase3-incident-001"
@@ -107,6 +109,7 @@ services:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
     volumes:
       - attense_ssd_volume:/attense/data:ro
+      - ./attense-app:/app
     healthcheck:
       test: ["CMD-SHELL", "grep -q '^python' /proc/1/comm"]
       interval: 15s
@@ -268,6 +271,41 @@ services:
     networks:
       - attense_net
 
+  # ── Cortex: Active-response engine compatible with TheHive 4 ───────────────
+  cortex:
+    image: thehiveproject/cortex:3.1.7-1
+    container_name: attense_cortex
+    hostname: cortex
+    restart: unless-stopped
+    depends_on:
+      - elasticsearch
+    environment:
+      - JVM_OPTS=-Xms256m -Xmx256m
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - CORTEX_ADMIN_KEY=attense-cortex-key
+    ports:
+      - "9001:9001"
+    volumes:
+      - cortex_data:/data
+    networks:
+      - attense_net
+
+  # ── Attense React ───────────────────────────────────────────────────────────
+  attense-react:
+    build:
+      context: ./AttenseFront/attense-react
+    container_name: attense_react
+    hostname: attense-react
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./AttenseFront/attense-react/src:/app/src
+      - ./AttenseFront/attense-react/public:/app/public
+      - ./AttenseFront/attense-react/index.html:/app/index.html
+    networks:
+      - attense_net
+
 networks:
   attense_net:
     driver: bridge
@@ -285,3 +323,4 @@ volumes:
   # BlueTeam internal storage — Cassandra and Elasticsearch run inside the blueteam container
   blueteam_cassandra_data:
   blueteam_elasticsearch_data:
+  cortex_data:
