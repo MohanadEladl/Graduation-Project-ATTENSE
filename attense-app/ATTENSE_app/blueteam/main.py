@@ -8,13 +8,10 @@ import sys
 import os
 import logging
 
-# Ensure the ATTENSE_app package is importable
-_ATTENSE_APP_PATH = os.environ.get(
-    "ATTENSE_APP_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "attense-app"),
-)
-if _ATTENSE_APP_PATH not in sys.path:
-    sys.path.insert(0, _ATTENSE_APP_PATH)
+# Ensure the blueteam package root is in sys.path
+_BLUETEAM_PATH = os.path.dirname(__file__)
+if _BLUETEAM_PATH not in sys.path:
+    sys.path.insert(0, _BLUETEAM_PATH)
 
 # FastAPI imports
 from fastapi import FastAPI
