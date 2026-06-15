@@ -32,7 +32,7 @@ export const api = {
 
   // Tutorial/Lab mission sessions
   sessions: {
-    create:    (module_id)   => post('/api/sessions', { module_id }),
+    create:    (module_id, options = {})   => post('/api/sessions', { module_id, ...options }),
     list:      (module_id)    => get(module_id ? `/api/sessions?module_id=${encodeURIComponent(module_id)}` : '/api/sessions'),
     get:       (sid)          => get(`/api/sessions/${sid}`),
     remove:    (sid)          => del(`/api/sessions/${sid}`),
@@ -54,6 +54,19 @@ export const api = {
 
     // ── Timeline (Phase 2) ──
     timeline:      (sid)      => get(`/api/sessions/${sid}/timeline`),
+
+    // ── Mutations ──
+    mutations: (sid) => get(`/api/sessions/${sid}/mutations`),
+    mutationStatus: (sid) => get(`/api/sessions/${sid}/mutations/status`),
+    triggerMutation: (sid, module_id, mutation_id) =>
+      post(`/api/sessions/${sid}/mutations/trigger`, { module_id, mutation_id }),
+    scheduleMutation: (sid, moduleOrBody, mutation_id, delay_seconds) =>
+      post(
+        `/api/sessions/${sid}/mutations/schedule`,
+        typeof moduleOrBody === 'object'
+          ? moduleOrBody
+          : { module_id: moduleOrBody, mutation_id, delay_seconds },
+      ),
   },
 
   // Variants per module (called from the variant picker before create)
@@ -77,5 +90,21 @@ export const api = {
     history:  (limit = 50)    => get(`/api/operator/zap/history?limit=${limit}`),
     repeater: (method, path, headers, body) =>
       post('/api/operator/zap/repeater/send', { method, path, headers, body }),
+  },
+
+  skills: {
+    radar:     () => get('/api/skills'),
+    recommend: () => get('/api/skills/recommend'),
+    update:    (session_id) => post('/api/skills/update', { session_id }),
+  },
+
+  chains: {
+    list:       () => get('/api/chains'),
+    get:        (chain_id) => get(`/api/chains/${chain_id}`),
+    start:      (chain_id, session_id) => post(`/api/chains/${chain_id}/start`, { session_id }),
+    getSession: (id) => get(`/api/chain-sessions/${id}`),
+    check:      (id) => post(`/api/chain-sessions/${id}/check`),
+    advance:    (id) => post(`/api/chain-sessions/${id}/advance`),
+    report:     (id) => get(`/api/chain-sessions/${id}/report`),
   },
 }

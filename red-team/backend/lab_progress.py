@@ -1178,18 +1178,19 @@ def compute(module_id: str,
             msg = "Start the mission and interact with the target environment."
 
     return {
-        "module_id":         module_id,
-        "mode":              mode,
-        "variant_id":        variant_id_out,
-        "variant_name":      (variant or {}).get("name"),
-        "progress_percent":  progress_percent,
-        "completed_tasks":   completed_idx,
-        "tasks":             tasks_out,
-        "evidence":          cards,
-        "success":           success,
-        "learner_message":   msg,
-        "defensive_insight": spec.get("defensive_insight"),
-        "events_examined":   len(raw_events),
+        "module_id":           module_id,
+        "mode":                mode,
+        "variant_id":          variant_id_out,
+        "variant_name":        (variant or {}).get("name"),
+        "variant_difficulty":  (variant or {}).get("difficulty"),
+        "progress_percent":    progress_percent,
+        "completed_tasks":     completed_idx,
+        "tasks":               tasks_out,
+        "evidence":            cards,
+        "success":             success,
+        "learner_message":     msg,
+        "defensive_insight":   spec.get("defensive_insight"),
+        "events_examined":     len(raw_events),
     }
 
 

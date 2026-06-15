@@ -103,7 +103,11 @@ class CSRFModule(BaseModule):
                 "Referer": "",
             })
 
-            changed = "Profile updated" in (r.detail or "")
+            changed = (
+                "Email updated successfully" in (r.detail or "")
+                or "Profile updated" in (r.detail or "")
+                or email in (r.detail or "")
+            )
             if changed:
                 r.evidence = f"STATE CHANGED: email set to {email}"
                 self._log(log_fn, f"  ✓ STATE CHANGED  → {email}")

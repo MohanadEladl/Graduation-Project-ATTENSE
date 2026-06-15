@@ -1,16 +1,16 @@
 /**
  * ModeSwitcher — two large mode buttons placed under the mission top toolbar.
  *
- *   [ TUTORIAL MODE ]   [ LAB MODE ]
+ *   [ GUIDED MODE ]   [ OPERATOR MODE ]
  *
- * Tutorial: rich walkthrough with explanations — browser iframe is active.
- * Lab:      real pentesting via AttackBox terminal/ZAP — iframe is locked.
+ * Guided:   rich walkthrough with explanations — browser iframe is active.
+ * Operator: real pentesting via AttackBox terminal/ZAP — iframe is locked.
  *
  * Switching modes does NOT restart the mission or reset evidence.
  */
 export default function ModeSwitcher({ mode, onChange }) {
-  const isTutorial = mode === 'tutorial'
-  const isLab      = mode === 'lab'
+  const isGuided   = mode === 'tutorial'
+  const isOperator = mode === 'lab'
 
   const baseClass =
     'font-mono text-[11px] font-bold tracking-[0.18em] px-6 py-2.5 rounded-lg ' +
@@ -37,9 +37,9 @@ export default function ModeSwitcher({ mode, onChange }) {
         type="button"
         onClick={() => onChange?.('tutorial')}
         className={baseClass}
-        style={isTutorial ? activeStyle : inactiveStyle}
-        aria-pressed={isTutorial}
-        title="Tutorial mode: step-by-step walkthrough with explanations"
+        style={isGuided ? activeStyle : inactiveStyle}
+        aria-pressed={isGuided}
+        title="Guided Mode: step-by-step walkthrough with explanations"
       >
         {/* Book icon */}
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -47,15 +47,15 @@ export default function ModeSwitcher({ mode, onChange }) {
           <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/>
           <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
         </svg>
-        TUTORIAL
+        GUIDED MODE
       </button>
       <button
         type="button"
         onClick={() => onChange?.('lab')}
         className={baseClass}
-        style={isLab ? activeStyle : inactiveStyle}
-        aria-pressed={isLab}
-        title="Lab mode: use real tools — Terminal, curl, hydra, ZAP"
+        style={isOperator ? activeStyle : inactiveStyle}
+        aria-pressed={isOperator}
+        title="Operator Mode: use real tools — Terminal, curl, hydra, ZAP"
       >
         {/* Terminal icon */}
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -63,7 +63,7 @@ export default function ModeSwitcher({ mode, onChange }) {
           <polyline points="4 17 10 11 4 5"/>
           <line x1="12" y1="19" x2="20" y2="19"/>
         </svg>
-        LAB
+        OPERATOR MODE
       </button>
     </div>
   )

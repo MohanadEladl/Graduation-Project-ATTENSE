@@ -75,6 +75,13 @@ class SessionRecord:
     # Cached generated report (set by the /report endpoint)
     report_cache: Optional[dict] = None
 
+    # Mutation Mode: a normal mission with adaptive target shifts layered on.
+    mutation_mode: bool = False
+    mutation_intensity: str = "single"
+    mutation_status: str = "idle"  # idle | scheduled | fired | complete
+    mutation_next_fire_at: Optional[float] = None
+    mutation_timeline: List[dict] = field(default_factory=list)
+
     def update_learning_progress(self, progress: dict) -> None:
         """Persist lab_progress.compute() results into session state."""
         self.learning_completed_tasks = list(progress.get("completed_tasks", []))
@@ -176,6 +183,11 @@ class SessionRecord:
                 round(self.learning_completed_at - self.mission_started_at)
                 if self.learning_completed_at and self.mission_started_at else None
             ),
+            "mutation_mode":         self.mutation_mode,
+            "mutation_intensity":    self.mutation_intensity,
+            "mutation_status":       self.mutation_status,
+            "mutation_next_fire_at": self.mutation_next_fire_at,
+            "mutation_timeline":     list(self.mutation_timeline),
         }
 
 
@@ -257,6 +269,11 @@ class SessionManager:
             rec.learning_completed_at     = snap.get("learning_completed_at")
             rec.report_cache              = snap.get("report_cache")
             rec.latest_evidence           = snap.get("latest_evidence", [])
+            rec.mutation_mode             = bool(snap.get("mutation_mode", False))
+            rec.mutation_intensity        = snap.get("mutation_intensity", "single")
+            rec.mutation_status           = snap.get("mutation_status", "idle")
+            rec.mutation_next_fire_at     = snap.get("mutation_next_fire_at")
+            rec.mutation_timeline         = snap.get("mutation_timeline", [])
 
             self._sessions[sid] = rec
 
@@ -270,6 +287,8 @@ class SessionManager:
         module_id: str,
         *,
         mode: str = "tutorial",
+        mutation_mode: bool = False,
+        mutation_intensity: str = "single",
         loop: asyncio.AbstractEventLoop,
     ) -> SessionRecord:
         mod = self._modules.get(module_id)
@@ -299,6 +318,8 @@ class SessionManager:
             mode=mode,
             target=target,
             attack=attack,
+            mutation_mode=bool(mutation_mode),
+            mutation_intensity=mutation_intensity if mutation_intensity in ("single", "escalating", "chaos") else "single",
         )
         # Seed the log with the session banner.
         attack.banner()
