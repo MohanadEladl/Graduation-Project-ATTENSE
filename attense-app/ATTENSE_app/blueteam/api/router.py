@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.dependencies import get_event_emitter, get_hive_client, get_sandbox_connector, get_enrichment_service
+from .dependencies import get_event_emitter, get_hive_client, get_sandbox_connector, get_enrichment_service
 from core.services.alert_service import raise_alert, investigate_alert, deny_alert
 from core.services.incident_service import confirm_incident
 from core.services.containment_service import initiate_containment, complete_containment

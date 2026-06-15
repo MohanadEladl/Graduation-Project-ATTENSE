@@ -1,23 +1,23 @@
 """
 hive_event_translator.py — Hive Webhook → ATTENSE Event Translator
 ===================================================================
-Receives raw TheHive webhook payloads and maps them to ATTENSE events
-by calling the appropriate blueaction event builders.
+Receives raw TheHive webhook payloads and maps them to ATTENSE events.
 
-This is the adapter layer that sits ABOVE the pure blueaction builders.
-The builders already know how to construct Events from ATTENSE-native
-inputs. This translator knows how to extract those inputs from a
-Hive-shaped webhook payload.
+The translator maps Hive UI actions to the real ATTENSE lifecycle events.
+These events go through the same emitter as API-driven events, which means
+they advance the incident state machine exactly as if the analyst had called
+the BlueTeam REST API directly.
 
-Supported Hive object types and operations:
-    Case / Update       → hive_case_updated    (metadata event, no state change)
-    Case / Delete       → hive_case_closed     (metadata event)
-    Alert / Update      → hive_alert_updated   (metadata event)
-    Observable / Create → hive_observable_added (metadata event)
+Mapping logic:
+    Case / Create           → alert_investigation_started  (analyst opened a case)
+    Case / Update (Resolved)→ incident_ended               (analyst closed the case)
+    Case / Update (other)   → incident_confirmed           (analyst updated → confirmed)
+    Alert / Update          → alert_raised                 (alert was updated in Hive)
+    Task / Update (Completed)→ containment_succeeded       (task completed = contained)
+    Task / Update (Cancelled)→ containment_failed          (task cancelled = failed)
+    Task / Update (other)   → containment_initiated        (task started = initiating)
 
-These are informational ATTENSE events — they do NOT replace the
-analyst workflow events (raise_alert, confirm_incident, etc.).
-Those still come in through the BlueTeam API from ATTENSE Core.
+All other Hive event types are silently ignored (returns None).
 
 Convention for linking Hive cases to ATTENSE incidents:
     Hive cases are tagged with 'attense:incident-<incident_id>'
@@ -36,16 +36,6 @@ from ATTENSE_app.events.event import Event
 
 logger = logging.getLogger(__name__)
 
-# Maps (Hive objectType, operation) → ATTENSE event_type string
-HIVE_EVENT_MAP: dict[tuple[str, str], str] = {
-    ("Case",       "Create"):  "alert_investigation_started",
-    ("Case",       "Update"):  "hive_case_updated",
-    ("Case",       "Delete"):  "hive_case_closed",
-    ("Alert",      "Update"):  "hive_alert_updated",
-    ("Observable", "Create"):  "hive_observable_added",
-    ("Task",       "Update"):  "hive_task_updated",
-}
-
 
 def _new_event_id() -> str:
     return f"evt-{uuid.uuid4().hex[:12]}"
@@ -55,17 +45,20 @@ class HiveEventTranslator:
     """
     Translates a raw Hive webhook payload into an ATTENSE Event object.
 
+    All mapped event types and target types are validated against
+    ATTENSE's allowed sets — no custom Hive-only event types are used.
+
     Usage
     -----
     translator = HiveEventTranslator()
-    event = translator.translate(payload)
+    event = translator.translate(payload, incident_id)
     if event:
         emitter.emit(incident, store, event)
     """
 
     def translate(self, payload: dict, incident_id: str) -> Optional[Event]:
         """
-        Attempt to translate a Hive webhook payload into an ATTENSE Event.
+        Translate a Hive webhook payload into an ATTENSE Event.
 
         Parameters
         ----------
@@ -75,52 +68,135 @@ class HiveEventTranslator:
         Returns
         -------
         Event  — if a mapping exists for the Hive objectType/operation.
-        None   — if this webhook type has no ATTENSE mapping (caller ignores it).
+        None   — if this webhook type has no ATTENSE mapping (silently ignored).
         """
         object_type = payload.get("objectType", "")
         operation   = payload.get("operation", "")
         object_data = payload.get("object", {})
+        hive_status = object_data.get("status", "")
 
-        attense_event_type = HIVE_EVENT_MAP.get((object_type, operation))
+        attense_event_type, target_type, outcome = self._resolve_mapping(
+            object_type, operation, payload
+        )
+
         if attense_event_type is None:
             logger.debug(
-                "[HiveTranslator] No mapping for %s/%s — skipping",
-                object_type, operation,
+                "[HiveTranslator] No mapping for %s/%s (status=%r) — skipping",
+                object_type, operation, hive_status,
             )
             return None
 
-        # Extract useful fields from the Hive object for metadata
         meta = {
             "hive_object_type": object_type,
             "hive_operation":   operation,
             "hive_object_id":   object_data.get("id") or object_data.get("_id"),
             "hive_title":       object_data.get("title"),
             "hive_severity":    object_data.get("severity"),
-            "hive_status":      object_data.get("status"),
+            "hive_status":      hive_status or None,
             "source":           "hive_webhook",
         }
         # Remove None values to keep metadata clean
         meta = {k: v for k, v in meta.items() if v is not None}
+        
+        # Extract the analyst username (from updatedBy or createdBy)
+        analyst_username = payload.get("updatedBy") or payload.get("createdBy") or "thehive"
 
         event = Event(
             event_id=_new_event_id(),
             incident_id=incident_id,
-            scenario_id="hive",           # webhook events are not scenario-bound
-            actor_id="thehive",
+            scenario_id="hive",          # webhook events are not scenario-bound
+            actor_id=analyst_username,
             target_id=object_data.get("id") or object_data.get("_id") or "unknown",
             event_type=attense_event_type,
-            actor_type="system",
-            target_type=object_type.lower(),
+            actor_type="blue_team",
+            target_type=target_type,
             timestamp=datetime.now(),
-            outcome="unknown",
+            outcome=outcome,
             metadata=meta,
         )
 
         logger.info(
-            "[HiveTranslator] %s/%s → %s (incident: %s)",
-            object_type, operation, attense_event_type, incident_id,
+            "[HiveTranslator] %s/%s (status=%r) → %s (incident: %s)",
+            object_type, operation, hive_status, attense_event_type, incident_id,
         )
         return event
+
+    @staticmethod
+    def _resolve_mapping(
+        object_type: str, operation: str, payload: dict
+    ) -> tuple[Optional[str], str, str]:
+        """
+        Map a (objectType, operation, payload) triple to an ATTENSE
+        (event_type, target_type, outcome) triple.
+        """
+        object_data = payload.get("object", {})
+        details = payload.get("details", {})
+        hive_status = object_data.get("status", "")
+        resolution = object_data.get("resolutionStatus", "")
+
+        # 1. alert_investigation_started
+        if object_type == "Alert" and operation == "Update":
+            # If the owner field was changed/set in this update
+            if "owner" in details:
+                return "alert_investigation_started", "alert", "unknown"
+        
+        # 2. alert_denied
+        if object_type == "Alert" and operation == "Update":
+            if hive_status == "Ignored":
+                return "alert_denied", "alert", "false_positive"
+
+        # 3. incident_confirmed
+        if object_type == "Case" and operation == "Create":
+            return "incident_confirmed", "alert", "detected"
+        if object_type == "Alert" and operation == "Update" and hive_status == "Imported":
+            return "incident_confirmed", "alert", "detected"
+
+        # 4. containment_initiated
+        if object_type == "Task" and operation == "Update" and hive_status in ("InProgress", "Waiting"):
+            return "containment_initiated", "host", "unknown"
+        if object_type == "ResponderAction" and operation == "Create":
+            return "containment_initiated", "host", "unknown"
+
+        # 5. containment_succeeded / containment_failed — Cortex reports back via ResponderAction/Update
+        # When Cortex finishes running WazuhBlockIP it updates the ResponderAction with its final status.
+        # TheHive emits a webhook for this update — we map it here so the incident can reach CONTAINED.
+        if object_type == "ResponderAction" and operation == "Update":
+            responder_status = object_data.get("status", "")
+            if responder_status == "Success":
+                return "containment_succeeded", "host", "success"
+            if responder_status in ("Failure", "Timeout"):
+                return "containment_failed", "host", "failure"
+            # Any other intermediate state (e.g. "InProgress") → ignore
+            return None, "host", "unknown"
+
+        # 5b. containment_succeeded via Task completion (manual task path — no Cortex)
+        if object_type == "Task" and operation == "Update" and hive_status == "Completed":
+            return "containment_succeeded", "host", "success"
+        if object_type == "TaskLog" and operation == "Create":
+            message = object_data.get("message", "").lower()
+            # If the log does not contain failed/error, we consider it just a general task update.
+
+            # 6. containment_failed
+            if "failed" in message or "error" in message:
+                return "containment_failed", "host", "failure"
+
+            # If it's just a regular log on a completed task
+            if hive_status == "Completed":
+                return "containment_succeeded", "host", "success"
+
+        # 7. incident_ended
+        if object_type == "Case" and operation == "Update":
+            if hive_status in ("Resolved", "Closed"):
+                if resolution == "FalsePositive":
+                    return "alert_denied", "alert", "false_positive"
+                if resolution == "Duplicated":
+                    return "alert_denied", "alert", "allowed"
+                if resolution == "TruePositive":
+                    return "incident_ended", "alert", "success"
+                return "incident_ended", "alert", "unknown"
+
+        # Fallback for unexpected mapping
+        return None, "alert", "unknown"
 
     @staticmethod
     def extract_incident_id(payload: dict) -> Optional[str]:

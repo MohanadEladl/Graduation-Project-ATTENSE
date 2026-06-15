@@ -30,10 +30,5 @@ ALLOWED_OUTCOMES = {
     "blocked",
     "allowed",
     "unknown",
+    "false_positive",
 }
-
-
-
-
-
-

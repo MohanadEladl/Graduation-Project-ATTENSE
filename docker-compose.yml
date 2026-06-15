@@ -96,7 +96,7 @@ services:
     networks:
       - attense_net
 
-  # ── Attense App ─────────────────────────────────────────────────────────────
+  # ── Attense App ────────────────────────────────────────────────────────────────────────────────
   attense-app:
     build:
       context: ./attense-app
@@ -105,15 +105,26 @@ services:
     restart: unless-stopped
     depends_on:
       - signal-store
+      - thehive
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
+      # TheHive integration
+      HIVE_URL: "http://thehive:9000"
+      HIVE_API_KEY: "changeme"
+      # Sandbox / Target Agent
+      SANDBOX_URL: "http://target-agent:80"
+      # Cortex-Lite enrichment (leave empty to disable gracefully)
+      VIRUSTOTAL_API_KEY: ""
+      ABUSEIPDB_API_KEY: ""
     volumes:
       - attense_ssd_volume:/attense/data:ro
       - ./attense-app:/app
+    ports:
+      - "8010:8010"
     healthcheck:
-      test: ["CMD-SHELL", "grep -q '^python' /proc/1/comm"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/health',timeout=3).status==200 else 1)\""]
       interval: 15s
-      timeout: 3s
+      timeout: 5s
       retries: 5
       start_period: 30s
     networks:
@@ -271,7 +282,8 @@ services:
     networks:
       - attense_net
 
-  # ── Cortex: Active-response engine compatible with TheHive 4 ───────────────
+
+  # ── Cortex: Active-Response Engine (Responders for TheHive) ─────────────────
   cortex:
     image: thehiveproject/cortex:3.1.7-1
     container_name: attense_cortex
@@ -280,13 +292,50 @@ services:
     depends_on:
       - elasticsearch
     environment:
-      - JVM_OPTS=-Xms256m -Xmx256m
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - CORTEX_ADMIN_KEY=attense-cortex-key
+      - JVM_OPTS=-Xms512m -Xmx512m
+      - CORTEX_PLAY_SECRET=${CORTEX_PLAY_SECRET:-5f6e69909a9ca4768d36c3f418a9a6e0857a0eac393d18071291f0971abc7e80f3dd02112b7f4505ae8f17eb8500aa61}
+    volumes:
+      - ./cortex/application.conf:/etc/cortex/application.conf
+      - ./cortex/responders:/opt/cortex/responders
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "9001:9001"
+    healthcheck:
+      # Cortex is ready when /api/status returns HTTP 200
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9001/api/status', timeout=5)\" 2>/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    networks:
+      - attense_net
+
+  # ── Cortex Init: One-shot bootstrap (runs once, wires Cortex → TheHive) ─────
+  # Waits for Cortex to be healthy, then runs setup_cortex.py which:
+  #   1. Creates the admin user + ATTENSE org in Cortex
+  #   2. Generates an API key for the org
+  #   3. Enables the WazuhBlockIP responder
+  #   4. Patches thehive/application.conf with the real key
+  #   5. Restarts TheHive via Docker socket so it picks up the new key
+  #   6. Deletes secrets/ATTENSE.env from disk
+  cortex-init:
+    image: python:3.11-slim
+    container_name: attense_cortex_init
+    restart: "no"
+    depends_on:
+      cortex:
+        condition: service_healthy
+    environment:
+      - CORTEX_URL=http://cortex:9001
+      - THEHIVE_CONF_PATH=/thehive/application.conf
+      - CORTEX_ORG_NAME=ATTENSE
+      - CORTEX_PLAY_SECRET=${CORTEX_PLAY_SECRET:-5f6e69909a9ca4768d36c3f418a9a6e0857a0eac393d18071291f0971abc7e80f3dd02112b7f4505ae8f17eb8500aa61}
     volumes:
-      - cortex_data:/data
+      - ./scripts:/scripts:ro          # setup_cortex.py lives here
+      - ./thehive:/thehive             # script patches application.conf here
+      - ./secrets:/secrets             # reads ATTENSE.env then deletes it
+      - /var/run/docker.sock:/var/run/docker.sock   # to restart TheHive
+    command: python /scripts/setup_cortex.py
     networks:
       - attense_net
 
@@ -323,4 +372,3 @@ volumes:
   # BlueTeam internal storage — Cassandra and Elasticsearch run inside the blueteam container
   blueteam_cassandra_data:
   blueteam_elasticsearch_data:
-  cortex_data:
