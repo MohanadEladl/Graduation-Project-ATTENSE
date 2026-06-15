@@ -144,74 +144,210 @@ def _gather_evidence_text(progress: dict, timeline: list) -> str:
 
 
 def _ai_coach(progress: dict, variant: dict, timeline: list, vuln: dict) -> Dict[str, Any]:
-    """Skip Ollama — return rule-based coaching immediately."""
+    """Call Ollama for personalised coaching; fall back to rule-based on any error."""
+    import json as _json
+    import urllib.request as _ur
+    import urllib.error as _ue
+
+    ollama_url = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
+    model      = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+
+    evidence_text = _gather_evidence_text(progress, timeline)
+    variant_name  = variant.get("name") or progress.get("variant_name") or "default"
+    difficulty    = variant.get("difficulty", "Unknown")
+
+    prompt = (
+        "You are a cybersecurity instructor reviewing a student's lab session. "
+        "Be concise, specific, and honest — do NOT be generically positive.\n\n"
+        f"Vulnerability: {vuln.get('name', 'Unknown')}\n"
+        f"Variant: {variant_name} (difficulty: {difficulty})\n\n"
+        f"{evidence_text}\n\n"
+        "Write 3-4 sentences of coaching:\n"
+        "1. One sentence on what the student did right (be specific to their evidence).\n"
+        "2. One sentence on the most important gap or risk they should address next.\n"
+        "3. One sentence connecting this attack to real-world attacker behaviour.\n"
+        "4. One concrete next-step command or technique to level up.\n"
+        "Do not repeat the task list. Do not use bullet points. Plain prose only."
+    )
+
+    payload = _json.dumps({
+        "model":   model,
+        "prompt":  prompt,
+        "stream":  False,
+        "options": {"temperature": 0.45, "num_predict": 220},
+    }).encode()
+
+    req = _ur.Request(
+        ollama_url + "/api/generate",
+        data=payload,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with _ur.urlopen(req, timeout=35) as resp:
+            body    = _json.loads(resp.read().decode("utf-8"))
+            coaching = (body.get("response") or "").strip()
+            if len(coaching) > 40:
+                return {"coaching": coaching, "model": f"ollama/{model}"}
+    except (_ue.URLError, _ue.HTTPError, OSError, TimeoutError, ValueError):
+        pass
+
     return {"coaching": None, "model": "rule-based-fallback"}
 
 
 def _rule_based_coaching(progress: dict, vuln: dict) -> str:
-    """Fallback prose when no API key is available."""
-    pct = progress.get("progress_percent", 0)
+    """Fallback prose — variant-aware and technique-specific."""
+    pct          = progress.get("progress_percent", 0)
+    variant_name = progress.get("variant_name") or "default"
+    difficulty   = (progress.get("variant_difficulty") or "").lower()
+    vuln_name    = vuln.get("name", "this vulnerability")
+    tasks        = progress.get("tasks", [])
+    missed_tasks = [t.get("title", "") for t in tasks if not t.get("complete")]
+
     if progress.get("success"):
+        diff_note = (
+            f" This was the '{variant_name}' variant (difficulty: {difficulty}) — "
+            f"passing it means you have the technique-specific intuition, not just the concept."
+            if difficulty in ("medium", "hard") else
+            f" You used the '{variant_name}' approach, which is the baseline technique for {vuln_name}."
+        )
         opening = (
-            f"You demonstrated {vuln.get('name')} successfully with a {pct}% task-completion score. "
-            f"The right evidence fired in the right order, and the success criteria all hit. "
-            f"That tells me you understood the mechanic, not just the syntax."
+            f"You completed {vuln_name} via the '{variant_name}' variant with a {pct}% task-completion score."
+            + diff_note
         )
         followup = (
-            "The most valuable next step is to revisit the harder variant of this module — "
-            "the same vulnerability under a tougher filter. Reading the ideal-approach commands "
-            "below side-by-side with your own attempts will sharpen your intuition for which "
-            "bypasses work in production environments."
+            "The most valuable next step is the harder variant of this module — same vulnerability, "
+            "tighter filters. Compare your approach against the ideal-approach commands below to find "
+            "where you can reduce noise and improve precision."
+            if difficulty in ("", "easy") else
+            "You are now ready for chaining this technique — look for scenarios where "
+            f"{vuln_name} is the entry point into a deeper attack chain."
         )
     elif pct >= 50:
+        missed_str = ", ".join(f'"{t}"' for t in missed_tasks[:3]) if missed_tasks else "the final step"
         opening = (
-            f"You hit {pct}% of the task ladder. You correctly probed the endpoint and started "
-            f"forming payloads, which is the right shape for {vuln.get('name')}. "
-            f"What kept you from finishing was the final confirmation step."
+            f"You reached {pct}% on the '{variant_name}' variant of {vuln_name}. "
+            f"The evidence engine received your early probes but the following "
+            f"step(s) did not fully fire: {missed_str}."
         )
         followup = (
-            "Look at the 'Ideal Approach' commands below. The last 1-2 steps usually need a "
-            "specific success indicator (a 302 redirect, a 'uid=' string, an unescaped tag). "
-            "Re-run the attack and grep for that indicator explicitly."
+            "Check the 'Ideal Approach' commands below for the exact success indicators. "
+            "Each missed step needs a specific observable output — a 302 redirect, a reflected "
+            "tag in the page source, or a server error containing the file content. "
+            "Run the command, capture the output, and confirm that indicator is present before moving on."
         )
     else:
         opening = (
-            f"You touched the target but didn't yet trigger the success criteria for {vuln.get('name')}. "
-            f"The attack chain is straightforward once you see it, but missing any one step means "
-            f"the evidence engine doesn't credit your progress."
+            f"The '{variant_name}' variant of {vuln_name} was not completed — "
+            f"the success criteria require specific event types that did not fire in your session."
         )
         followup = (
-            "Read the 'Ideal Approach' commands below and run them one at a time, watching what "
-            "each one returns. The lab tells you exactly what success looks like — when you see "
-            "those indicators in your output, you've found the bug."
+            "Run the 'Ideal Approach' commands below one at a time and read each response. "
+            "The lab's evidence engine records every matching server event — if your output "
+            "matches the expected indicator and the task still does not tick, check that you "
+            "are hitting the correct endpoint with the correct parameter name."
         )
     return opening + "\n\n" + followup
 
 
 def _grade(progress: dict, browser_vs_attackbox: tuple) -> tuple:
-    """Return (grade_letter, score 0-100)."""
+    """Return (grade_letter, score 0-100).
+
+    Scoring breakdown (max 100):
+      40  — mission success (all required event types fired)
+      40  — task completion ratio
+      20  — evidence depth (target-agent events, capped at 10)
+      +10 — difficulty bonus: Hard variant passed
+       +5 — difficulty bonus: Medium variant passed
+      -10 — penalty: lab mode, more browser clicks than attackbox tool use
+    """
     score = 0.0
-    if progress.get("success"):
+    success = bool(progress.get("success"))
+    if success:
         score += 40
+
     tasks = progress.get("tasks", [])
     if tasks:
         done = len(progress.get("completed_tasks", []))
         score += (done / len(tasks)) * 40
+
     ev_count = len(progress.get("evidence", []))
     score += min(ev_count / 10.0, 1.0) * 20
 
-    # Penalty: operator mode but more browser events than attackbox events
+    # Difficulty bonus: passing a harder variant proves deeper mastery
+    difficulty = (progress.get("variant_difficulty") or "").lower()
+    if success:
+        if difficulty == "hard":
+            score += 10
+        elif difficulty == "medium":
+            score += 5
+
+    # Penalty: lab mode where learner relied on browser instead of tools
     browser_n, attackbox_n = browser_vs_attackbox
     if browser_n > attackbox_n > 0:
         score -= 10
 
     score = max(0, min(100, int(round(score))))
-    if score >= 90 and progress.get("success"): grade = "S"
-    elif score >= 75 and progress.get("success"): grade = "A"
-    elif score >= 55 and progress.get("success"): grade = "B"
+    if score >= 90 and success: grade = "S"
+    elif score >= 75 and success: grade = "A"
+    elif score >= 55 and success: grade = "B"
     elif score >= 30: grade = "C"
     else: grade = "F"
     return grade, score
+
+
+def _mutation_adaptability(session, progress: dict, timeline: list) -> Dict[str, Any]:
+    """Score adaptation separately from raw mission success."""
+    mutation_events = [
+        dict(x) for x in getattr(session, "mutation_timeline", [])
+        if x.get("status") == "fired"
+    ]
+    if not mutation_events:
+        return {"timeline": [], "score": None, "grade": None}
+
+    started_at = session.mission_started_at or 0.0
+    success_at = getattr(session, "learning_completed_at", None)
+    last_activity = max((x.get("ts", 0.0) for x in timeline), default=0.0)
+    rows: List[Dict[str, Any]] = []
+    adapted_count = 0
+
+    for ev in mutation_events:
+        fired_at = ev.get("fired_at") or ev.get("fire_at")
+        post_events = [x for x in timeline if fired_at and x.get("ts", 0.0) >= fired_at]
+        adapted = bool(progress.get("success") and success_at and fired_at and success_at >= fired_at)
+        if adapted:
+            adapted_count += 1
+        response_seconds = (
+            int(round(success_at - fired_at))
+            if adapted and success_at and fired_at else None
+        )
+        rows.append({
+            "id": ev.get("id"),
+            "mutation_id": ev.get("mutation_id"),
+            "label": ev.get("label"),
+            "description": ev.get("description"),
+            "taunt": ev.get("taunt"),
+            "why": ev.get("why"),
+            "selected_by": ev.get("selected_by"),
+            "color": ev.get("color"),
+            "fired_at": fired_at,
+            "delta_s": round(fired_at - started_at, 2) if fired_at and started_at else None,
+            "adapted": adapted,
+            "response_seconds": response_seconds,
+            "post_mutation_events": len(post_events),
+        })
+
+    activity_bonus = 10 if last_activity and any(
+        x.get("fired_at") and last_activity > x["fired_at"] for x in mutation_events
+    ) else 0
+    score = int(round((adapted_count / len(mutation_events)) * 90 + activity_bonus))
+    score = max(0, min(100, score))
+    if score >= 90: grade = "S"
+    elif score >= 75: grade = "A"
+    elif score >= 55: grade = "B"
+    elif score >= 30: grade = "C"
+    else: grade = "F"
+    return {"timeline": rows, "score": score, "grade": grade}
 
 
 def generate(session, events: list, timeline: list,
@@ -319,6 +455,8 @@ def generate(session, events: list, timeline: list,
     if not coach.get("coaching"):
         coach["coaching"] = _rule_based_coaching(progress, vuln)
 
+    mutation_eval = _mutation_adaptability(session, progress, timeline)
+
     summary = (
         f"Variant '{progress.get('variant_name') or variant_id or 'default'}' attempted in "
         f"{mode} mode. {progress.get('progress_percent', 0)}% of the task ladder completed. "
@@ -355,6 +493,9 @@ def generate(session, events: list, timeline: list,
         "defensive_controls": defensive,
         "evidence_timeline":  ev_timeline,
         "task_results":       task_results,
+        "mutation_timeline":  mutation_eval["timeline"],
+        "adaptability_score": mutation_eval["score"],
+        "adaptability_grade": mutation_eval["grade"],
 
         "channel_breakdown": {
             "browser":   browser_n,

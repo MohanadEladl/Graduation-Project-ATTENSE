@@ -28,6 +28,8 @@ import ModeSwitcher from '../components/ModeSwitcher.jsx'
 import LabToolsStrip from '../components/LabToolsStrip.jsx'
 import LabPanel from '../components/LabPanel.jsx'
 import { VariantPicker } from '../components/VariantPicker.jsx'
+import MutationBanner from '../components/MutationBanner.jsx'
+import ShapeshiftOverlay from '../components/ShapeshiftOverlay.jsx'
 
 const fmtTime = (s) => {
   const mm = Math.floor(s / 60).toString().padStart(2, '0')
@@ -363,7 +365,7 @@ function MissionSidebar({
 // ── LabBrowser: iframe with browser-style chrome ────────────────────────────
 // P0-1: iframe is NOT rendered until missionStarted is true.
 // P1-9: address bar is editable — learner can type /target/... paths.
-function LabBrowser({ moduleId, missionStarted, onNavigate, mode = 'tutorial', sid }) {
+function LabBrowser({ moduleId, missionStarted, onNavigate, mode = 'tutorial', sid, mutationReloadKey = 0, isMutating = false }) {
   const initialSrc = targetUrlFor(moduleId, mode)
   const [addr, setAddr]       = useState(initialSrc)
   const [editAddr, setEditAddr] = useState('')
@@ -385,6 +387,13 @@ function LabBrowser({ moduleId, missionStarted, onNavigate, mode = 'tutorial', s
   useEffect(() => {
     if (missionStarted) { setIfk(k => k + 1); setLoading(true) }
   }, [missionStarted])
+
+  useEffect(() => {
+    if (missionStarted && mutationReloadKey > 0) {
+      setIfk(k => k + 1)
+      setLoading(true)
+    }
+  }, [mutationReloadKey, missionStarted])
 
   // Allow parent components (recon buttons, CSRF button) to navigate
   useEffect(() => {
@@ -541,7 +550,8 @@ function LabBrowser({ moduleId, missionStarted, onNavigate, mode = 'tutorial', s
               style={{
                 width: '100%', height: '100%', border: 'none', background: 'white',
                 pointerEvents: 'auto',
-                filter: 'none',
+                filter: isMutating ? 'grayscale(1) contrast(1.2) saturate(0.2)' : 'none',
+                transition: 'filter 260ms ease',
               }}
             />
           </>
@@ -750,6 +760,8 @@ function LearningPanel({
   showAdvanced, onToggleAdvanced,
   onNavigateTo, onRestart,
   mode = 'tutorial',
+  activeMutation = null,
+  mutationFlipKey = 0,
   collapsed, onToggle,
 }) {
   const evidence = progress?.evidence || []
@@ -759,7 +771,11 @@ function LearningPanel({
   const objective = isLab
     ? labObjectiveFor(moduleId)
     : (briefing?.objective || briefing?.background || '')
-  const objectiveTitle = isLab ? 'LAB OBJECTIVE' : 'TUTORIAL OBJECTIVE'
+  const objectiveTitle = activeMutation
+    ? 'MUTATION OBJECTIVE'
+    : (isLab ? 'LAB OBJECTIVE' : 'TUTORIAL OBJECTIVE')
+  const objectiveText = activeMutation?.objective || objective
+  const objectiveColor = activeMutation?.color || (isLab ? '#7dd3fc' : '#ff4060')
   const requiredTools = isLab ? requiredToolsFor(moduleId) : []
   const [hintsRevealed, setHintsRevealed] = useState(0)
 
@@ -819,27 +835,44 @@ function LearningPanel({
         )}
 
         {/* Objective */}
-        <div
+        <motion.div
+          key={`objective-${mutationFlipKey}-${activeMutation?.id || 'base'}`}
+          initial={activeMutation ? { rotateX: -72, opacity: 0 } : false}
+          animate={{ rotateX: 0, opacity: 1 }}
+          transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
           className="rounded-xl p-4 mb-4"
           style={{
-            background: isLab
+            transformStyle: 'preserve-3d',
+            background: activeMutation
+              ? `linear-gradient(135deg, ${objectiveColor}12 0%, rgba(7,9,15,0.62) 100%)`
+              : isLab
               ? 'linear-gradient(135deg, rgba(125,211,252,0.06) 0%, rgba(14,165,233,0.04) 100%)'
               : 'linear-gradient(135deg, rgba(255,21,53,0.05) 0%, rgba(139,47,255,0.03) 100%)',
-            border: isLab
+            border: activeMutation
+              ? `1px solid ${objectiveColor}55`
+              : isLab
               ? '1px solid rgba(125,211,252,0.25)'
               : '1px solid rgba(255,21,53,0.18)',
           }}
         >
           <div
             className="font-mono text-[9px] tracking-[0.28em] mb-2"
-            style={{ color: isLab ? '#7dd3fc' : '#ff4060' }}
+            style={{ color: objectiveColor }}
           >
             {objectiveTitle}
           </div>
           <div className="text-[12px] text-attense-text leading-relaxed">
-            {objective}
+            {objectiveText}
           </div>
-        </div>
+          {activeMutation?.target_task && (
+            <div
+              className="mt-3 rounded-lg p-3 font-mono text-[10.5px] leading-relaxed"
+              style={{ background: 'rgba(0,0,0,0.24)', border: `1px solid ${objectiveColor}30`, color: '#cfd6e8' }}
+            >
+              {activeMutation.target_task}
+            </div>
+          )}
+        </motion.div>
 
         {/* Required tools — Lab Mode only */}
         {isLab && requiredTools.length > 0 && (
@@ -1087,6 +1120,8 @@ export default function Workspace() {
   const navigate = useNavigate()
   const [search] = useSearchParams()
   const replay   = search.get('replay') === '1'
+  const mutationQuery = search.get('mutation') === '1'
+  const mutationIntensityParam = search.get('intensity') || 'single'
 
   const { snapshot, logs, running, start, reset } = useSession(sid, { replay })
 
@@ -1102,6 +1137,20 @@ export default function Workspace() {
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [reportReady, setReportReady]       = useState(false)
   const reportPrimedRef = useRef(false)
+  const [activeMutations, setActiveMutations] = useState([])
+  const [mutationStatus, setMutationStatus] = useState(null)
+  const [shapeshiftEvent, setShapeshiftEvent] = useState(null)
+  const [mutationReloadKey, setMutationReloadKey] = useState(0)
+  const [mutationFlipKey, setMutationFlipKey] = useState(0)
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('attense_mutation_sound') === '1')
+  const [mutationBannerDismissed, setMutationBannerDismissed] = useState(false)
+  const prevMutationIdsRef = useRef('')
+  const seenMutationEventsRef = useRef(new Set())
+  const mutationArmRef = useRef(false)
+  const mutationAutoStartRef = useRef(false)
+  const modeHydratedRef = useRef(false)
+  const isMutationRun = mutationQuery || Boolean(snapshot?.mutation_mode)
+  const mutationIntensity = snapshot?.mutation_intensity || mutationIntensityParam
 
   // ── Browser panel resize ──────────────────────────────────────────────────
   const [browserWidth, setBrowserWidth]   = useState(null) // null = flex-1
@@ -1131,6 +1180,41 @@ export default function Workspace() {
     }
   }, [])
 
+  // Mutation polling — every 5s, silently
+  useEffect(() => {
+    if (!sid) return
+    let cancelled = false
+    const poll = () => {
+      api.sessions.mutationStatus(sid)
+        .then(data => {
+          if (!cancelled) {
+            const incoming = data?.active || []
+            const incomingKey = incoming.map(m => m.id).sort().join(',')
+            setMutationStatus(data)
+            setActiveMutations(incoming)
+            if (incomingKey !== prevMutationIdsRef.current) {
+              prevMutationIdsRef.current = incomingKey
+              setMutationBannerDismissed(false)
+            }
+            const fired = (data?.timeline || []).filter(e => e.status === 'fired')
+            for (const event of fired) {
+              if (!seenMutationEventsRef.current.has(event.id)) {
+                seenMutationEventsRef.current.add(event.id)
+                if (isMutationRun && !replay) {
+                  setShapeshiftEvent(event)
+                  setMutationBannerDismissed(true)
+                }
+              }
+            }
+          }
+        })
+        .catch(() => {}) // silence — mutations are optional
+    }
+    poll()
+    const id = setInterval(poll, isMutationRun ? 2000 : 5000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [sid, isMutationRun, replay])
+
   // Mode + Lab tool selection. Default mode is "tutorial" so Tutorial Mode
   // remains active across START and the learner sees no Lab tools by
   // default. Switching modes does NOT restart the mission, reset evidence,
@@ -1139,6 +1223,23 @@ export default function Workspace() {
   const [selectedLabTool, setSelectedLabTool] = useState('terminal')
   // Active attack variant. Hydrated from session snapshot once available.
   const [variantId, setVariantId] = useState(null)
+  const toolsVisible = mode === 'lab' || isMutationRun
+  const activeMutation = activeMutations[activeMutations.length - 1] || null
+
+  useEffect(() => {
+    if (!modeHydratedRef.current && snapshot?.mode) {
+      modeHydratedRef.current = true
+      setMode(snapshot.mode)
+    }
+  }, [snapshot?.mode])
+
+  const toggleMutationSound = () => {
+    setSoundEnabled(v => {
+      const next = !v
+      localStorage.setItem('attense_mutation_sound', next ? '1' : '0')
+      return next
+    })
+  }
 
   // When learner picks a different variant: persist + immediately re-fetch progress
   const handleVariantChange = async (v) => {
@@ -1259,6 +1360,29 @@ export default function Workspace() {
     setTimeout(() => handleCheckProgress(), 150)
   }
 
+  useEffect(() => {
+    if (!isMutationRun || !snapshot?.session_id || missionStarted || replay) return
+    if (mutationAutoStartRef.current) return
+    mutationAutoStartRef.current = true
+    handleStart()
+  }, [isMutationRun, snapshot?.session_id, missionStarted, replay])
+
+  useEffect(() => {
+    if (!isMutationRun || !missionStarted || !sid || replay) return
+    if (mutationArmRef.current) return
+    mutationArmRef.current = true
+    api.sessions.scheduleMutation(sid, {
+      module_id: snapshot?.module_id,
+      intensity: mutationIntensity,
+    })
+      .then(data => {
+        if (data?.event) {
+          setMutationStatus(prev => ({ ...(prev || {}), next_fire_at: data.event.fire_at, status: 'scheduled' }))
+        }
+      })
+      .catch(() => { mutationArmRef.current = false })
+  }, [isMutationRun, missionStarted, sid, replay, snapshot?.module_id, mutationIntensity])
+
   const handleCheckProgress = async () => {
     if (!sid) return
     setIsCheckingProgress(true)
@@ -1303,6 +1427,17 @@ export default function Workspace() {
       setExecuting(false)
       handleCheckProgress()
     }
+  }
+
+  const handleMutationReveal = () => {
+    setMutationReloadKey(k => k + 1)
+    setMutationFlipKey(k => k + 1)
+    setMutationBannerDismissed(false)
+    setTimeout(() => handleCheckProgress(), 450)
+  }
+
+  const handleMutationDone = () => {
+    setShapeshiftEvent(null)
   }
 
   if (error) return (
@@ -1361,8 +1496,37 @@ export default function Workspace() {
         {/* Mode switcher — sits beside the timer */}
         <ModeSwitcher mode={mode} onChange={setMode} />
 
+        {isMutationRun && (
+          <span
+            className="font-mono text-[9px] tracking-[0.16em] px-2 py-1 rounded shrink-0"
+            style={{ background: 'rgba(251,146,60,0.08)', border: '1px solid rgba(251,146,60,0.35)', color: '#fb923c' }}
+          >
+            MUTATION {mutationIntensity.toUpperCase()}
+          </span>
+        )}
+
+        {isMutationRun && mutationStatus?.next_fire_at && (
+          <span className="font-mono text-[9px] text-attense-dim shrink-0">
+            SHIFT WINDOW ARMED
+          </span>
+        )}
+
+        {isMutationRun && (
+          <button
+            onClick={toggleMutationSound}
+            title={soundEnabled ? 'Disable mutation sound' : 'Enable mutation sound'}
+            className="shrink-0 w-8 h-8 rounded flex items-center justify-center transition-colors"
+            style={{ border: '1px solid rgba(255,255,255,0.08)', color: soundEnabled ? '#fb923c' : '#5a6580', background: soundEnabled ? 'rgba(251,146,60,0.08)' : 'rgba(255,255,255,0.02)' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              {soundEnabled ? <path d="M15 9.5a4 4 0 010 5M18 7a8 8 0 010 10" /> : <path d="M16 9l5 5M21 9l-5 5" />}
+            </svg>
+          </button>
+        )}
+
         {/* Lab tools strip — only in Lab mode */}
-        {mode === 'lab' && (
+        {toolsVisible && (
           <>
             <span
               className="hidden md:inline-block shrink-0"
@@ -1449,6 +1613,10 @@ export default function Workspace() {
           className="min-w-0 flex flex-col overflow-hidden"
           style={{ flex: browserWidth ? 'none' : '1', width: browserWidth ?? undefined }}
         >
+          <MutationBanner
+            mutations={mutationBannerDismissed ? [] : activeMutations}
+            onDismiss={() => setMutationBannerDismissed(true)}
+          />
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <LabBrowser
               moduleId={snapshot.module_id}
@@ -1456,9 +1624,11 @@ export default function Workspace() {
               onNavigate={labNavigateRef}
               mode={mode}
               sid={sid}
+              mutationReloadKey={mutationReloadKey}
+              isMutating={Boolean(shapeshiftEvent)}
             />
           </div>
-          {mode === 'lab' && (
+          {toolsVisible && (
             <motion.div
               className="shrink-0 overflow-hidden"
               animate={{ height: labPanelMinimized ? 42 : 320 }}
@@ -1479,6 +1649,8 @@ export default function Workspace() {
           showAdvanced={showAdvanced} onToggleAdvanced={() => setShowAdvanced(v => !v)}
           onNavigateTo={handleNavigateTo} onRestart={handleRestart}
           mode={mode}
+          activeMutation={activeMutation}
+          mutationFlipKey={mutationFlipKey}
           collapsed={rightCollapsed} onToggle={() => setRightCollapsed(v => !v)}
         />
       </div>
@@ -1486,6 +1658,13 @@ export default function Workspace() {
       <AdvancedTools
         open={showAdvanced} snapshot={snapshot} sid={sid}
         onExecute={handleAdvancedExecute} executing={executing}
+      />
+
+      <ShapeshiftOverlay
+        event={shapeshiftEvent}
+        soundEnabled={soundEnabled}
+        onReveal={handleMutationReveal}
+        onDone={handleMutationDone}
       />
 
       {/* Report-ready banner — slides up on mission complete */}

@@ -40,11 +40,18 @@ ZAP_API_KEY = os.getenv("ZAP_API_KEY", "attense-lab-key")
 ALLOWED_TARGETS = {"target-agent", "http://target-agent", "http://target-agent:80"}
 ALLOWED_HOSTNAME_RE = re.compile(r"^target-agent(:\d+)?$")
 
+# All hostnames that are explicitly allowed (internal Docker network only)
+ALLOWED_HOSTS: frozenset = frozenset({
+    "target-agent", "localhost", "127.0.0.1", "0.0.0.0",
+    "attackbox", "signal-store", "blueteam", "wazuh.manager",
+    "zap", "ollama", "red-team-backend",
+})
+
 # Tools we recognise from command prefixes
 KNOWN_TOOLS = {"curl", "nmap", "hydra", "ffuf", "gobuster", "jq", "python3",
                "nc", "ncat", "wget", "cat", "head", "tail", "grep", "echo",
                "wc", "sort", "uniq", "tr", "awk", "sed", "ls", "pwd", "id",
-               "whoami", "hostname", "dig", "nslookup", "bash"}
+               "whoami", "hostname", "dig", "nslookup", "ping", "host", "bash"}
 
 # Blocked command patterns (destructive, escape-attempt, or privilege-escalation)
 BLOCKED_PATTERNS = [
@@ -95,16 +102,145 @@ def _is_public_ip(host: str) -> bool:
     return False
 
 
+def _looks_external(host: str) -> bool:
+    """Return True if host is an external/public target that should be blocked."""
+    h = host.lower().strip()
+    if not h:
+        return False
+    if h in ALLOWED_HOSTS:
+        return False
+    if ALLOWED_HOSTNAME_RE.match(h):
+        return False
+    # Any IP that is not already in ALLOWED_HOSTS (above) is blocked.
+    # This covers private RFC1918 ranges (10.x, 192.168.x, 172.16.x-31.x)
+    # which have is_global=False but must not be reachable from the lab.
+    try:
+        ipaddress.ip_address(h)
+        return True
+    except ValueError:
+        pass
+    # Any hostname with a dot that is not explicitly allowed → treat as external.
+    # This catches google.com, 8.8.8.8, example.com without needing DNS resolution.
+    if "." in h:
+        return True
+    return False
+
+
 def _extract_hostnames(cmd: str) -> list[str]:
-    """Pull URLs and hostnames from a command string."""
-    hosts = []
-    # URLs like http://some-host/path
+    """Extract all target hostnames from a command string (URLs and positional args)."""
+    hosts: list[str] = []
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        tokens = cmd.split()
+
+    # URLs with scheme
     for m in re.finditer(r"https?://([^/:@\s]+)", cmd):
         hosts.append(m.group(1))
-    # bare hostnames after common flags (-t, -u, --url, --target, -H)
+
+    # Flag-based targets (-u, -t, -U, -H, --url, --target)
     for m in re.finditer(r"(?:^|\s)(?:-[tuUH]|--url|--target)\s+(\S+)", cmd):
         val = re.sub(r"^https?://", "", m.group(1)).split("/")[0].split(":")[0]
         hosts.append(val)
+
+    # Tool-specific positional argument extraction
+    if not tokens:
+        return hosts
+    tool_name = os.path.basename(tokens[0])
+    args = tokens[1:]
+
+    if tool_name == "nmap":
+        # nmap [opts] TARGET — all non-flag tokens are targets
+        skip_next = False
+        for tok in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok.startswith("-"):
+                # flags that consume the next token
+                if tok in ("-p", "-iL", "-oN", "-oX", "-oG", "-oA",
+                           "--script", "-e", "-S", "--source-port",
+                           "--data-length", "--ttl", "--max-retries",
+                           "--host-timeout", "--scan-delay",
+                           "--min-rate", "--max-rate", "-T"):
+                    skip_next = True
+                continue
+            hosts.append(tok.split(":")[0].split("/")[0])
+
+    elif tool_name in ("nc", "ncat", "netcat"):
+        # nc [opts] HOST PORT — first non-flag arg is the host
+        non_flags = [t for t in args if not t.startswith("-")]
+        if non_flags:
+            hosts.append(non_flags[0])
+
+    elif tool_name == "hydra":
+        # hydra [opts] HOST [service] — first non-flag before http-post-form etc.
+        non_flags: list[str] = []
+        skip_next = False
+        for tok in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok.startswith("-"):
+                if tok in ("-l", "-L", "-p", "-P", "-t", "-f", "-s",
+                           "-o", "-b", "-w", "-W", "-c", "-e", "-m",
+                           "-u", "-x", "-I"):
+                    skip_next = True
+                continue
+            non_flags.append(tok)
+        if non_flags:
+            hosts.append(non_flags[0].split(":")[0])
+
+    elif tool_name == "wget":
+        # wget [opts] URL — bare args without scheme
+        skip_next = False
+        for tok in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok.startswith("-"):
+                if tok in ("-O", "--output-document", "-P",
+                           "--directory-prefix", "-U", "--user-agent",
+                           "--referer"):
+                    skip_next = True
+                continue
+            h = re.sub(r"^https?://", "", tok).split("/")[0].split(":")[0]
+            if h:
+                hosts.append(h)
+
+    elif tool_name == "ping":
+        # ping [opts] HOST — last non-flag token is the target
+        non_flags = [t for t in args if not t.startswith("-")]
+        if non_flags:
+            hosts.append(non_flags[-1])
+
+    elif tool_name in ("dig", "nslookup"):
+        # dig [@server] name [type] — first non-@ non-type token is the hostname
+        # nslookup name [server]   — first non-flag token is the hostname
+        for tok in args:
+            if tok.startswith("-") or tok.startswith("@"):
+                continue
+            # Skip DNS record type tokens (A, AAAA, MX, TXT, ANY, NS, SOA…)
+            if re.match(r"^(A|AAAA|MX|TXT|ANY|NS|SOA|CNAME|PTR|SRV|CAA)$", tok, re.IGNORECASE):
+                continue
+            hosts.append(tok)
+            break  # first qualifying token is the query name
+
+    elif tool_name == "host":
+        # host [opts] name [server] — first positional token (after flags) is the name
+        skip_next = False
+        for tok in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok.startswith("-"):
+                # -t, -c, -W, -R consume the next token as their value
+                if tok in ("-t", "-c", "-W", "-R"):
+                    skip_next = True
+                continue
+            hosts.append(tok)
+            break
+
     return hosts
 
 
@@ -114,22 +250,22 @@ def validate_command(cmd: str) -> Optional[str]:
     if not stripped:
         return "Empty command."
 
-    # Check blocked patterns
+    # Check blocked patterns (destructive / privilege-escalation)
     for pattern in BLOCKED_RE:
         if pattern.search(stripped):
-            return f"Blocked: command matches a restricted pattern."
+            return "Blocked: command matches a restricted pattern."
 
-    # Check for external/public targets
+    # Extract and validate all target hostnames
     hosts = _extract_hostnames(stripped)
     for h in hosts:
-        if h in ("target-agent", "localhost", "127.0.0.1", "0.0.0.0"):
+        h_clean = re.sub(r"^https?://", "", h).split("/")[0].split(":")[0].lower().strip()
+        if not h_clean:
             continue
-        if ALLOWED_HOSTNAME_RE.match(h):
-            continue
-        # Check if it resolves to a public IP
-        if _is_public_ip(h):
-            return f"Blocked: external target '{h}' is not allowed. Only target-agent is permitted."
-        # Unknown internal host — allow (could be another lab service)
+        if _looks_external(h_clean):
+            return (
+                f"Blocked: external target '{h_clean}' is not allowed. "
+                "Approved target: target-agent."
+            )
 
     return None
 

@@ -10,7 +10,7 @@ html, body, #root {
 }
 
 body {
-  background: #07090f;
+  background: #07080a;
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -125,6 +125,10 @@ body {
   0%   { transform: translateX(-100%) skewX(-15deg); }
   100% { transform: translateX(250%) skewX(-15deg); }
 }
+@keyframes pulse-glow-gold {
+  0%, 100% { box-shadow: 0 0 8px rgba(245,196,0,0.4), 0 0 24px rgba(245,196,0,0.15); }
+  50%       { box-shadow: 0 0 16px rgba(245,196,0,0.7), 0 0 48px rgba(245,196,0,0.3); }
+}
 
 .animate-fade-up     { animation: fade-up 0.3s ease forwards; }
 .animate-slide-in    { animation: slide-in 0.25s ease forwards; }
@@ -196,7 +200,7 @@ button:focus-visible, a:focus-visible {
 }
 
 .db-mesh-bg {
-  background-color: #07090f;
+  background-color: #07080a;
   background-image:
     radial-gradient(ellipse 80% 70% at 50% 50%, rgba(255,21,53,0.065)   0%, transparent 62%),
     radial-gradient(ellipse 70% 60% at 50% 50%, rgba(139,47,255,0.052)  0%, transparent 62%),

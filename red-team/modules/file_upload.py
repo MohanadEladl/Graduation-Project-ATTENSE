@@ -96,7 +96,7 @@ class FileUploadModule(BaseModule):
                 timeout=target.timeout,
             )
 
-            saved = "Saved to:" in (r.detail or "")
+            saved = "File saved successfully" in (r.detail or "") or "Saved to:" in (r.detail or "")
             if saved:
                 accepted += 1
                 serve_url = f"{target.base_url}/static/uploads/{filename}"
