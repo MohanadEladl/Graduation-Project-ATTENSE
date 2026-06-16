@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration debug="false">
+
+    <conversionRule conversionWord="coloredLevel"
+                    converterClass="play.api.libs.logback.ColoredLevel"/>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%coloredLevel %logger{30} [%X{request}|%X{tx}] %message%n%xException{10}
+            </pattern>
+        </encoder>
+    </appender>
+
+    <appender name="ASYNCSTDOUT" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="STDOUT"/>
+    </appender>
+
+    <!-- suppress noise -->
+    <logger name="org.reflections8.Reflections" level="ERROR"/>
+    <logger name="org.janusgraph.graphdb.database.management.ManagementLogger" level="OFF"/>
+    <logger name="org.janusgraph.graphdb.database.IndexSerializer" level="ERROR"/>
+    <logger name="org.thp.scalligraph.traversal" level="INFO"/>
+    <logger name="com.gargoylesoftware" level="ERROR"/>
+
+    <!-- notification + config pipeline — DEBUG -->
+    <logger name="org.thp.thehive.services.notification" level="DEBUG"/>
+    <logger name="org.thp.thehive.services.ConfigSrv"    level="DEBUG"/>
+    <logger name="org.thp.thehive.services.OrganisationConfigContext" level="DEBUG"/>
+    <logger name="org.thp.thehive.controllers.v0.ConfigCtrl" level="DEBUG"/>
+    <logger name="org.thp.scalligraph.services.config"   level="DEBUG"/>
+    <logger name="org.thp.thehive.services.AuditSrv"     level="DEBUG"/>
+
+    <logger name="org.thp" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="ASYNCSTDOUT"/>
+    </root>
+
+</configuration>

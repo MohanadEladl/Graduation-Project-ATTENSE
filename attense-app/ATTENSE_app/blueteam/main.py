@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from api.router import router as blueteam_router
 from api.webhook_router import webhook_router as hive_webhook_router
 from api.middleware import RequestLoggingMiddleware, TimingMiddleware
+from routers.analyst_actions import router as analyst_actions_router
 
 # Setup logging
 logging.basicConfig(
@@ -40,6 +41,7 @@ app.add_middleware(RequestLoggingMiddleware)
 # Routers
 app.include_router(blueteam_router)
 app.include_router(hive_webhook_router)  # internal: Hive → ATTENSE webhook receiver
+app.include_router(analyst_actions_router)  # Watcher Agent + Hive analyst-action scoring
 
 @app.get("/health", tags=["Info"])
 def health():

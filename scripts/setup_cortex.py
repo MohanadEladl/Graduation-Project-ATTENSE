@@ -114,7 +114,8 @@ def _req(
     url = f"{CORTEX_URL}{path}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Content-Type", "application/json")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
 
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -125,8 +126,14 @@ def _req(
 
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode()
-            return json.loads(raw) if raw.strip() else {}
+            raw = resp.read().decode().strip()
+            if not raw:
+                return {}
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                # Cortex returns some values (e.g. API keys) as plain strings
+                return {"_raw": raw, "key": raw.strip('"')}
     except urllib.error.HTTPError as e:
         err_body = e.read().decode()
         raise RuntimeError(f"HTTP {e.code} from {method} {path}: {err_body}") from e
@@ -149,12 +156,68 @@ def _wait_for_cortex(max_wait: int = 120) -> None:
 
 
 def _get_session_token(login: str, password: str) -> str:
-    """Log in and return a session token."""
-    resp = _req("POST", "/api/login", {"user": login, "password": password})
-    token = resp.get("token") or resp.get("access_token")
-    if not token:
-        raise RuntimeError(f"Login succeeded but no token returned: {resp}")
-    return token
+    """Log in, capture the CORTEX_SESSION cookie, use it to generate an API key.
+
+    Cortex 3.x POST /api/login returns the user object in the body and puts
+    the real auth credential in a Set-Cookie header (CORTEX_SESSION). We
+    extract that cookie, call POST /api/user/{login}/key/renew with it to
+    obtain an API key, and return the key so all downstream Bearer-token
+    calls work without modification.
+    """
+    import http.cookiejar
+    import urllib.request as _ur
+
+    url = f"{CORTEX_URL}/api/login"
+    data = json.dumps({"user": login, "password": password}).encode()
+    req = _ur.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+
+    jar = http.cookiejar.CookieJar()
+    opener = _ur.build_opener(_ur.HTTPCookieProcessor(jar))
+    try:
+        with opener.open(req, timeout=10) as resp:
+            resp.read()  # consume body
+    except Exception as e:
+        raise RuntimeError(f"Login failed for {login}: {e}") from e
+
+    # Extract session cookie value
+    session_cookie = next(
+        (c.value for c in jar if c.name == "CORTEX_SESSION"), None
+    )
+    if not session_cookie:
+        raise RuntimeError(f"Login succeeded but no CORTEX_SESSION cookie returned")
+
+    # Fetch a CSRF token — Play CSRF requires it as ?csrfToken= query param on POST
+    csrf_jar = http.cookiejar.CookieJar()
+    csrf_opener = _ur.build_opener(_ur.HTTPCookieProcessor(csrf_jar))
+    csrf_get = _ur.Request(f"{CORTEX_URL}/api/status")
+    csrf_get.add_header("Cookie", f"CORTEX_SESSION={session_cookie}")
+    with csrf_opener.open(csrf_get, timeout=10):
+        pass
+    xsrf_token = next(
+        (c.value for c in csrf_jar if "XSRF" in c.name.upper()), None
+    )
+    if not xsrf_token:
+        raise RuntimeError("Could not obtain CORTEX XSRF token from /api/status")
+
+    # Use session cookie + CSRF query param to generate an API key
+    key_url = f"{CORTEX_URL}/api/user/{login}/key/renew?csrfToken={xsrf_token}"
+    key_req = _ur.Request(key_url, data=b"", method="POST")
+    key_req.add_header("Cookie", f"CORTEX_SESSION={session_cookie}; CORTEX-XSRF-TOKEN={xsrf_token}")
+    try:
+        with _ur.urlopen(key_req, timeout=10) as resp:
+            raw = resp.read().decode().strip()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} from POST /api/user/{login}/key/renew: {e.read().decode()}") from e
+
+    # Cortex returns the API key as a plain string (not JSON)
+    if not raw:
+        raise RuntimeError("API key renewal returned empty response")
+    # Strip surrounding quotes if Cortex wraps the key in a JSON string
+    key = raw.strip('"')
+    if not key:
+        raise RuntimeError(f"API key renewal returned unusable response: {raw!r}")
+    return key
 
 
 # ── Step 1: Bootstrap admin ───────────────────────────────────────────────────
@@ -173,6 +236,17 @@ def step_bootstrap_admin() -> str:
             # 520 = maintenance mode (first boot), 401 = wrong creds
             # Any other error is unexpected
             raise
+
+    # Cortex is in maintenance mode — must call /api/maintenance/migrate first
+    # to transition out of maintenance mode before the bootstrap POST /api/user
+    # will be accepted (without this call, POST /api/user returns HTTP 520).
+    print("   Running database migration …")
+    try:
+        _req("POST", "/api/maintenance/migrate")
+        print("   ✅ Migration done.")
+    except RuntimeError as me:
+        if "HTTP 204" not in str(me):
+            print(f"   ⚠️  Migration call returned: {me} (continuing anyway)")
 
     # Cortex is in maintenance mode — create admin
     print(f"   Creating admin user '{ADMIN_LOGIN}' …")
@@ -221,19 +295,39 @@ def step_create_api_key(admin_token: str) -> str:
 
     if ORG_ADMIN_LOGIN not in existing_logins:
         print(f"   Creating user '{ORG_ADMIN_LOGIN}' in org '{ORG_NAME}' …")
-        _req("POST", "/api/user", {
-            "login":        ORG_ADMIN_LOGIN,
-            "name":         "ATTENSE Analyst",
-            "password":     ORG_ADMIN_PASS,
-            "organization": ORG_NAME,
-            "roles":        ["read", "analyze", "orgadmin"],
-        }, token=admin_token)
-        print(f"   ✅ User '{ORG_ADMIN_LOGIN}' created.")
+        try:
+            _req("POST", "/api/user", {
+                "login":        ORG_ADMIN_LOGIN,
+                "name":         "ATTENSE Analyst",
+                "password":     ORG_ADMIN_PASS,
+                "organization": ORG_NAME,
+                "roles":        ["read", "analyze", "orgadmin"],
+            }, token=admin_token)
+            print(f"   ✅ User '{ORG_ADMIN_LOGIN}' created.")
+        except RuntimeError as e:
+            if "ConflictError" in str(e) or "already exists" in str(e):
+                print(f"   ✅ User '{ORG_ADMIN_LOGIN}' already exists — skipping creation.")
+            else:
+                raise
     else:
         print(f"   ✅ User '{ORG_ADMIN_LOGIN}' already exists — skipping creation.")
 
-    # Generate (or renew) API key for that user
-    print(f"   Generating API key for '{ORG_ADMIN_LOGIN}' …")
+    # Get the existing API key if there is one — avoids invalidating a key
+    # that TheHive may already be using. Only renew if the key is absent.
+    print(f"   Fetching API key for '{ORG_ADMIN_LOGIN}' …")
+    try:
+        existing_key_resp = _req("GET", f"/api/user/{ORG_ADMIN_LOGIN}/key", token=admin_token)
+        existing_key = existing_key_resp.get("key") or existing_key_resp.get("_raw", "")
+        if isinstance(existing_key, str):
+            existing_key = existing_key.strip('"')
+    except RuntimeError:
+        existing_key = ""
+
+    if existing_key and len(existing_key) > 8:
+        print(f"   ✅ Reusing existing API key: {existing_key[:8]}…{existing_key[-4:]}")
+        return str(existing_key)
+
+    print(f"   No existing key found — generating new one …")
     resp = _req("POST", f"/api/user/{ORG_ADMIN_LOGIN}/key/renew", token=admin_token)
     api_key = resp.get("key") or resp  # some versions return the key string directly
     if isinstance(api_key, dict):
@@ -247,39 +341,60 @@ def step_create_api_key(admin_token: str) -> str:
 
 # ── Step 4: Enable WazuhBlockIP responder ────────────────────────────────────
 
-def step_enable_responder(admin_token: str) -> None:
-    """Enable the WazuhBlockIP responder in the ATTENSE organisation."""
+def step_enable_responder(org_api_key: str) -> None:
+    """Enable the WazuhBlockIP responder in the ATTENSE organisation.
+
+    Must be called with the ORG user's API key (not admin), because:
+    - GET /api/responderdefinition  lists catalog definitions (org user scope)
+    - POST /api/organization/responder/:defId  creates a WorkerConfig for the org
+    Both endpoints use Bearer auth which bypasses Play's CSRF check.
+    """
     print(f"\n🔫 Step 4: Enable '{RESPONDER_NAME}' responder …")
 
-    # List available responder definitions
+    # Check if it is already enabled for this org
     try:
-        definitions = _req("GET", "/api/responder", token=admin_token)
+        enabled = _req("GET", "/api/responder", token=org_api_key)
+        if isinstance(enabled, list) and any(r.get("name") == RESPONDER_NAME for r in enabled):
+            print(f"   ✅ '{RESPONDER_NAME}' already enabled for org '{ORG_NAME}' — skipping.")
+            return
+    except RuntimeError:
+        pass  # will re-raise on the real call if truly broken
+
+    # List available responder DEFINITIONS (catalog scan result)
+    try:
+        definitions = _req("GET", "/api/responderdefinition", token=org_api_key)
     except RuntimeError as e:
-        print(f"   ⚠️  Could not list responders: {e}")
+        print(f"   ⚠️  Could not list responder definitions: {e}")
         print("       The responder will need to be enabled manually in the Cortex UI.")
         return
 
     if not isinstance(definitions, list):
-        print("   ⚠️  Unexpected responder list format — skipping auto-enable.")
+        print("   ⚠️  Unexpected responder definition list format — skipping auto-enable.")
         return
 
     target = next((d for d in definitions if d.get("name") == RESPONDER_NAME), None)
     if not target:
-        print(f"   ⚠️  Responder '{RESPONDER_NAME}' not found yet.")
+        print(f"   ⚠️  Responder '{RESPONDER_NAME}' not found in definitions.")
         print("       Cortex may still be scanning the responders directory.")
         print("       Wait 30s and re-run, or enable it manually in the Cortex UI.")
         return
 
-    worker_definition_id = target.get("id")
-    if not worker_definition_id:
-        print(f"   ⚠️  Found responder but missing ID — skipping.")
+    definition_id = target.get("id")
+    if not definition_id:
+        print(f"   ⚠️  Found responder definition but missing id — skipping.")
         return
 
-    # Enable it in the ATTENSE org
-    _req("POST", f"/api/organization/{ORG_NAME}/responder/{worker_definition_id}", {
-        "configuration": {},
-        "jobCache":      10,
-    }, token=admin_token)
+    # Enable: POST /api/organization/responder/:defId (org-user context)
+    try:
+        _req("POST", f"/api/organization/responder/{definition_id}", {
+            "name":          RESPONDER_NAME,
+            "configuration": {},
+        }, token=org_api_key)
+    except RuntimeError as e:
+        if "ConflictError" in str(e) or "already exists" in str(e):
+            print(f"   ✅ '{RESPONDER_NAME}' already enabled — skipping.")
+            return
+        raise
     print(f"   ✅ '{RESPONDER_NAME}' responder enabled for org '{ORG_NAME}'.")
 
 
@@ -409,7 +524,7 @@ def main() -> None:
     admin_token = step_bootstrap_admin()
     step_create_org(admin_token)
     api_key = step_create_api_key(admin_token)
-    step_enable_responder(admin_token)
+    step_enable_responder(api_key)
     step_patch_thehive_conf(api_key)
     step_delete_secrets_file()          # removes ATTENSE.env from disk
     step_restart_thehive()              # auto-restarts TheHive via Docker socket
