@@ -58,6 +58,23 @@ from backend import action_trace                   # noqa: E402
 DEFAULT_HOST = os.getenv("TARGET_HOST", "target-agent")
 DEFAULT_PORT = int(os.getenv("TARGET_PORT", "80"))
 
+# ── Watcher session store ─────────────────────────────────────────────────────
+# Keyed by 6-character uppercase code. Plain dict — lifetime is the process.
+import random
+import string
+import time as _time_mod
+
+_WATCHER_SESSIONS: dict[str, dict] = {}
+
+
+def _generate_code() -> str:
+    """Return a random 6-character uppercase alphanumeric code."""
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        code = "".join(random.choices(alphabet, k=6))
+        if code not in _WATCHER_SESSIONS:
+            return code
+
 app = FastAPI(
     title="ATTENSE Cyber Lab API",
     version="6.0.0",
@@ -710,6 +727,38 @@ async def session_ws(ws: WebSocket, sid: str) -> None:
             await pump_task
         except (asyncio.CancelledError, Exception):
             pass
+
+
+# ── Watcher Agent: session coordination ──────────────────────────────────────
+
+class WatcherSessionBody(BaseModel):
+    scenario_id: str
+    incident_id: str
+
+
+@app.post("/session/watcher")
+def create_watcher_session(body: WatcherSessionBody) -> dict:
+    """Create a new watcher session. Returns a 6-char code the analyst types
+    into the Watcher Agent CLI to bind their machine to this incident."""
+    code = _generate_code()
+    session = {
+        "code":             code,
+        "scenario_id":      body.scenario_id,
+        "incident_id":      body.incident_id,
+        "status":           "active",
+        "started_at_unix":  _time_mod.time(),
+    }
+    _WATCHER_SESSIONS[code] = session
+    return session
+
+
+@app.get("/session/watcher/{code}")
+def get_watcher_session(code: str) -> dict:
+    """Return the watcher session for *code*, or {status: pending} if not found."""
+    session = _WATCHER_SESSIONS.get(code.upper())
+    if session is None:
+        return {"status": "pending"}
+    return session
 
 
 # ── Detections feed ───────────────────────────────────────────────────────────

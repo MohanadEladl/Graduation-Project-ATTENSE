@@ -1,0 +1,14 @@
+[
+  {
+    "name": "WazuhBlockIP",
+    "version": "1.0",
+    "author": "ATTENSE",
+    "url": "https://github.com/ATTENSE",
+    "license": "MIT",
+    "description": "Real responder to block an IP using Wazuh Active Response.",
+    "dataTypeList": ["ip"],
+    "command": "/opt/cortex/responders/WazuhBlockIP/wazuh_block_ip.py",
+    "baseConfig": "WazuhBlockIP",
+    "configurationItems": []
+  }
+]
