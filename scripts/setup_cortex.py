@@ -391,61 +391,81 @@ def step_create_api_key(admin_token: str) -> str:
 
 # ── Step 4: Enable WazuhBlockIP responder ────────────────────────────────────
 
-def step_enable_responder(org_api_key: str) -> None:
+def step_enable_responder(org_api_key: str, admin_token: str | None = None) -> None:
     """Enable the WazuhBlockIP responder in the ATTENSE organisation.
 
-    Must be called with the ORG user's API key (not admin), because:
-    - GET /api/responderdefinition  lists catalog definitions (org user scope)
-    - POST /api/organization/responder/:defId  creates a WorkerConfig for the org
-    Both endpoints use Bearer auth which bypasses Play's CSRF check.
+    Tries the org user's API key first. If that returns 403 (key not yet
+    indexed by Elasticsearch after creation), falls back to the admin session
+    token which always has rights. Also handles the case where Cortex is still
+    scanning the responders directory on first boot.
     """
     print(f"\n🔫 Step 4: Enable '{RESPONDER_NAME}' responder …")
 
-    # Check if it is already enabled for this org
+    # Check if already enabled — use admin token which is always available
+    check_token = admin_token or org_api_key
     try:
-        enabled = _req("GET", "/api/responder", token=org_api_key)
+        enabled = _req("GET", "/api/responder", token=check_token)
         if isinstance(enabled, list) and any(r.get("name") == RESPONDER_NAME for r in enabled):
-            print(f"   ✅ '{RESPONDER_NAME}' already enabled for org '{ORG_NAME}' — skipping.")
+            print(f"   ✅ '{RESPONDER_NAME}' already enabled — skipping.")
             return
     except RuntimeError:
-        pass  # will re-raise on the real call if truly broken
+        pass
 
-    # List available responder DEFINITIONS (catalog scan result)
-    try:
-        definitions = _req("GET", "/api/responderdefinition", token=org_api_key)
-    except RuntimeError as e:
-        print(f"   ⚠️  Could not list responder definitions: {e}")
-        print("       The responder will need to be enabled manually in the Cortex UI.")
-        return
+    # Try to list definitions. Attempt with org key first, fall back to admin.
+    definitions = None
+    for token_label, token in [("org key", org_api_key), ("admin token", admin_token)]:
+        if not token:
+            continue
+        try:
+            definitions = _req("GET", "/api/responderdefinition", token=token)
+            if isinstance(definitions, list):
+                break
+        except RuntimeError as e:
+            print(f"   ⚠️  GET /api/responderdefinition with {token_label}: {e}")
 
     if not isinstance(definitions, list):
-        print("   ⚠️  Unexpected responder definition list format — skipping auto-enable.")
+        # Cortex may still be scanning — give it one more chance after a wait
+        print("   Cortex may still be scanning responders — waiting 15s …")
+        time.sleep(15)
+        try:
+            definitions = _req("GET", "/api/responderdefinition", token=check_token)
+        except RuntimeError:
+            pass
+
+    if not isinstance(definitions, list) or not definitions:
+        print(f"   ⚠️  Could not list responder definitions.")
+        print("       Enable WazuhBlockIP manually in the Cortex UI → Organization → Responders.")
         return
 
     target = next((d for d in definitions if d.get("name") == RESPONDER_NAME), None)
     if not target:
-        print(f"   ⚠️  Responder '{RESPONDER_NAME}' not found in definitions.")
-        print("       Cortex may still be scanning the responders directory.")
-        print("       Wait 30s and re-run, or enable it manually in the Cortex UI.")
+        print(f"   ⚠️  '{RESPONDER_NAME}' not found in definitions. Check /opt/cortex/responders/.")
         return
 
     definition_id = target.get("id")
     if not definition_id:
-        print(f"   ⚠️  Found responder definition but missing id — skipping.")
+        print(f"   ⚠️  Found responder definition but id is missing.")
         return
 
-    # Enable: POST /api/organization/responder/:defId (org-user context)
-    try:
-        _req("POST", f"/api/organization/responder/{definition_id}", {
-            "name":          RESPONDER_NAME,
-            "configuration": {},
-        }, token=org_api_key)
-    except RuntimeError as e:
-        if "ConflictError" in str(e) or "already exists" in str(e):
-            print(f"   ✅ '{RESPONDER_NAME}' already enabled — skipping.")
+    # Enable via org-user key first, fall back to admin token
+    for token_label, token in [("org key", org_api_key), ("admin token", admin_token)]:
+        if not token:
+            continue
+        try:
+            _req("POST", f"/api/organization/responder/{definition_id}", {
+                "name":          RESPONDER_NAME,
+                "configuration": {},
+            }, token=token)
+            print(f"   ✅ '{RESPONDER_NAME}' enabled for org '{ORG_NAME}'.")
             return
-        raise
-    print(f"   ✅ '{RESPONDER_NAME}' responder enabled for org '{ORG_NAME}'.")
+        except RuntimeError as e:
+            if "ConflictError" in str(e) or "already exists" in str(e):
+                print(f"   ✅ '{RESPONDER_NAME}' already enabled — skipping.")
+                return
+            print(f"   ⚠️  Enable with {token_label} failed: {e}")
+
+    print(f"   ⚠️  Could not auto-enable '{RESPONDER_NAME}'.")
+    print("       Enable it manually in the Cortex UI → Organization → Responders.")
 
 
 # ── Step 5: Patch thehive/application.conf ────────────────────────────────────
@@ -574,7 +594,10 @@ def main() -> None:
     admin_token = step_bootstrap_admin()
     step_create_org(admin_token)
     api_key = step_create_api_key(admin_token)
-    step_enable_responder(api_key)
+    # Small pause: Elasticsearch needs a moment to index the new API key before
+    # it can be used to authenticate the responder-enable call.
+    time.sleep(3)
+    step_enable_responder(api_key, admin_token=admin_token)
     step_patch_thehive_conf(api_key)
     step_delete_secrets_file()          # removes ATTENSE.env from disk
     step_restart_thehive()              # auto-restarts TheHive via Docker socket

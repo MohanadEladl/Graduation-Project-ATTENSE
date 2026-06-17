@@ -45,6 +45,8 @@ services:
     container_name: attense_wazuh_manager
     hostname: wazuh.manager
     restart: unless-stopped
+    # chmod fixes execute bits lost when cloning on Windows (Git strips +x).
+    entrypoint: ["/bin/bash", "-c", "chmod +x /var/ossec/active-response/bin/* 2>/dev/null; exec /init"]
     ports:
       - "1514:1514"
       - "1515:1515"
