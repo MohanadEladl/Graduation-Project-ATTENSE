@@ -15,10 +15,13 @@ GET  /blueteam/analyst-actions/{incident_id}
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from collections import defaultdict
 from enum import Enum
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, status
@@ -28,10 +31,46 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/blueteam", tags=["Analyst Actions"])
 
+# ── JSONL persistence ─────────────────────────────────────────────────────────
+# Every action is appended as one JSON line so test runs survive restarts
+# and can be shown as proof. Path is configurable via env var.
+_LOG_FILE = Path(os.getenv("ACTIONS_LOG_FILE", "/attense/data/analyst_actions.jsonl"))
+
+
+def _append_to_disk(record: dict) -> None:
+    try:
+        _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError as exc:
+        logger.warning("[analyst-action] Could not write to %s: %s", _LOG_FILE, exc)
+
+
+def _load_from_disk() -> defaultdict[str, List[dict]]:
+    store: defaultdict[str, List[dict]] = defaultdict(list)
+    if not _LOG_FILE.exists():
+        return store
+    try:
+        with _LOG_FILE.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rec = json.loads(line)
+                    store[rec["incident_id"]].append(rec)
+        logger.info(
+            "[analyst-action] Loaded %d records from %s",
+            sum(len(v) for v in store.values()), _LOG_FILE,
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("[analyst-action] Could not load %s: %s", _LOG_FILE, exc)
+    return store
+
+
 # ── In-memory store  (incident_id → list of action dicts) ────────────────────
 # Keyed by incident_id; each value is a list ordered by insertion.
+# Populated from disk at startup so previous test runs are available.
 # GET endpoint re-sorts by t_offset_sec before returning.
-_actions: defaultdict[str, List[dict]] = defaultdict(list)
+_actions: defaultdict[str, List[dict]] = _load_from_disk()
 
 
 # ── Enums / Models ────────────────────────────────────────────────────────────
@@ -111,6 +150,7 @@ def _persist(body: AnalystActionRequest) -> dict:
     }
 
     _actions[body.incident_id].append(record)
+    _append_to_disk(record)
 
     logger.info(
         "[analyst-action] analyst=%s  incident=%s  event_type=%s  t_offset=%ds",

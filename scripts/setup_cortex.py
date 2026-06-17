@@ -38,6 +38,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+try:
+    import requests as _requests
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
+
 
 # ── Load secrets/{ORG_NAME}.env automatically ────────────────────────────────
 # The secrets file is named after the organisation (e.g. ATTENSE.env).
@@ -158,12 +164,65 @@ def _wait_for_cortex(max_wait: int = 120) -> None:
 def _get_session_token(login: str, password: str) -> str:
     """Log in, capture the CORTEX_SESSION cookie, use it to generate an API key.
 
-    Cortex 3.x POST /api/login returns the user object in the body and puts
-    the real auth credential in a Set-Cookie header (CORTEX_SESSION). We
-    extract that cookie, call POST /api/user/{login}/key/renew with it to
-    obtain an API key, and return the key so all downstream Bearer-token
-    calls work without modification.
+    Uses `requests.Session` when available (installed by cortex-init command)
+    for reliable cross-platform cookie + XSRF handling. Falls back to urllib
+    if requests is somehow not present.
     """
+    if _HAS_REQUESTS:
+        return _get_session_token_requests(login, password)
+    return _get_session_token_urllib(login, password)
+
+
+def _get_session_token_requests(login: str, password: str) -> str:
+    """requests-based implementation — handles cookies/XSRF correctly on all platforms."""
+    session = _requests.Session()
+
+    # Step 1: Login — session auto-stores CORTEX_SESSION cookie
+    resp = session.post(
+        f"{CORTEX_URL}/api/login",
+        json={"user": login, "password": password},
+        timeout=15,
+    )
+    if resp.status_code == 520:
+        raise RuntimeError("HTTP 520 from POST /api/login")
+    if resp.status_code == 401:
+        raise RuntimeError("HTTP 401 from POST /api/login")
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(f"HTTP {resp.status_code} from POST /api/login: {resp.text[:200]}")
+
+    if "CORTEX_SESSION" not in session.cookies:
+        raise RuntimeError("Login succeeded but no CORTEX_SESSION cookie returned")
+
+    # Step 2: GET /api/status to retrieve XSRF token cookie
+    resp2 = session.get(f"{CORTEX_URL}/api/status", timeout=10)
+    xsrf_token = None
+    for name, value in session.cookies.items():
+        if "XSRF" in name.upper():
+            xsrf_token = value
+            break
+    if not xsrf_token:
+        raise RuntimeError("Could not obtain CORTEX XSRF token from /api/status")
+
+    # Step 3: Renew API key — session cookie auto-sent; XSRF as query param
+    resp3 = session.post(
+        f"{CORTEX_URL}/api/user/{login}/key/renew",
+        params={"csrfToken": xsrf_token},
+        headers={"CORTEX-XSRF-TOKEN": xsrf_token},
+        data=b"",
+        timeout=15,
+    )
+    if resp3.status_code not in (200, 201):
+        raise RuntimeError(
+            f"HTTP {resp3.status_code} from POST /api/user/{login}/key/renew: {resp3.text[:200]}"
+        )
+    key = resp3.text.strip().strip('"')
+    if not key:
+        raise RuntimeError(f"API key renewal returned unusable response: {resp3.text!r}")
+    return key
+
+
+def _get_session_token_urllib(login: str, password: str) -> str:
+    """urllib fallback — used only if requests is not installed."""
     import http.cookiejar
     import urllib.request as _ur
 
@@ -175,45 +234,36 @@ def _get_session_token(login: str, password: str) -> str:
     jar = http.cookiejar.CookieJar()
     opener = _ur.build_opener(_ur.HTTPCookieProcessor(jar))
     try:
-        with opener.open(req, timeout=10) as resp:
-            resp.read()  # consume body
+        with opener.open(req, timeout=15) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} from POST /api/login") from e
     except Exception as e:
         raise RuntimeError(f"Login failed for {login}: {e}") from e
 
-    # Extract session cookie value
-    session_cookie = next(
-        (c.value for c in jar if c.name == "CORTEX_SESSION"), None
-    )
+    session_cookie = next((c.value for c in jar if c.name == "CORTEX_SESSION"), None)
     if not session_cookie:
-        raise RuntimeError(f"Login succeeded but no CORTEX_SESSION cookie returned")
+        raise RuntimeError("Login succeeded but no CORTEX_SESSION cookie returned")
 
-    # Fetch a CSRF token — Play CSRF requires it as ?csrfToken= query param on POST
     csrf_jar = http.cookiejar.CookieJar()
     csrf_opener = _ur.build_opener(_ur.HTTPCookieProcessor(csrf_jar))
     csrf_get = _ur.Request(f"{CORTEX_URL}/api/status")
     csrf_get.add_header("Cookie", f"CORTEX_SESSION={session_cookie}")
     with csrf_opener.open(csrf_get, timeout=10):
         pass
-    xsrf_token = next(
-        (c.value for c in csrf_jar if "XSRF" in c.name.upper()), None
-    )
+    xsrf_token = next((c.value for c in csrf_jar if "XSRF" in c.name.upper()), None)
     if not xsrf_token:
         raise RuntimeError("Could not obtain CORTEX XSRF token from /api/status")
 
-    # Use session cookie + CSRF query param to generate an API key
     key_url = f"{CORTEX_URL}/api/user/{login}/key/renew?csrfToken={xsrf_token}"
     key_req = _ur.Request(key_url, data=b"", method="POST")
     key_req.add_header("Cookie", f"CORTEX_SESSION={session_cookie}; CORTEX-XSRF-TOKEN={xsrf_token}")
     try:
-        with _ur.urlopen(key_req, timeout=10) as resp:
+        with _ur.urlopen(key_req, timeout=15) as resp:
             raw = resp.read().decode().strip()
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"HTTP {e.code} from POST /api/user/{login}/key/renew: {e.read().decode()}") from e
 
-    # Cortex returns the API key as a plain string (not JSON)
-    if not raw:
-        raise RuntimeError("API key renewal returned empty response")
-    # Strip surrounding quotes if Cortex wraps the key in a JSON string
     key = raw.strip('"')
     if not key:
         raise RuntimeError(f"API key renewal returned unusable response: {raw!r}")

@@ -49,10 +49,16 @@ services:
       - "1514:1514"
       - "1515:1515"
       - "55000:55000"
+    # wazuh.indexer is the Wazuh full-stack hostname; we don't run that service.
+    # Mapping it to 127.0.0.1 stops Filebeat DNS errors on every platform.
+    extra_hosts:
+      - "wazuh.indexer:127.0.0.1"
     volumes:
       - wazuh_manager_etc:/var/ossec/etc
       - wazuh_manager_queue:/var/ossec/queue
       - wazuh_alerts:/var/ossec/logs/alerts
+      - wazuh_logs_archives:/var/ossec/logs/archives
+      - wazuh_logs_firewall:/var/ossec/logs/firewall
       - ./wazuh/active-response/bin:/var/ossec/active-response/bin:rw
       - ./wazuh/active-response/logs:/var/ossec/active-response/logs:rw
     healthcheck:
@@ -108,6 +114,7 @@ services:
       - thehive
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
+      ACTIONS_LOG_FILE: /attense/actions/analyst_actions.jsonl
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
       HIVE_API_KEY: "changeme"
@@ -118,6 +125,7 @@ services:
       ABUSEIPDB_API_KEY: ""
     volumes:
       - attense_ssd_volume:/attense/data:ro
+      - attense_actions_data:/attense/actions
       - ./attense-app:/app
     ports:
       - "8010:8010"
@@ -364,7 +372,8 @@ services:
       - ./thehive:/thehive             # script patches application.conf here
       - ./secrets:/secrets             # reads ATTENSE.env then deletes it
       - /var/run/docker.sock:/var/run/docker.sock   # to restart TheHive
-    command: python /scripts/setup_cortex.py
+    command: >
+      bash -c "pip install requests --quiet && python /scripts/setup_cortex.py"
     networks:
       - attense_net
 
@@ -395,6 +404,9 @@ volumes:
   wazuh_manager_etc:
   wazuh_manager_queue:
   wazuh_alerts:
+  wazuh_logs_archives:
+  wazuh_logs_firewall:
+  attense_actions_data:
   attense_ssd_volume:
   red_team_logs:
   ollama_data:
