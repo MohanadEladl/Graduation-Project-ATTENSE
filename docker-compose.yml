@@ -45,8 +45,9 @@ services:
     container_name: attense_wazuh_manager
     hostname: wazuh.manager
     restart: unless-stopped
-    # chmod fixes execute bits lost when cloning on Windows (Git strips +x).
-    entrypoint: ["/bin/bash", "-c", "chmod +x /var/ossec/active-response/bin/* 2>/dev/null; exec /init"]
+    # Fix ownership of log volumes (WSL/Windows creates them as root) and
+    # restore execute bits lost when cloning on Windows (Git strips +x).
+    entrypoint: ["/bin/bash", "-c", "mkdir -p /var/ossec/logs/archives /var/ossec/logs/firewall && chown -R wazuh:wazuh /var/ossec/logs 2>/dev/null; chmod +x /var/ossec/active-response/bin/* 2>/dev/null; exec /init"]
     ports:
       - "1514:1514"
       - "1515:1515"
