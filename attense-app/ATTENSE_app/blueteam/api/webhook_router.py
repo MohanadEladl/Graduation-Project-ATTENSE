@@ -86,6 +86,31 @@ async def receive_hive_webhook(
     if event is None:
         return {"status": "ignored", "reason": "no_mapping"}
 
+    # Safety: destructive / side-effecting actions (blocking IPs, disabling
+    # services, isolation, etc.) MUST be explicitly confirmed by an analyst
+    # in the Hive payload. This prevents automatic coordinators or other
+    # automated callers from triggering real-world side effects.
+    SIDE_EFFECTING_EVENTS = {
+        "containment_initiated",
+        "block_ip",
+        "disable_service",
+        "isolate_host",
+        "responder_action",
+    }
+
+    if getattr(event, "event_type", None) in SIDE_EFFECTING_EVENTS:
+        manual_ok = (
+            payload.get("manual_confirm") is True
+            or payload.get("manual") is True
+            or str(payload.get("updatedBy", "")).lower().startswith("manual")
+        )
+        if not manual_ok:
+            logger.warning(
+                "[Webhook] Ignoring side-effecting action %s from non-manual source",
+                event.event_type,
+            )
+            return {"status": "ignored", "reason": "manual_confirmation_required"}
+
     # Step 3: Get or create the incident.
     # TheHive is the source of truth for analyst actions. If the incident
     # doesn't exist yet in memory (e.g. container was restarted), we
