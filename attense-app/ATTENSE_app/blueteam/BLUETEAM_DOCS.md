@@ -180,7 +180,7 @@ Pre-condition guards — **invalid requests die here before reaching services**.
 
 ## `core/orchestration/response_coordinator.py`
 
-High-level coordinator for automated full-lifecycle response (e.g. AI-driven or test scenarios).
+High-level coordinator for automated triage only. It must not trigger containment during measured exercises because the analyst's chosen containment action is what ATTENSE scores.
 
 ### `ContainmentPlan` (dataclass)
 Fields: `analyst_id`, `target_id`, `target_type`, `strategy`, `notes`.
@@ -190,7 +190,7 @@ Fields: `analyst_id`, `target_id`, `target_type`, `strategy`, `notes`.
 | Method | Description |
 |--------|-------------|
 | `__init__(emitter, hive, sandbox)` | Stores injected EventEmitter, HiveClient, and TargetConnector. |
-| `run_automated_response(incident_id, scenario_id, analyst_id, alert_id, plan, severity)` | Runs the full Blue Team sequence in order: investigate → confirm → initiate containment → complete containment. Returns summary dict with all event IDs and final incident status. |
+| `run_automated_response(incident_id, scenario_id, analyst_id, alert_id, plan, severity)` | Runs investigation and confirmation, then stops with `awaiting: analyst_containment_choice`. It does not initiate or complete containment automatically. |
 
 ---
 

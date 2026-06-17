@@ -426,8 +426,8 @@ def main() -> None:
     print()
     print("You can now:")
     print("  - Open TheHive at http://localhost:9000")
-    print("  - On an alert → click Responders → WazuhBlockIP")
-    print("  - Incident transitions: CONTAINING → CONTAINED automatically")
+    print("  - On an alert, the analyst must choose Responders -> WazuhBlockIP")
+    print("  - ATTENSE records CONTAINING/CONTAINED only after that chosen action runs")
     print("=" * 60)
 
 
