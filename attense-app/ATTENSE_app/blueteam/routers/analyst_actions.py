@@ -4,6 +4,13 @@ routers/analyst_actions.py — Analyst Action Endpoints
 Receives structured SOC actions from the Watcher Agent running on each
 analyst machine and stores them for scoring / replay.
 
+Storage layout
+--------------
+Each analyst gets their own daily JSONL file:
+  /attense/actions/<analyst_id>_<YYYY-MM-DD>.jsonl
+
+Files older than 7 days are deleted automatically on startup.
+
 Endpoints
 ---------
 POST /blueteam/analyst-action
@@ -15,11 +22,13 @@ GET  /blueteam/analyst-actions/{incident_id}
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import os
 import time
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
@@ -31,45 +40,71 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/blueteam", tags=["Analyst Actions"])
 
-# ── JSONL persistence ─────────────────────────────────────────────────────────
-# Every action is appended as one JSON line so test runs survive restarts
-# and can be shown as proof. Path is configurable via env var.
-_LOG_FILE = Path(os.getenv("ACTIONS_LOG_FILE", "/attense/data/analyst_actions.jsonl"))
+# ── Directory config ──────────────────────────────────────────────────────────
+ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
 
+
+def get_analyst_log_path(analyst_id: str) -> str:
+    """Each analyst gets their own daily log file."""
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    safe_id  = analyst_id.replace("/", "-").replace("\\", "-")
+    return os.path.join(ACTIONS_DIR, f"{safe_id}_{date_str}.jsonl")
+
+
+# ── 7-day auto-cleanup ────────────────────────────────────────────────────────
+
+def cleanup_old_logs(retention_days: int = 7) -> None:
+    """Delete analyst log files older than retention_days."""
+    cutoff  = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    pattern = os.path.join(ACTIONS_DIR, "analyst-*.jsonl")
+    for path in glob.glob(pattern):
+        try:
+            mtime = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc)
+            if mtime < cutoff:
+                os.remove(path)
+                logger.info("[analyst-action] Deleted old log: %s", path)
+        except OSError as exc:
+            logger.warning("[analyst-action] Could not delete %s: %s", path, exc)
+
+
+# ── Per-analyst JSONL persistence ────────────────────────────────────────────
 
 def _append_to_disk(record: dict) -> None:
+    path = get_analyst_log_path(record["analyst_id"])
     try:
-        _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with _LOG_FILE.open("a", encoding="utf-8") as f:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
     except OSError as exc:
-        logger.warning("[analyst-action] Could not write to %s: %s", _LOG_FILE, exc)
+        logger.warning("[analyst-action] Could not write to %s: %s", path, exc)
 
 
 def _load_from_disk() -> defaultdict[str, List[dict]]:
+    """
+    Read all analyst log files from today and populate the in-memory store.
+    Keyed by incident_id so GET /analyst-actions/{incident_id} works correctly.
+    """
     store: defaultdict[str, List[dict]] = defaultdict(list)
-    if not _LOG_FILE.exists():
-        return store
-    try:
-        with _LOG_FILE.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    rec = json.loads(line)
-                    store[rec["incident_id"]].append(rec)
-        logger.info(
-            "[analyst-action] Loaded %d records from %s",
-            sum(len(v) for v in store.values()), _LOG_FILE,
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("[analyst-action] Could not load %s: %s", _LOG_FILE, exc)
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    pattern  = os.path.join(ACTIONS_DIR, f"analyst-*_{date_str}.jsonl")
+    total    = 0
+    for path in glob.glob(pattern):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        rec = json.loads(line)
+                        store[rec["incident_id"]].append(rec)
+                        total += 1
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("[analyst-action] Could not load %s: %s", path, exc)
+    if total:
+        logger.info("[analyst-action] Loaded %d records from today's log files", total)
     return store
 
 
 # ── In-memory store  (incident_id → list of action dicts) ────────────────────
-# Keyed by incident_id; each value is a list ordered by insertion.
-# Populated from disk at startup so previous test runs are available.
-# GET endpoint re-sorts by t_offset_sec before returning.
 _actions: defaultdict[str, List[dict]] = _load_from_disk()
 
 
@@ -85,13 +120,13 @@ class AnalystEventType(str, Enum):
 
 
 class AnalystActionRequest(BaseModel):
-    analyst_id:     str           = Field(..., description="Analyst identifier, e.g. analyst-alice")
-    incident_id:    str           = Field(..., description="Incident this action belongs to")
-    scenario_id:    str           = Field(..., description="Scenario ID, e.g. APP-02")
+    analyst_id:     str              = Field(..., description="Analyst identifier, e.g. analyst-alice")
+    incident_id:    str              = Field(..., description="Incident this action belongs to")
+    scenario_id:    str              = Field(..., description="Scenario ID, e.g. APP-02")
     event_type:     AnalystEventType = Field(..., description="Classified SOC action type")
-    t_offset_sec:   int           = Field(..., description="Seconds since session start when the action occurred")
-    detail:         str           = Field(..., description="One-sentence description of the action")
-    timestamp:      Optional[float] = Field(default=None, description="Unix epoch when recorded; defaults to now")
+    t_offset_sec:   int              = Field(..., description="Seconds since session start")
+    detail:         str              = Field(..., description="One-sentence description of the action")
+    timestamp:      Optional[float]  = Field(default=None, description="Unix epoch; defaults to now")
 
 
 class AnalystActionResponse(BaseModel):
@@ -121,20 +156,11 @@ class AnalystActionsListResponse(BaseModel):
     summary="Watcher Agent posts a classified analyst action",
 )
 def record_analyst_action(body: AnalystActionRequest) -> AnalystActionResponse:
-    """
-    Stores a single classified SOC action emitted by the Watcher Agent.
-
-    The Watcher Agent runs on the analyst machine, monitors auditd EXECVE
-    events, and uses an LLM to classify significant SOC actions. Each
-    classified event is posted here so ATTENSE can score analyst response
-    time and technique.
-    """
     record = _persist(body)
     return AnalystActionResponse(ok=True, **record)
 
 
 def _persist(body: AnalystActionRequest) -> dict:
-    """Build a stored record from a validated request and append it to the store."""
     stored_at = time.time()
     ts = body.timestamp if body.timestamp is not None else stored_at
 
@@ -156,15 +182,13 @@ def _persist(body: AnalystActionRequest) -> dict:
         "[analyst-action] analyst=%s  incident=%s  event_type=%s  t_offset=%ds",
         body.analyst_id, body.incident_id, body.event_type.value, body.t_offset_sec,
     )
-
     return record
 
 
 def store_analyst_action(action: dict) -> dict:
     """
     Store an analyst action dict produced by analyst_action_extractor.py
-    (Hive webhook → analyst action). Validates against AnalystActionRequest
-    and appends to the same in-memory store used by the Watcher Agent endpoint.
+    (Hive webhook → analyst action).
     """
     body = AnalystActionRequest(**action)
     return _persist(body)
@@ -177,10 +201,6 @@ def store_analyst_action(action: dict) -> dict:
     summary="Return all analyst actions for an incident, ordered by t_offset_sec",
 )
 def list_analyst_actions(incident_id: str) -> AnalystActionsListResponse:
-    """
-    Returns every analyst action recorded for the given incident,
-    sorted ascending by t_offset_sec (chronological order).
-    """
     actions = sorted(
         _actions.get(incident_id, []),
         key=lambda a: a["t_offset_sec"],

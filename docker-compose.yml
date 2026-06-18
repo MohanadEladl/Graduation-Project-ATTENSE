@@ -117,7 +117,7 @@ services:
       - thehive
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
-      ACTIONS_LOG_FILE: /attense/actions/analyst_actions.jsonl
+      ACTIONS_LOG_DIR: /attense/actions
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
       HIVE_API_KEY: "changeme"

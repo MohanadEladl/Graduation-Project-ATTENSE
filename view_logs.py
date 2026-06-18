@@ -1,14 +1,14 @@
 """
-view_logs.py — View the analyst actions log in two formats.
+view_logs.py — View analyst action logs in two formats.
 
   SECTION 1 — Raw log
-    Exactly what is stored in the file, one line per event.
+    Lists every per-analyst file in /attense/actions/, shows which
+    analyst it belongs to, then prints every event as raw JSON.
 
-  SECTION 2 — Ollama plain-English version
-    Each event converted to a single readable sentence by Ollama.
-    No reports, no paragraphs — one line in, one line out.
+  SECTION 2 — Plain English (via Ollama llama3.2)
+    Each event converted to one readable sentence, grouped by analyst.
 
-Run after test_cycle.py to see both views side by side.
+Run after test_cycle.py to see both views.
 """
 
 import json
@@ -20,88 +20,120 @@ SEP  = "─" * 60
 SEP2 = "═" * 60
 
 
-# ── Read the log file ─────────────────────────────────────────────────────────
+# ── Discover all log files in the actions directory ───────────────────────────
 
-raw_output = subprocess.run(
-    ["docker", "exec", "attense_app",
-     "cat", "/attense/actions/analyst_actions.jsonl"],
+ls_output = subprocess.run(
+    ["docker", "exec", "attense_app", "ls", "/attense/actions/"],
     capture_output=True, text=True,
 )
+all_files = [f.strip() for f in ls_output.stdout.splitlines() if f.strip().endswith(".jsonl")]
 
-lines = [l.strip() for l in raw_output.stdout.splitlines() if l.strip()]
-
-if not lines:
-    print("\nLog file is empty. Run test_cycle.py first.\n")
+if not all_files:
+    print("\nNo log files found. Run test_cycle.py first.\n")
     sys.exit(0)
 
-events = []
-for line in lines:
-    try:
-        events.append(json.loads(line))
-    except json.JSONDecodeError:
-        pass
+# Read each file and group events by analyst
+analyst_events: dict[str, list[dict]] = {}   # analyst_id → list of events
+all_events: list[dict] = []
+
+for fname in sorted(all_files):
+    cat = subprocess.run(
+        ["docker", "exec", "attense_app", "cat", f"/attense/actions/{fname}"],
+        capture_output=True, text=True,
+    )
+    file_events = []
+    for line in cat.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+            file_events.append(rec)
+            all_events.append(rec)
+        except json.JSONDecodeError:
+            pass
+
+    if file_events:
+        analyst = file_events[0].get("analyst_id", fname)
+        analyst_events.setdefault(analyst, []).extend(file_events)
 
 
 # ── SECTION 1: Raw log ────────────────────────────────────────────────────────
 
 print(f"\n{SEP2}")
-print(f"  SECTION 1 — RAW LOG  ({len(events)} events)")
-print(f"{SEP2}\n")
+print(f"  SECTION 1 — RAW LOG")
+print(f"  {len(all_files)} file(s) found  |  {len(all_events)} total events")
+print(f"{SEP2}")
 
-for line in lines:
-    print(f"  {line}")
+for fname in sorted(all_files):
+    analyst = fname.replace(".jsonl", "")
+    events_in_file = analyst_events.get(
+        next((e.get("analyst_id","?") for e in all_events if True), "?"), []
+    )
+    cat = subprocess.run(
+        ["docker", "exec", "attense_app", "cat", f"/attense/actions/{fname}"],
+        capture_output=True, text=True,
+    )
+    lines = [l.strip() for l in cat.stdout.splitlines() if l.strip()]
+    print(f"\n  FILE: {fname}  ({len(lines)} events)")
+    print(f"  {SEP}")
+    for line in lines:
+        print(f"    {line}")
 
 
-# ── SECTION 2: Ollama plain-English ──────────────────────────────────────────
+# ── SECTION 2: Ollama plain-English per analyst ───────────────────────────────
 
 print(f"\n{SEP2}")
 print(f"  SECTION 2 — PLAIN ENGLISH  (via Ollama llama3.2)")
 print(f"{SEP2}\n")
-print("  Converting each event... (takes ~20 seconds)\n")
+print("  Converting events... (takes ~20 seconds)\n")
 
-# Build a numbered list of events for Ollama
-event_lines = "\n".join(
-    f"{i+1}. analyst={e.get('analyst_id')}  event={e.get('event_type')}  "
-    f"scenario={e.get('scenario_id')}  t=+{e.get('t_offset_sec')}s  "
-    f"detail={e.get('detail','')}"
-    for i, e in enumerate(events)
-)
+for analyst_id, events in sorted(analyst_events.items()):
+    print(f"  {SEP}")
+    print(f"  ANALYST: {analyst_id}  ({len(events)} events)")
+    print(f"  {SEP}\n")
 
-prompt = (
-    "Convert each numbered SOC event below into ONE plain English sentence. "
-    "Format: '<number>. <sentence>' — nothing else, no extra text.\n"
-    "Each sentence should say: who did what, on which scenario, and what it means.\n\n"
-    f"Events:\n{event_lines}"
-)
+    event_lines = "\n".join(
+        f"{i+1}. event={e.get('event_type')}  scenario={e.get('scenario_id')}  "
+        f"t=+{e.get('t_offset_sec')}s  detail={e.get('detail','')}"
+        for i, e in enumerate(events)
+    )
 
-script = (
-    "import json, urllib.request\n"
-    f"p = json.dumps({{'model':'llama3.2','prompt':{json.dumps(prompt)},'stream':False}}).encode()\n"
-    "req = urllib.request.Request('http://ollama:11434/api/generate', data=p, "
-    "headers={'Content-Type':'application/json'})\n"
-    "print(json.loads(urllib.request.urlopen(req, timeout=180).read())['response'])\n"
-)
+    prompt = (
+        f"The following SOC events were recorded for analyst '{analyst_id}'.\n"
+        "Convert each numbered event into ONE plain English sentence. "
+        "Format exactly: '<number>. <sentence>' — nothing else, no extra text.\n"
+        f"Always refer to the analyst by name: {analyst_id}.\n"
+        "Each sentence must say: who did what, on which scenario, and what it means.\n\n"
+        f"Events:\n{event_lines}"
+    )
 
-result = subprocess.run(
-    ["docker", "exec", "-i", "attense_red_team_backend", "python3"],
-    input=script.encode(), capture_output=True, timeout=200,
-)
+    script = (
+        "import json, urllib.request\n"
+        f"p = json.dumps({{'model':'llama3.2','prompt':{json.dumps(prompt)},'stream':False}}).encode()\n"
+        "req = urllib.request.Request('http://ollama:11434/api/generate', data=p, "
+        "headers={'Content-Type':'application/json'})\n"
+        "print(json.loads(urllib.request.urlopen(req, timeout=180).read())['response'])\n"
+    )
 
-ollama_text = result.stdout.decode().strip()
+    result = subprocess.run(
+        ["docker", "exec", "-i", "attense_red_team_backend", "python3"],
+        input=script.encode(), capture_output=True, timeout=200,
+    )
 
-if result.returncode != 0 or not ollama_text:
-    print("  Ollama unavailable — showing formatted version instead:\n")
-    for e in events:
-        ts = time.strftime('%H:%M:%S', time.localtime(e.get('stored_at', 0)))
-        src = "hive" if e.get('t_offset_sec') == 0 else "watcher"
-        print(f"  {ts}  [{src}]  {e.get('analyst_id')} did {e.get('event_type')} — {e.get('detail','')}")
-else:
-    # Print Ollama output with timestamps alongside
-    ol_lines = [l.strip() for l in ollama_text.splitlines() if l.strip()]
-    for i, ol_line in enumerate(ol_lines):
-        ts = ""
-        if i < len(events):
-            ts = time.strftime('%H:%M:%S', time.localtime(events[i].get('stored_at', 0)))
-        print(f"  {ts}  {ol_line}")
+    if result.returncode != 0 or not result.stdout.strip():
+        print("  [Ollama unavailable — showing formatted fallback]\n")
+        for e in events:
+            ts = time.strftime('%H:%M:%S', time.localtime(e.get('stored_at', 0)))
+            print(f"  {ts}  {e.get('event_type')}  |  {e.get('detail','')}")
+    else:
+        ol_lines = [l.strip() for l in result.stdout.decode().splitlines() if l.strip()]
+        for i, sentence in enumerate(ol_lines):
+            ts = ""
+            if i < len(events):
+                ts = time.strftime('%H:%M:%S', time.localtime(events[i].get('stored_at', 0)))
+            print(f"  {ts}  {sentence}")
 
-print(f"\n{SEP2}\n")
+    print()
+
+print(f"{SEP2}\n")

@@ -1,20 +1,11 @@
 """
 test_cycle.py — ATTENSE full pipeline test.
 
-Run this to generate a clean test incident in the log file.
-After it completes, run view_logs.py to see the results.
+Fires a complete incident lifecycle through two paths using two analysts
+(analyst-alice via TheHive webhooks, analyst-bob via Watcher/Ollama)
+so both land in separate per-analyst log files.
 
-Two paths fire in sequence:
-
-  PATH A — TheHive Webhook
-    Simulates what happens when an analyst works a case in TheHive UI.
-    Each action (open case, update, add task, close) fires a webhook
-    which the system translates and writes to the log.
-
-  PATH B — Watcher Agent + Ollama
-    Simulates the Watcher Agent running on an analyst's machine.
-    Raw terminal commands are sent to Ollama for classification,
-    then posted to the log as structured analyst actions.
+After this runs, use view_logs.py to see the results.
 """
 
 import json
@@ -27,8 +18,15 @@ import requests
 BLUETEAM  = "http://localhost:8010"
 INCIDENT  = f"test-{int(time.time())}"
 SCENARIO  = "APP-01"
-ANALYST   = "alice@lab.local"
-CASE_ID   = f"~{int(time.time()) % 100000}"
+
+# Path A uses alice (TheHive webhook)
+ANALYST_A  = "alice@lab.local"
+CASE_ID    = f"~{int(time.time()) % 100000}"
+TASK_ID    = f"~task-{int(time.time()) % 100000}"
+
+# Path B uses bob (Watcher/Ollama)
+ANALYST_B  = "analyst-bob"
+
 SEP = "─" * 60
 
 
@@ -37,7 +35,7 @@ def _post_webhook(payload: dict, label: str):
     d = r.json()
     result = d.get("attense_event_type", d.get("reason", "?"))
     ok = "✓" if d.get("status") == "translated" else "·"
-    print(f"  {ok}  {label:48s}  →  {result}")
+    print(f"  {ok}  {label:50s}  →  {result}")
 
 
 def _call_ollama(prompt: str) -> str:
@@ -57,10 +55,10 @@ def _call_ollama(prompt: str) -> str:
 
 def _case(extra: dict = {}) -> dict:
     base = {
-        "_id":   CASE_ID,
-        "id":    CASE_ID,
-        "title": f"XSS Attack — {INCIDENT}",
-        "tags":  [f"attense:incident-{INCIDENT}", SCENARIO],
+        "_id":    CASE_ID,
+        "id":     CASE_ID,
+        "title":  f"XSS Attack — {INCIDENT}",
+        "tags":   [f"attense:incident-{INCIDENT}", SCENARIO],
         "status": "Open",
     }
     base.update(extra)
@@ -71,42 +69,37 @@ print(f"\n{SEP}")
 print(f"  ATTENSE TEST CYCLE  |  incident = {INCIDENT}")
 print(f"{SEP}\n")
 
-# ── PATH A: TheHive Webhook ───────────────────────────────────────────────────
-print("PATH A — TheHive Webhook\n")
-
-TASK_ID = f"~task-{int(time.time()) % 100000}"
+# ── PATH A: analyst-alice via TheHive Webhook ─────────────────────────────────
+print("PATH A — analyst-alice  (TheHive Webhook)\n")
 
 _post_webhook({
     "objectType": "case", "operation": "create",
-    "createdBy": ANALYST, "object": _case(),
+    "createdBy": ANALYST_A, "object": _case(),
 }, "case/create  (analyst opens case)")
-
 time.sleep(0.3)
 
 _post_webhook({
     "objectType": "case", "operation": "update",
-    "updatedBy": ANALYST,
+    "updatedBy": ANALYST_A,
     "object": _case({"status": "Open"}),
     "details": {"status": "Open"},
-}, "case/update Open  (analyst confirms incident)")
-
+}, "case/update Open  (confirms incident)")
 time.sleep(0.3)
 
 _post_webhook({
     "objectType": "case_task", "operation": "create",
-    "createdBy": ANALYST, "rootId": CASE_ID,
+    "createdBy": ANALYST_A, "rootId": CASE_ID,
     "object": {
         "_id": TASK_ID, "id": TASK_ID,
         "title": "Block attacker IP via Wazuh",
         "status": "InProgress", "case": CASE_ID,
     },
 }, "case_task/create InProgress  (containment started)")
-
 time.sleep(0.3)
 
 _post_webhook({
     "objectType": "case_task", "operation": "update",
-    "updatedBy": ANALYST, "rootId": CASE_ID,
+    "updatedBy": ANALYST_A, "rootId": CASE_ID,
     "object": {
         "_id": TASK_ID, "id": TASK_ID,
         "title": "Block attacker IP via Wazuh",
@@ -114,18 +107,17 @@ _post_webhook({
     },
     "details": {"status": "Completed"},
 }, "case_task/update Completed  (containment done)")
-
 time.sleep(0.3)
 
 _post_webhook({
     "objectType": "case", "operation": "update",
-    "updatedBy": ANALYST,
+    "updatedBy": ANALYST_A,
     "object": _case({"status": "Resolved", "resolutionStatus": "TruePositive"}),
     "details": {"status": "Resolved", "resolutionStatus": "TruePositive"},
 }, "case/update Resolved+TruePositive  (incident closed)")
 
-# ── PATH B: Watcher Agent + Ollama ────────────────────────────────────────────
-print(f"\nPATH B — Watcher Agent + Ollama\n")
+# ── PATH B: analyst-bob via Watcher + Ollama ──────────────────────────────────
+print(f"\nPATH B — analyst-bob  (Watcher + Ollama)\n")
 
 session_start = time.time() - 200
 commands = [
@@ -139,7 +131,7 @@ commands = [
 
 numbered = "\n".join(f"{i+1}. [t=+{t}s] {cmd}" for i, (t, cmd) in enumerate(commands))
 prompt = (
-    f"Analyst: analyst-alice\nCommands:\n{numbered}\n\n"
+    f"Analyst: {ANALYST_B}\nCommands:\n{numbered}\n\n"
     "Classify significant SOC response actions. Return ONLY JSON:\n"
     '{"events": [{"event_type": "<type>", "t_offset_sec": <int>, "detail": "<one sentence>"}]}\n'
     "Valid types: investigation_started, incident_confirmed, containment_initiated, "
@@ -158,14 +150,14 @@ if match:
     except json.JSONDecodeError:
         pass
 
-valid = {"investigation_started","incident_confirmed","containment_initiated",
-         "containment_succeeded","alert_denied"}
+valid = {"investigation_started", "incident_confirmed", "containment_initiated",
+         "containment_succeeded", "alert_denied"}
 posted = 0
 for ev in events:
     if ev.get("event_type") not in valid:
         continue
     r = requests.post(f"{BLUETEAM}/blueteam/analyst-action", json={
-        "analyst_id":   "analyst-alice",
+        "analyst_id":   ANALYST_B,
         "incident_id":  INCIDENT,
         "scenario_id":  SCENARIO,
         "event_type":   ev["event_type"],
@@ -174,15 +166,15 @@ for ev in events:
         "timestamp":    session_start + int(ev.get("t_offset_sec", 0)),
     }, timeout=10)
     ok = "✓" if r.status_code in (200, 201) else "✗"
-    print(f"  {ok}  watcher → {ev['event_type']:30s}  t=+{ev.get('t_offset_sec')}s")
+    print(f"  {ok}  watcher → {ev['event_type']:32s}  t=+{ev.get('t_offset_sec')}s")
     posted += 1
 
-print(f"\n  Watcher posted {posted} event(s) via Ollama")
+print(f"\n  analyst-bob posted {posted} event(s) via Ollama")
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 time.sleep(0.5)
 total = requests.get(f"{BLUETEAM}/blueteam/analyst-actions/{INCIDENT}").json().get("count", 0)
 print(f"\n{SEP}")
-print(f"  Done.  {total} events written for incident  {INCIDENT}")
+print(f"  Done.  {total} events for incident  {INCIDENT}")
 print(f"  Run:   python3 view_logs.py")
 print(f"{SEP}\n")
