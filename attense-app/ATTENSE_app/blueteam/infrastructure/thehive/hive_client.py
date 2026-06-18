@@ -127,6 +127,18 @@ class HiveClient:
         payload = {"severity": self._map_severity(severity)}
         return self._patch(f"/api/case/{case_id}", payload)
 
+    def promote_alert_to_case(self, alert_id: str) -> dict:
+        """
+        Promote an existing TheHive alert into a case (alert → case).
+
+        Mirrors the analyst's "Import alert as case" action. The new case
+        inherits the alert's tags (incl. attense:incident-<id>), so the
+        CaseCreated webhook fires and the attacker activity log is attached.
+
+        Returns the Hive API response dict (the new case), or {} on failure.
+        """
+        return self._post(f"/api/alert/{alert_id}/createCase", {})
+
     def add_observable(self, case_id: str, data_type: str, value: str) -> dict:
         """
         Add an observable (IOC) to a Hive case.
@@ -142,6 +154,35 @@ class HiveClient:
             "data": value,
         }
         return self._post(f"/api/case/{case_id}/artifact", payload)
+
+    def create_task(self, case_id: str, title: str, group: str = "investigation") -> dict:
+        """
+        Create a task on a Hive case.
+
+        Used to hold the chronological "Attacker Activity Log" — each attacker
+        action is later appended as a task log via ``add_task_log``.
+
+        Returns the Hive API response dict (includes the new task ``id``), or
+        an empty dict on failure.
+        """
+        payload = {
+            "title": title,
+            "group": group,
+            "status": "InProgress",
+        }
+        return self._post(f"/api/case/{case_id}/task", payload)
+
+    def add_task_log(self, task_id: str, message: str) -> dict:
+        """
+        Append a log entry to an existing Hive task.
+
+        Parameters
+        ----------
+        task_id : Hive task ID (from ``create_task``).
+        message : Free-text log line (markdown supported by Hive).
+        """
+        payload = {"message": message}
+        return self._post(f"/api/case/task/{task_id}/log", payload)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Internal helpers
