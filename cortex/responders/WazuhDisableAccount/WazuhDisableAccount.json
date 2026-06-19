@@ -1,11 +1,11 @@
 {
   "name": "WazuhDisableAccount",
-  "version": "1.0",
+  "version": "1.1",
   "author": "ATTENSE",
   "url": "https://github.com/ATTENSE",
   "license": "MIT",
   "description": "Disable a compromised user account on the monitored host using Wazuh's built-in disable-account active response.",
-  "dataTypeList": ["other"],
+  "dataTypeList": ["thehive:case_artifact"],
   "command": "WazuhDisableAccount/wazuh_disable_account.py",
   "baseConfig": "Wazuh",
   "configurationItems": [
