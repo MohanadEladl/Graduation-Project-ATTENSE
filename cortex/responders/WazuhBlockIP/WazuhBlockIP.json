@@ -1,11 +1,11 @@
 {
   "name": "WazuhBlockIP",
-  "version": "1.1",
+  "version": "1.2",
   "author": "ATTENSE",
   "url": "https://github.com/DarineNadaa/Graduation-Project",
   "license": "MIT",
   "description": "Real responder to block an IP using Wazuh Active Response.",
-  "dataTypeList": ["ip"],
+  "dataTypeList": ["thehive:case_artifact"],
   "command": "WazuhBlockIP/wazuh_block_ip.py",
   "baseConfig": "Wazuh",
   "configurationItems": [

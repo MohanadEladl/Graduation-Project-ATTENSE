@@ -1,11 +1,11 @@
 {
   "name": "WazuhIsolateHost",
-  "version": "1.0",
+  "version": "1.1",
   "author": "ATTENSE",
   "url": "https://github.com/ATTENSE",
   "license": "MIT",
   "description": "Isolate a compromised host from the network using Wazuh's built-in route-null active response (null-routes the host).",
-  "dataTypeList": ["ip"],
+  "dataTypeList": ["thehive:case_artifact"],
   "command": "WazuhIsolateHost/wazuh_isolate_host.py",
   "baseConfig": "Wazuh",
   "configurationItems": [

@@ -224,7 +224,13 @@ def _fetch_xsrf_token() -> str:
     return match.group(1) if match else ""
 
 
-def _get_session_token(login: str, password: str) -> tuple[str, str]:
+def _get_session_token(
+    login: str,
+    password: str,
+    *,
+    retry_transient: bool = False,
+    max_wait: int = 120,
+) -> tuple[str, str]:
     """
     Log in and return (session_cookie, xsrf_token).
 
@@ -235,16 +241,34 @@ def _get_session_token(login: str, password: str) -> tuple[str, str]:
     request fetches it (see _fetch_xsrf_token).
     """
     url = f"{CORTEX_URL}/api/login"
-    data = json.dumps({"user": login, "password": password}).encode()
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/json")
+    deadline = time.time() + max_wait
 
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            cookie_header = resp.headers.get("Set-Cookie", "")
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode()
-        raise RuntimeError(f"HTTP {e.code} from POST /api/login: {err_body}") from e
+    while True:
+        data = json.dumps({"user": login, "password": password}).encode()
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                cookie_header = resp.headers.get("Set-Cookie", "")
+            break
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode()
+            message = f"HTTP {e.code} from POST /api/login: {err_body}"
+            transient = e.code >= 500 and (
+                "NoNodeAvailable" in err_body
+                or "ElasticSearch cluster is unreachable" in err_body
+                or "ServiceUnavailable" in err_body
+            )
+            if not retry_transient or not transient or time.time() >= deadline:
+                raise RuntimeError(message) from e
+            print("   Cortex API is up but Elasticsearch is not ready; retrying …", flush=True)
+            time.sleep(5)
+        except urllib.error.URLError as e:
+            if not retry_transient or time.time() >= deadline:
+                raise RuntimeError(f"POST /api/login failed: {e}") from e
+            print("   Cortex login endpoint is temporarily unreachable; retrying …", flush=True)
+            time.sleep(5)
 
     match = re.search(r"CORTEX_SESSION=([^;]+)", cookie_header)
     if not match:
@@ -260,7 +284,11 @@ def step_bootstrap_admin() -> tuple[str, str]:
 
     # Check if already bootstrapped
     try:
-        token = _get_session_token(ADMIN_LOGIN, ADMIN_PASSWORD)
+        token = _get_session_token(
+            ADMIN_LOGIN,
+            ADMIN_PASSWORD,
+            retry_transient=True,
+        )
         print(f"   ✅ Admin '{ADMIN_LOGIN}' already exists — skipping creation.")
         return token
     except RuntimeError as e:
