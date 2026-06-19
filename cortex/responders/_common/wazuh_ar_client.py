@@ -24,6 +24,20 @@ def _ssl_context() -> ssl.SSLContext:
     return ctx
 
 
+def extract_observable_value(input_data: dict) -> str | None:
+    """
+    Cortex's "data" field shape depends on how the job was submitted: a bare
+    string when posted directly to Cortex's job API, but the full TheHive
+    entity object (e.g. case_artifact) when TheHive's UI/API triggers the
+    responder — the actual observable value is then nested under the
+    entity's own "data" field.
+    """
+    raw = input_data.get("data")
+    if isinstance(raw, dict):
+        return raw.get("data")
+    return raw
+
+
 def read_cortex_input() -> dict:
     """
     Read the JSON Cortex passes to a responder.
@@ -101,7 +115,11 @@ def resolve_agent_id(wazuh_url: str, token: str, *, ip: str | None = None, name:
         items = data.get("data", {}).get("affected_items", [])
         if not items:
             raise Exception(f"No Wazuh agent found for {query}")
-        return items[0]["id"]
+        # Re-enrollment after a restart leaves the old record behind as a
+        # disconnected duplicate alongside the new active one (same name/IP).
+        # Prefer an active agent over a stale disconnected duplicate.
+        active = [a for a in items if a.get("status") == "active"]
+        return (active or items)[0]["id"]
     except urllib.error.HTTPError as e:
         raise Exception(f"Failed to look up Wazuh agent ({query}): HTTP {e.code}: {e.read().decode('utf-8')}")
     except Exception as e:

@@ -10,13 +10,14 @@ from wazuh_ar_client import (  # noqa: E402
     get_token,
     resolve_agent_id_with_fallback,
     trigger_active_response,
+    extract_observable_value,
 )
 
 
 def main():
     try:
         input_data = read_cortex_input()
-        ip_to_block = input_data.get("data")
+        ip_to_block = extract_observable_value(input_data)
         if not ip_to_block:
             write_cortex_output({"success": False, "errorMessage": "No IP address provided in the input data"})
             return
