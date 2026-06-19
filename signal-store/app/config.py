@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     # ── Output ────────────────────────────────────────────────────────────────
     # "file"  → append one JSON line per event to OUTPUT_PATH
     # "http"  → POST each event to EVENT_STORE_URL
-    output_mode: str = "file"                          # "file" | "http"
+    # "both"  → do both of the above
+    output_mode: str = "file"                          # "file" | "http" | "both"
     output_path: str = "/out/mapped_events.jsonl"      # used when output_mode=file
     event_store_url: str = "http://event-store-mock:8000/events"  # used when output_mode=http
 
