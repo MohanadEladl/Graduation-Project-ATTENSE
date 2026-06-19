@@ -134,33 +134,46 @@ class HiveEventTranslator:
         hive_status = object_data.get("status", "")
         resolution = object_data.get("resolutionStatus", "")
 
+        # TheHive 4.1.x webhook vocabulary is lowercase and uses internal type
+        # names (e.g. objectType='case', operation='create', 'case_task',
+        # 'case_task_log'). Normalise to canonical tokens so the mappings below
+        # are robust to casing/naming. Status field values (Open/Resolved/…)
+        # stay as-is — those are domain values, not the webhook envelope.
+        otype = {
+            "case": "case", "alert": "alert",
+            "case_task": "task", "task": "task",
+            "case_task_log": "tasklog", "tasklog": "tasklog",
+            "action": "responderaction", "responderaction": "responderaction",
+        }.get(object_type.strip().lower(), object_type.strip().lower())
+        op = operation.strip().lower()  # create | update | delete
+
         # 1. alert_investigation_started
-        if object_type == "Alert" and operation == "Update":
+        if otype == "alert" and op == "update":
             # If the owner field was changed/set in this update
             if "owner" in details:
                 return "alert_investigation_started", "alert", "unknown"
-        
+
         # 2. alert_denied
-        if object_type == "Alert" and operation == "Update":
+        if otype == "alert" and op == "update":
             if hive_status == "Ignored":
                 return "alert_denied", "alert", "false_positive"
 
         # 3. incident_confirmed
-        if object_type == "Case" and operation == "Create":
+        if otype == "case" and op == "create":
             return "incident_confirmed", "alert", "detected"
-        if object_type == "Alert" and operation == "Update" and hive_status == "Imported":
+        if otype == "alert" and op == "update" and hive_status == "Imported":
             return "incident_confirmed", "alert", "detected"
 
         # 4. containment_initiated
-        if object_type == "Task" and operation == "Update" and hive_status in ("InProgress", "Waiting"):
+        if otype == "task" and op == "update" and hive_status in ("InProgress", "Waiting"):
             return "containment_initiated", "host", "unknown"
-        if object_type == "ResponderAction" and operation == "Create":
+        if otype == "responderaction" and op == "create":
             return "containment_initiated", "host", "unknown"
 
         # 5. containment_succeeded / containment_failed — Cortex reports back via ResponderAction/Update
         # When Cortex finishes running WazuhBlockIP it updates the ResponderAction with its final status.
         # TheHive emits a webhook for this update — we map it here so the incident can reach CONTAINED.
-        if object_type == "ResponderAction" and operation == "Update":
+        if otype == "responderaction" and op == "update":
             responder_status = object_data.get("status", "")
             if responder_status == "Success":
                 return "containment_succeeded", "host", "success"
@@ -170,9 +183,9 @@ class HiveEventTranslator:
             return None, "host", "unknown"
 
         # 5b. containment_succeeded via Task completion (manual task path — no Cortex)
-        if object_type == "Task" and operation == "Update" and hive_status == "Completed":
+        if otype == "task" and op == "update" and hive_status == "Completed":
             return "containment_succeeded", "host", "success"
-        if object_type == "TaskLog" and operation == "Create":
+        if otype == "tasklog" and op == "create":
             message = object_data.get("message", "").lower()
             # If the log does not contain failed/error, we consider it just a general task update.
 
@@ -185,7 +198,7 @@ class HiveEventTranslator:
                 return "containment_succeeded", "host", "success"
 
         # 7. incident_ended
-        if object_type == "Case" and operation == "Update":
+        if otype == "case" and op == "update":
             if hive_status in ("Resolved", "Closed"):
                 if resolution == "FalsePositive":
                     return "alert_denied", "alert", "false_positive"
