@@ -10,13 +10,14 @@ from wazuh_ar_client import (  # noqa: E402
     get_token,
     resolve_agent_id_with_fallback,
     trigger_active_response,
+    extract_observable_value,
 )
 
 
 def main():
     try:
         input_data = read_cortex_input()
-        host_ip = input_data.get("data")
+        host_ip = extract_observable_value(input_data)
         if not host_ip:
             write_cortex_output({"success": False, "errorMessage": "No host IP provided in the input data"})
             return

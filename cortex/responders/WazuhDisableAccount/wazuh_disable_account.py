@@ -10,13 +10,14 @@ from wazuh_ar_client import (  # noqa: E402
     get_token,
     resolve_agent_id,
     trigger_active_response,
+    extract_observable_value,
 )
 
 
 def main():
     try:
         input_data = read_cortex_input()
-        username = input_data.get("data")
+        username = extract_observable_value(input_data)
         if not username:
             write_cortex_output({"success": False, "errorMessage": "No username provided in the input data"})
             return
