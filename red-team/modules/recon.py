@@ -27,25 +27,44 @@ class ReconModule(BaseModule):
     category = Category.RECON
     scenario_id = "PRE-ATTACK"
     severity = Severity.INFO
+    # MITRE ATT&CK mapping — Reconnaissance precedes every other module.
+    mitre = {
+        "tactics": ["TA0043 Reconnaissance"],
+        "techniques": [
+            {"id": "T1595.002", "name": "Active Scanning: Vulnerability Scanning", "tactic": "Reconnaissance"},
+            {"id": "T1595.003", "name": "Active Scanning: Wordlist Scanning", "tactic": "Reconnaissance"},
+            {"id": "T1592.002", "name": "Gather Victim Host Information: Software", "tactic": "Reconnaissance"},
+        ],
+    }
     lab = {
         "target_path": "/",
         "vulnerable_component": "Entire application surface",
         "story": (
-            "Before attacking, you need to map the target. Open the home page "
-            "and use reconnaissance to enumerate which routes are exposed and "
-            "what stack the server is running."
+            "Before attacking, you need to map the target. Fingerprint the web "
+            "stack, enumerate which routes are exposed, and turn that into a "
+            "route→vulnerability map that drives every later module."
         ),
         "learner_steps": [
-            {"action": "Open the portal home page in the Lab Browser.",
-             "expected": "You see the AcmeCorp portal with links to all sections."},
-            {"action": "Click each link to map what services are available.",
-             "expected": "You discover login, search, diagnostics, files, and profile pages."},
-            {"action": "View the page source — look for HTML comments and server info.",
-             "expected": "Hidden comments reveal server version and framework details."},
-            {"action": "Note the response headers (use browser DevTools Network tab).",
-             "expected": "Server headers reveal technology stack information."},
-            {"action": "Document the attack surface you discovered.",
-             "expected": "You have a map of all endpoints to guide further testing."},
+            {"action": "Banner-grab the server to fingerprint the web stack.",
+             "technique": "T1592.002 Gather Victim Host Information: Software",
+             "command": "curl -sI http://target-agent/",
+             "expected": "Response headers reveal the Server banner / framework (Werkzeug + Flask)."},
+            {"action": "Enumerate content and hidden routes with a wordlist.",
+             "technique": "T1595.003 Active Scanning: Wordlist Scanning",
+             "command": "ffuf -u http://target-agent/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401",
+             "expected": "Routes such as /search, /auth/login, /system/ping, /files/read, /profile/ are discovered."},
+            {"action": "Probe every route and record status code + latency.",
+             "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
+             "command": "for p in / /search /auth/login /system/ping /files/read /profile/; do curl -s -o /dev/null -w \"%{http_code}  $p\\n\" http://target-agent$p; done",
+             "expected": "A status/latency map of every reachable endpoint."},
+            {"action": "Read the HTML source for comments and version leaks.",
+             "technique": "T1592.002 Gather Victim Host Information: Software",
+             "command": "curl -s http://target-agent/ | grep -iE \"<!--|version|powered\"",
+             "expected": "Comments / markup reveal stack details that guide the exploit modules."},
+            {"action": "Compile the attack-surface inventory for downstream modules.",
+             "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
+             "command": "# map each route to a candidate weakness: /search→XSS, /system/ping→cmd-i, /files/read→LFI, /files/upload→upload, /profile/update→CSRF, /auth/login→brute-force",
+             "expected": "A route→vulnerability map ready to drive the exploit modules."},
         ],
         "detection_rule": "Wazuh web-scanner signature / sequential path probes from one IP",
         "success_markers": [
@@ -54,7 +73,20 @@ class ReconModule(BaseModule):
         ],
         "quick_probe": "/",
     }
-    steps = [{'title': 'Fingerprint HTTP headers', 'hint': 'Capture Server, X-Powered-By, cookies', 'expected': 'Banner of the target web stack'}, {'title': 'Enumerate known routes', 'hint': 'Probe / /search /auth/login /system/ping /files/read /profile/', 'expected': 'Status code + latency per route'}, {'title': 'Compile route inventory', 'hint': 'Categorize reachable vs redirected vs forbidden endpoints', 'expected': 'Route map ready for downstream modules'}]
+    steps = [
+        {'title': 'Fingerprint the web stack', 'tactic': 'Reconnaissance',
+         'technique': 'T1592.002 Gather Victim Host Information: Software',
+         'command': 'curl -sI http://target-agent/',
+         'hint': 'Capture Server, X-Powered-By, cookies', 'expected': 'Banner of the target web stack'},
+        {'title': 'Enumerate exposed routes', 'tactic': 'Reconnaissance',
+         'technique': 'T1595.003 Active Scanning: Wordlist Scanning',
+         'command': 'for p in / /search /auth/login /system/ping /files/read /profile/; do curl -s -o /dev/null -w "%{http_code} $p\\n" http://target-agent$p; done',
+         'hint': 'Probe / /search /auth/login /system/ping /files/read /profile/', 'expected': 'Status code + latency per route'},
+        {'title': 'Compile route inventory', 'tactic': 'Reconnaissance',
+         'technique': 'T1595.002 Active Scanning: Vulnerability Scanning',
+         'command': '# categorize reachable vs redirected vs forbidden endpoints',
+         'hint': 'Categorize reachable vs redirected vs forbidden endpoints', 'expected': 'Route map ready for downstream modules'},
+    ]
 
     def options(self) -> list[ModuleOption]:
         return [

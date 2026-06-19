@@ -26,3 +26,19 @@ export const CATEGORY_ICON = {
   'Web Application': '◉',
   'File System':     '⌘',
 }
+
+// Real Lucide icons (the set shadcn ships with) keyed by category.
+import { Radar, KeyRound, Syringe, Globe, FolderTree, ShieldAlert } from 'lucide-react'
+
+export const CATEGORY_LUCIDE = {
+  'Reconnaissance':  Radar,
+  'Authentication':  KeyRound,
+  'Injection':       Syringe,
+  'Web Application': Globe,
+  'File System':     FolderTree,
+}
+
+export const CategoryIcon = ({ category, ...props }) => {
+  const Icon = CATEGORY_LUCIDE[category] || ShieldAlert
+  return <Icon {...props} />
+}
