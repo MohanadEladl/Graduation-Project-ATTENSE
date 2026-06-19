@@ -135,6 +135,16 @@ TARGET_RESPONDERS = {
     "TargetEnableCsrfProtection",
 }
 RESPONDERS = sorted(WAZUH_RESPONDERS | TARGET_RESPONDERS)
+RESPONDER_DISPLAY_NAMES = {
+    "WazuhBlockIP": "IPLocker",
+    "WazuhIsolateHost": "IsolateHost",
+    "WazuhDisableAccount": "DisableAccount",
+    "TargetSanitizeInput": "SanitizeInput",
+    "TargetKillProcess": "KillProcess",
+    "TargetBlockPath": "BlockPath",
+    "TargetRemoveFile": "RemoveFile",
+    "TargetEnableCsrfProtection": "EnableCSRFProtection",
+}
 
 # Wazuh connection details passed into each responder's configuration so
 # they work immediately after setup, without manual Cortex UI configuration.
@@ -414,8 +424,9 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
     # Already-enabled responders for this org — needed for idempotency,
     # since re-enabling one that's already active is a version conflict.
     enabled = _req("GET", "/api/organization/responder?range=all", token=org_token)
-    enabled_ids = {
-        e.get("workerDefinitionId") for e in (enabled if isinstance(enabled, list) else [])
+    enabled_items = enabled if isinstance(enabled, list) else []
+    enabled_by_definition = {
+        e.get("workerDefinitionId"): e for e in enabled_items if e.get("workerDefinitionId")
     }
 
     wazuh_configuration = {
@@ -447,19 +458,43 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
             print(f"   ⚠️  Found responder '{responder_name}' but missing ID — skipping.")
             continue
 
-        if worker_definition_id in enabled_ids:
-            print(f"   ✅ '{responder_name}' already enabled for org '{ORG_NAME}' — skipping.")
+        display_name = RESPONDER_DISPLAY_NAMES[responder_name]
+        existing = enabled_by_definition.get(worker_definition_id)
+        if existing:
+            if existing.get("name") != display_name:
+                _req(
+                    "PATCH",
+                    f"/api/responder/{existing['id']}",
+                    {"name": display_name},
+                    token=org_token,
+                )
+                print(f"   ✅ Renamed '{responder_name}' to '{display_name}'.")
+            else:
+                print(f"   ✅ '{display_name}' already enabled for org '{ORG_NAME}' — skipping.")
             continue
 
         # Note: the org is implied by the caller's own session/org
         # membership, not a path segment — Cortex's own UI calls this same
         # "/api/organization/responder/{id}" path with no org name in it.
+        # "name" is what TheHive shows in the responder picker. Keep it
+        # independent from Cortex's required versioned worker definition ID.
         _req("POST", f"/api/organization/responder/{worker_definition_id}", {
-            "name":          worker_definition_id,
+            "name":          display_name,
             "configuration": configuration,
             "jobCache":      10,
         }, token=org_token)
-        print(f"   ✅ '{responder_name}' responder enabled for org '{ORG_NAME}'.")
+        print(f"   ✅ '{display_name}' responder enabled for org '{ORG_NAME}'.")
+
+    # Remove older enabled versions after the current definitions are ready.
+    current_definition_ids = {
+        d.get("id") for d in definitions if d.get("name") in RESPONDERS
+    }
+    for old in enabled_items:
+        definition_id = old.get("workerDefinitionId", "")
+        base_name = definition_id.rsplit("_", 2)[0]
+        if base_name in RESPONDERS and definition_id not in current_definition_ids:
+            _req("DELETE", f"/api/responder/{old['id']}", token=org_token)
+            print(f"   ✅ Removed obsolete responder instance '{definition_id}'.")
 
 
 # ── Step 5: Patch thehive/application.conf ────────────────────────────────────
