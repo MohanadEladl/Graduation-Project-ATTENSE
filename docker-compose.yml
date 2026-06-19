@@ -21,6 +21,8 @@ services:
     container_name: attense_target_agent
     hostname: target-agent
     restart: unless-stopped
+    environment:
+      - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
     depends_on:
       wazuh-manager:
         condition: service_healthy
@@ -378,7 +380,7 @@ services:
   # Waits for Cortex to be healthy, then runs setup_cortex.py which:
   #   1. Creates the admin user + ATTENSE org in Cortex
   #   2. Generates an API key for the org
-  #   3. Enables the WazuhBlockIP responder
+  #   3. Enables Wazuh and target-app containment responders
   #   4. Patches thehive/application.conf with the real key
   #   5. Restarts TheHive via Docker socket so it picks up the new key
   #   6. Deletes secrets/ATTENSE.env from disk
@@ -394,6 +396,8 @@ services:
       - THEHIVE_CONF_PATH=/thehive/application.conf
       - CORTEX_ORG_NAME=ATTENSE
       - CORTEX_PLAY_SECRET=${CORTEX_PLAY_SECRET:-5f6e69909a9ca4768d36c3f418a9a6e0857a0eac393d18071291f0971abc7e80f3dd02112b7f4505ae8f17eb8500aa61}
+      - TARGET_URL=http://target-agent:80
+      - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
     volumes:
       - ./scripts:/scripts:ro          # setup_cortex.py lives here
       - ./thehive:/thehive             # script patches application.conf here
