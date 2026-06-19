@@ -12,6 +12,9 @@ import json
 import logging
 
 from flask import Blueprint, request, render_template_string, current_app
+from markupsafe import escape
+
+import containment
 
 logger = logging.getLogger("target.search")
 search_bp = Blueprint("search", __name__)
@@ -140,4 +143,5 @@ def search():
                 extra={"query": q[:200]},
             )
 
-    return render_template_string(_TEMPLATE, q=q)
+    rendered_q = escape(q) if containment.is_enabled("sanitize_input") else q
+    return render_template_string(_TEMPLATE, q=rendered_q)

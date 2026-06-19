@@ -6,8 +6,12 @@ no Origin/Referer enforcement.
 """
 import json
 import logging
+import hmac
+import secrets
 
-from flask import Blueprint, request, render_template_string, session, current_app
+from flask import Blueprint, request, render_template_string, session, current_app, abort
+
+import containment
 
 logger     = logging.getLogger("target.profile")
 profile_bp = Blueprint("profile", __name__)
@@ -101,7 +105,7 @@ h2{font-size:20px;font-weight:600;color:#e2e8f0;margin-bottom:24px;}
         <label>New Email Address</label>
         <input name="email" value="{{ email }}" placeholder="new@email.com"/>
       </div>
-      <!-- [VULN] No hidden CSRF token field -->
+      {% if csrf_token %}<input type="hidden" name="_csrf_token" value="{{ csrf_token }}"/>{% endif %}
       <button type="submit" class="btn">Save Changes</button>
     </form>
     {{ message|safe }}
@@ -117,6 +121,9 @@ h2{font-size:20px;font-weight:600;color:#e2e8f0;margin-bottom:24px;}
 def profile():
     user = session.get("user", "guest")
     data = _PROFILES.get(user, _PROFILES["guest"])
+    csrf_token = ""
+    if containment.is_enabled("csrf_protection"):
+        csrf_token = session.setdefault("csrf_token", secrets.token_urlsafe(32))
     import evidence
     evidence.record(
         "route_discovered",
@@ -130,6 +137,7 @@ def profile():
         _PROFILE_PAGE,
         user=user, email=data["email"], role=data["role"], message="",
         user_initial=(user[0].upper() if user else "G"),
+        csrf_token=csrf_token,
     )
 
 
@@ -162,7 +170,21 @@ def update():
         extra={"user": user, "new_email": email, "referer": referer},
     )
     # No anti-CSRF token field is ever sent — every request is by definition missing one
-    has_token = bool(request.form.get("_csrf_token") or request.form.get("csrf_token"))
+    supplied_token = request.form.get("_csrf_token") or request.form.get("csrf_token") or ""
+    expected_token = session.get("csrf_token", "")
+    has_token = bool(
+        supplied_token
+        and expected_token
+        and hmac.compare_digest(supplied_token, expected_token)
+    )
+    if containment.is_enabled("csrf_protection") and not has_token:
+        logger.warning(json.dumps({
+            "event": "csrf_request_blocked",
+            "endpoint": "/profile/update",
+            "user": user,
+            "source_ip": request.remote_addr,
+        }))
+        abort(403)
     if not has_token:
         evidence.record(
             "csrf_token_missing",
@@ -205,4 +227,5 @@ def update():
         _PROFILE_PAGE,
         user=user, email=data["email"], role=data["role"], message=msg,
         user_initial=(user[0].upper() if user else "G"),
+        csrf_token=(session.get("csrf_token", "") if containment.is_enabled("csrf_protection") else ""),
     )

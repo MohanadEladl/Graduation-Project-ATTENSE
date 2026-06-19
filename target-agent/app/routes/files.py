@@ -15,6 +15,8 @@ import os
 from flask import Blueprint, request, render_template_string, current_app
 from werkzeug.utils import secure_filename  # noqa: F401  (kept for future use)
 
+import containment
+
 logger   = logging.getLogger("target.files")
 files_bp = Blueprint("files", __name__)
 
@@ -128,7 +130,19 @@ def read_file():
             extra={"path_param": path[:200]},
         )
 
-    full_path = BASE_DIR + path  # [VULN] no normalization
+    if containment.path_is_blocked(path):
+        logger.warning(json.dumps({
+            "event": "file_read_blocked",
+            "path_param": path,
+            "source_ip": request.remote_addr,
+        }))
+        return render_template_string(
+            _READ_PAGE,
+            path=path,
+            content="[BLOCKED] This path is denied by an active containment rule.",
+        ), 403
+
+    full_path = BASE_DIR + path  # [VULN until block_path containment is applied]
     try:
         with open(full_path, "r", errors="replace") as f:
             content = f.read(4096)

@@ -47,8 +47,8 @@ RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt || \
 COPY app/ /app/
 
 # Create log + upload dirs with open permissions (lab only)
-RUN mkdir -p /app/logs /app/static/uploads && \
-    chmod 777 /app/logs /app/static/uploads
+RUN mkdir -p /app/logs /app/static/uploads /app/runtime && \
+    chmod 777 /app/logs /app/static/uploads /app/runtime
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
