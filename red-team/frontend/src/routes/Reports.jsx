@@ -145,7 +145,7 @@ export default function Reports() {
     api.sessions.list().catch(() => [])
       .then(s => {
         const done = (Array.isArray(s) ? s : []).filter(
-          x => x.learning_success || x.learning_state === 'completed' || x.state === 'completed'
+          x => x.learning_success
         )
         setSessions(done.sort((a, b) => (b.learning_completed_at || b.created_at || 0) - (a.learning_completed_at || a.created_at || 0)))
         setLoading(false)

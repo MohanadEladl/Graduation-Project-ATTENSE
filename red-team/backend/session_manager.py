@@ -82,6 +82,15 @@ class SessionRecord:
     mutation_next_fire_at: Optional[float] = None
     mutation_timeline: List[dict] = field(default_factory=list)
 
+    def normalize_learning_state(self) -> None:
+        """Repair persisted state combinations that cannot be produced now."""
+        if self.learning_success:
+            self.learning_state = "completed"
+            return
+        if self.learning_state == "completed":
+            self.learning_state = "in_progress" if self.mission_started_at else "idle"
+            self.learning_completed_at = None
+
     def update_learning_progress(self, progress: dict) -> None:
         """Persist lab_progress.compute() results into session state."""
         self.learning_completed_tasks = list(progress.get("completed_tasks", []))
@@ -151,6 +160,7 @@ class SessionRecord:
         return changed
 
     def snapshot(self) -> dict:
+        self.normalize_learning_state()
         snap = self.attack.snapshot()
         total = len(getattr(self.module, "steps", []) or [])
         return {
@@ -274,6 +284,7 @@ class SessionManager:
             rec.mutation_status           = snap.get("mutation_status", "idle")
             rec.mutation_next_fire_at     = snap.get("mutation_next_fire_at")
             rec.mutation_timeline         = snap.get("mutation_timeline", [])
+            rec.normalize_learning_state()
 
             self._sessions[sid] = rec
 
