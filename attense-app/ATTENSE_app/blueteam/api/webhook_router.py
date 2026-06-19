@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from .dependencies import get_event_emitter, get_attacker_log_attacher, get_settings
 from config.settings import Settings
+from config.constants import CONTAINMENT_INVESTIGATION_MIN_SECONDS
 from core.blueactions.hive_event_translator import HiveEventTranslator
 from core.blueactions.attacker_log_attacher import AttackerLogAttacher
 from infrastructure.eventstore.event_emitter import EventEmitter
@@ -41,6 +42,36 @@ webhook_router = APIRouter(
 )
 
 _translator = HiveEventTranslator()
+
+
+def _annotate_investigation_gap(event, store, incident_id: str) -> None:
+    """
+    Flag a containment_initiated event that fired with little or no prior
+    investigation on this incident. Scoring-only — never blocks the action;
+    the analyst already triggered the responder in TheHive by the time this
+    webhook arrives.
+    """
+    investigation_events = [
+        e for e in store.get_events(incident_id)
+        if e.event_type == "alert_investigation_started" and e.timestamp <= event.timestamp
+    ]
+    if event.metadata is None:
+        event.metadata = {}
+    if not investigation_events:
+        event.metadata["investigation_skipped"] = True
+        logger.info(
+            "[Webhook] Containment fired for incident '%s' with no prior investigation event",
+            incident_id,
+        )
+        return
+    last_investigation = max(investigation_events, key=lambda e: e.timestamp)
+    gap_seconds = (event.timestamp - last_investigation.timestamp).total_seconds()
+    event.metadata["investigation_gap_seconds"] = round(gap_seconds, 1)
+    event.metadata["premature_containment"] = gap_seconds < CONTAINMENT_INVESTIGATION_MIN_SECONDS
+    logger.info(
+        "[Webhook] Containment gap for incident '%s': %.1fs since investigation started (premature=%s)",
+        incident_id, gap_seconds, event.metadata["premature_containment"],
+    )
 
 
 @webhook_router.post(
@@ -107,6 +138,12 @@ async def receive_hive_webhook(
     if event is None:
         return {"status": "ignored", "reason": "no_mapping"}
 
+    # Step 3: Get or create the incident.
+    # TheHive is the source of truth for analyst actions. If the incident
+    # doesn't exist yet in memory (e.g. container was restarted), we
+    # create it on-the-fly so events are never silently dropped.
+    incident, store = emitter.get_or_create(incident_id, scenario_id="hive")
+
     # Safety: destructive / side-effecting actions (blocking IPs, disabling
     # services, isolation, etc.) MUST be explicitly confirmed by an analyst
     # in the Hive payload. This prevents automatic coordinators or other
@@ -132,12 +169,11 @@ async def receive_hive_webhook(
             )
             return {"status": "ignored", "reason": "manual_confirmation_required"}
 
-    # Step 3: Get or create the incident.
-    # TheHive is the source of truth for analyst actions. If the incident
-    # doesn't exist yet in memory (e.g. container was restarted), we
-    # create it on-the-fly so events are never silently dropped.
-    incident, store = emitter.get_or_create(incident_id, scenario_id="hive")
-
+    # Score whether the analyst investigated before containing: compare this
+    # containment action's timestamp against the most recent
+    # alert_investigation_started event already recorded for this incident.
+    if event.event_type == "containment_initiated":
+        _annotate_investigation_gap(event, store, incident_id)
 
     # Step 4: Emit — persists the event and updates incident state
     try:
