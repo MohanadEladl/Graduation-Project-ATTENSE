@@ -9,12 +9,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # ── System dependencies ───────────────────────────────────────────────────────
+# iptables + net-tools (route): required by Wazuh's bundled active-response
+# binaries (firewall-drop, route-null) to actually execute their block/isolate
+# commands on this agent, rather than failing with "binary not found".
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl gnupg apt-transport-https lsb-release ca-certificates \
         nginx \
         iputils-ping \
         python3 python3-pip python3-venv \
         procps netcat-openbsd \
+        iptables net-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Wazuh Agent 4.9.2 ─────────────────────────────────────────────────────────
