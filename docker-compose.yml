@@ -327,6 +327,24 @@ services:
     networks:
       - attense_net
 
+  # TheHive Init: creates the Blue Team organisation/user and API key.
+  thehive-init:
+    image: python:3.11-slim
+    container_name: attense_thehive_init
+    restart: "no"
+    depends_on:
+      thehive:
+        condition: service_started
+    environment:
+      - THEHIVE_URL=http://thehive:9000
+      - THEHIVE_ORG_NAME=blue-team
+      - THEHIVE_WEBHOOK_ENDPOINT=blueteam
+    volumes:
+      - ./scripts:/scripts:ro
+    command: python /scripts/setup_thehive.py
+    networks:
+      - attense_net
+
 
   # ── Cortex: Active-Response Engine (Responders for TheHive) ─────────────────
   cortex:
@@ -408,6 +426,31 @@ services:
       - ./scripts:/scripts:ro          # setup_wazuh.py lives here
       - /var/run/docker.sock:/var/run/docker.sock   # to exec into wazuh-manager
     command: python /scripts/setup_wazuh.py
+    networks:
+      - attense_net
+
+  # Wazuh Agent Watchdog: keeps the disposable target-agent enrolled.
+  # If the manager has a disconnected target-agent record that blocks fresh
+  # enrollment, this service removes the stale record and restarts the target.
+  wazuh-agent-watchdog:
+    image: python:3.11-slim
+    container_name: attense_wazuh_agent_watchdog
+    restart: unless-stopped
+    depends_on:
+      wazuh-manager:
+        condition: service_healthy
+      target-agent:
+        condition: service_started
+    environment:
+      - WAZUH_CONTAINER=attense_wazuh_manager
+      - TARGET_CONTAINER=attense_target_agent
+      - TARGET_AGENT_NAME=target-agent
+      - CHECK_INTERVAL_SECONDS=30
+      - STALE_AFTER_MISSES=2
+    volumes:
+      - ./scripts:/scripts:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: python /scripts/wazuh_agent_watchdog.py
     networks:
       - attense_net
 
