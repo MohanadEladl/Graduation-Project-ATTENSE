@@ -9,9 +9,8 @@ What it does
 1. Waits for the Cortex container to become healthy.
 2. Creates the first admin user + organisation via the Cortex bootstrap API.
 3. Generates an API key for that organisation.
-4. Enables the Wazuh-backed responders (WazuhBlockIP, WazuhIsolateHost,
-   WazuhDisableAccount) in that organisation, pre-configured with the Wazuh
-   API URL/credentials/agent name so they work without manual Cortex UI setup.
+4. Enables the Wazuh-backed and target-app containment responders, with the
+   backend configuration required to work without manual Cortex UI setup.
 5. Writes the API key into thehive/application.conf so TheHive can talk to Cortex.
 6. Prints clear next steps.
 
@@ -126,8 +125,16 @@ ORG_NAME       = os.getenv("CORTEX_ORG_NAME",       "ATTENSE")
 ORG_ADMIN_LOGIN = os.getenv("CORTEX_ORG_ADMIN",     "attense-analyst")
 ORG_ADMIN_PASS  = os.getenv("CORTEX_ORG_PASS",      "attense-Analyst1!")
 
-# Responders to enable — each shares the same Wazuh connection configuration
-RESPONDERS = ["WazuhBlockIP", "WazuhIsolateHost", "WazuhDisableAccount"]
+# Responders to enable, grouped by backend configuration.
+WAZUH_RESPONDERS = {"WazuhBlockIP", "WazuhIsolateHost", "WazuhDisableAccount"}
+TARGET_RESPONDERS = {
+    "TargetSanitizeInput",
+    "TargetKillProcess",
+    "TargetBlockPath",
+    "TargetRemoveFile",
+    "TargetEnableCsrfProtection",
+}
+RESPONDERS = sorted(WAZUH_RESPONDERS | TARGET_RESPONDERS)
 
 # Wazuh connection details passed into each responder's configuration so
 # they work immediately after setup, without manual Cortex UI configuration.
@@ -137,6 +144,8 @@ WAZUH_API_URL      = os.getenv("WAZUH_API_URL",      "https://wazuh-manager:5500
 WAZUH_USER         = os.getenv("WAZUH_USER",         "wazuh")
 WAZUH_PASS         = os.getenv("WAZUH_PASS",         "wazuh")
 WAZUH_AGENT_NAME   = os.getenv("WAZUH_AGENT_NAME",   "target-agent")
+TARGET_URL         = os.getenv("TARGET_URL",         "http://target-agent:80")
+CONTAINMENT_TOKEN  = os.getenv("CONTAINMENT_API_TOKEN", "attense-containment-token")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -382,11 +391,11 @@ def step_create_api_key(admin_token: tuple[str, str]) -> str:
     return str(api_key)
 
 
-# ── Step 4: Enable the Wazuh-backed responders ───────────────────────────────
+# ── Step 4: Enable containment responders ────────────────────────────────────
 
 def step_enable_responders(org_token: tuple[str, str]) -> None:
-    """Enable each Wazuh-backed responder in the ATTENSE organisation."""
-    print(f"\n🔫 Step 4: Enable Wazuh-backed responders …")
+    """Enable Wazuh and target-app responders in the ATTENSE organisation."""
+    print(f"\n🔫 Step 4: Enable containment responders …")
 
     # List available responder definitions. This needs an org-scoped session
     # (read/analyze/orgadmin) — the platform superadmin alone gets a 403
@@ -409,14 +418,23 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
         e.get("workerDefinitionId") for e in (enabled if isinstance(enabled, list) else [])
     }
 
-    configuration = {
+    wazuh_configuration = {
         "wazuh_url":      WAZUH_API_URL,
         "wazuh_username": WAZUH_USER,
         "wazuh_password": WAZUH_PASS,
         "agent_name":     WAZUH_AGENT_NAME,
     }
+    target_configuration = {
+        "target_url": TARGET_URL,
+        "containment_api_token": CONTAINMENT_TOKEN,
+    }
 
     for responder_name in RESPONDERS:
+        configuration = (
+            wazuh_configuration
+            if responder_name in WAZUH_RESPONDERS
+            else target_configuration
+        )
         target = next((d for d in definitions if d.get("name") == responder_name), None)
         if not target:
             print(f"   ⚠️  Responder '{responder_name}' not found yet.")
@@ -566,14 +584,13 @@ def main() -> None:
     print("What just happened:")
     print("  - Cortex admin user + ATTENSE org created")
     print("  - API key generated and written to thehive/application.conf")
-    print("  - WazuhBlockIP, WazuhIsolateHost, WazuhDisableAccount responders enabled")
+    print(f"  - {len(RESPONDERS)} Wazuh and target-app responders enabled")
     print("  - Secrets file kept in place (close_lab.py backs it up + removes it on close)")
     print("  - TheHive restarted to pick up the new key")
     print()
     print("You can now:")
     print("  - Open TheHive at http://localhost:9000")
-    print("  - On an alert, the analyst chooses Responders -> WazuhBlockIP /")
-    print("    WazuhIsolateHost / WazuhDisableAccount")
+    print("  - On an alert, the analyst chooses the matching containment responder")
     print("  - ATTENSE records CONTAINING/CONTAINED only after that chosen action runs")
     print("=" * 60)
 

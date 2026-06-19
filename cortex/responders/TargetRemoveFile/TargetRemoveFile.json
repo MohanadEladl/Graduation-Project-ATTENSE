@@ -1,0 +1,15 @@
+{
+  "name": "TargetRemoveFile",
+  "version": "1.0",
+  "author": "ATTENSE",
+  "url": "https://github.com/DarineNadaa/Graduation-Project",
+  "license": "MIT",
+  "description": "Remove a named file from the target application's upload directory.",
+  "dataTypeList": ["thehive:case_artifact"],
+  "command": "TargetRemoveFile/target_remove_file.py",
+  "baseConfig": "TargetContainment",
+  "configurationItems": [
+    {"name": "target_url", "description": "Target-agent base URL", "type": "string", "multi": false, "required": true, "defaultValue": "http://target-agent:80"},
+    {"name": "containment_api_token", "description": "Target containment API token", "type": "string", "multi": false, "required": true}
+  ]
+}
