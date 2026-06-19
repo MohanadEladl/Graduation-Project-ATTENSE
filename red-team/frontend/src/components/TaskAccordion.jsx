@@ -47,8 +47,15 @@ export function TaskAccordion({ steps = [] }) {
                   {idx + 1}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[10px] font-mono tracking-[0.22em] text-attense-muted">
-                    TASK {idx + 1}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono tracking-[0.22em] text-attense-muted">
+                      TASK {idx + 1}
+                    </span>
+                    {step.technique && (
+                      <span className="font-mono text-[9px] font-semibold text-attense-red bg-attense-red/10 border border-attense-red/30 rounded px-1.5 py-0.5">
+                        {String(step.technique).split(' ')[0]}
+                      </span>
+                    )}
                   </div>
                   <div className="font-sans text-[14px] font-medium text-attense-text truncate">
                     {step.title || `Step ${idx + 1}`}
@@ -73,6 +80,28 @@ export function TaskAccordion({ steps = [] }) {
                   </div>
                 )}
 
+                {step.technique && (
+                  <div className="mb-3">
+                    <div className="text-[9px] font-mono tracking-[0.28em] text-attense-muted mb-1">
+                      MITRE TECHNIQUE
+                    </div>
+                    <div className="text-[12px] text-attense-text font-mono">
+                      {step.technique}
+                    </div>
+                  </div>
+                )}
+
+                {step.command && (
+                  <div className="mb-3">
+                    <div className="text-[9px] font-mono tracking-[0.28em] text-attense-muted mb-1">
+                      COMMAND
+                    </div>
+                    <pre className="text-[12px] text-attense-mint leading-relaxed font-mono bg-attense-bg/80 border border-attense-border rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all">
+{step.command}
+                    </pre>
+                  </div>
+                )}
+
                 {step.expected && (
                   <div className="mb-3">
                     <div className="text-[9px] font-mono tracking-[0.28em] text-attense-muted mb-1">
@@ -84,7 +113,7 @@ export function TaskAccordion({ steps = [] }) {
                   </div>
                 )}
 
-                {!step.hint && !step.expected && (
+                {!step.hint && !step.command && !step.expected && (
                   <div className="text-[12px] text-attense-muted italic">
                     No additional guidance for this task.
                   </div>

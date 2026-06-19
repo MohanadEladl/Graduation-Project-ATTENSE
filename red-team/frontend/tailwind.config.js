@@ -38,11 +38,13 @@ export default {
         'slide-in':    'slide-in 0.25s ease forwards',
         'pulse-slow':  'pulse 3s cubic-bezier(0.4,0,0.6,1) infinite',
         'blink':       'blink 1.2s step-start infinite',
+        'shimmer':     'shimmer 2s linear infinite',
       },
       keyframes: {
         'fade-up':  { '0%': { opacity: 0, transform: 'translateY(10px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
         'slide-in': { '0%': { opacity: 0, transform: 'translateX(8px)'  }, '100%': { opacity: 1, transform: 'translateX(0)' } },
         'blink':    { '0%,49%': { opacity: 1 }, '50%,100%': { opacity: 0 } },
+        'shimmer':  { 'from': { backgroundPosition: '0 0' }, 'to': { backgroundPosition: '-200% 0' } },
       },
       backgroundImage: {
         'grid': "linear-gradient(rgba(255,21,53,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,21,53,0.04) 1px, transparent 1px)",

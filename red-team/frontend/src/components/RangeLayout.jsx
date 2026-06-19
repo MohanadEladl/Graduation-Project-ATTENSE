@@ -37,6 +37,7 @@ export function RangeLayout() {
 
   return (
     <div
+      id="app-shell"
       className="h-full w-full flex flex-col overflow-hidden font-sans"
       style={{ background: '#07080a', position: 'relative', isolation: 'isolate' }}
     >
@@ -55,8 +56,8 @@ export function RangeLayout() {
       {/* ── NAVBAR pill ── */}
       <header className="shrink-0 flex justify-center px-7 pt-6 pb-4 relative z-50">
         <motion.div
-          className="flex w-full max-w-[1200px] items-center justify-between rounded-[18px] border border-white/[0.07] px-7 py-4 backdrop-blur-xl"
-          style={{ background: 'rgba(10,12,18,0.7)', boxShadow: '0 10px 40px rgba(0,0,0,0.55)' }}
+          className="relative flex w-full max-w-[1200px] items-center justify-between rounded-[18px] border border-white/[0.12] px-7 py-4"
+          style={{ background: 'transparent', boxShadow: 'none' }}
           initial={{ opacity: 0, y: -16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
@@ -71,8 +72,8 @@ export function RangeLayout() {
             </span>
           </button>
 
-          {/* Links + CTA + status */}
-          <div className="flex items-center gap-[26px]">
+          {/* Centered nav links */}
+          <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[26px]">
             {NAV.map((l) => (
               <NavLink
                 key={l.to}
@@ -83,23 +84,6 @@ export function RangeLayout() {
                 {l.label}
               </NavLink>
             ))}
-
-            <button
-              onClick={() => navigate('/missions')}
-              className="ml-2 rounded-[11px] px-[18px] py-[9px] text-[12px] font-bold tracking-[0.12em] text-white transition-opacity hover:opacity-90"
-              style={{ background: '#ff1535' }}
-            >
-              LAUNCH MISSION
-            </button>
-
-            <span
-              className="ml-1 h-[7px] w-[7px] rounded-full"
-              title={health?.ok ? 'Lab online' : 'Backend offline'}
-              style={{
-                background: health?.ok ? '#2ee39a' : '#ff1535',
-                boxShadow: health?.ok ? '0 0 10px #2ee39a' : '0 0 10px #ff1535',
-              }}
-            />
           </div>
         </motion.div>
       </header>
