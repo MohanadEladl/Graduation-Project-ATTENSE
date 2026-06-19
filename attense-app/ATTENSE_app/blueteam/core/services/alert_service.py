@@ -73,14 +73,19 @@ def raise_alert(
     )
     emitter.emit(incident, store, event)
 
-    # Convert Cortex-Lite enrichment report IOCs to TheHive artifacts format
+    # Convert Cortex-Lite enrichment report IOCs to TheHive artifacts format,
+    # attaching the actual AbuseIPDB/VirusTotal findings to each observable so
+    # the analyst sees real evidence in TheHive before choosing a response.
     artifacts = []
     for ip in enrichment_report.iocs_found.get("ips", []):
-        artifacts.append({"dataType": "ip", "data": ip, "message": "Attacker IP"})
+        message, tags = enrichment_report.describe(ip, "ip")
+        artifacts.append({"dataType": "ip", "data": ip, "message": message, "tags": tags})
     for url in enrichment_report.iocs_found.get("urls", []):
-        artifacts.append({"dataType": "url", "data": url, "message": "Malicious URL"})
+        message, tags = enrichment_report.describe(url, "url")
+        artifacts.append({"dataType": "url", "data": url, "message": message, "tags": tags})
     for h in enrichment_report.iocs_found.get("hashes", []):
-        artifacts.append({"dataType": "hash", "data": h, "message": "Malicious File Hash"})
+        message, tags = enrichment_report.describe(h, "hash")
+        artifacts.append({"dataType": "hash", "data": h, "message": message, "tags": tags})
 
     # Create the Alert in TheHive
     try:
@@ -89,6 +94,7 @@ def raise_alert(
             title=body.rule_name or "SIEM Alert",
             severity=body.severity,
             artifacts=artifacts,
+            enrichment_summary=enrichment_report.enrichment_note,
         )
         alert_id = res.get("id") or res.get("_id")
         if alert_id:
