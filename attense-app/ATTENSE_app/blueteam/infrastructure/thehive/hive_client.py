@@ -69,20 +69,27 @@ class HiveClient:
         title: str,
         severity: str,
         artifacts: list[dict],
+        enrichment_summary: str = "",
     ) -> dict:
         """
         Create a new alert in TheHive.
 
         Parameters
         ----------
-        incident_id : Internal incident identifier.
-        title       : Alert title.
-        severity    : One of low | medium | high | critical.
-        artifacts   : List of observable dicts.
+        incident_id        : Internal incident identifier.
+        title               : Alert title.
+        severity            : One of low | medium | high | critical.
+        artifacts           : List of observable dicts.
+        enrichment_summary  : Cortex-Lite's human-readable threat-intel summary
+                               (AbuseIPDB/VirusTotal), appended to the alert
+                               description so it's visible at a glance.
         """
+        description = f"Automated alert for incident {incident_id}"
+        if enrichment_summary:
+            description += f"\n\nThreat intel summary: {enrichment_summary}"
         payload = {
             "title": title,
-            "description": f"Automated alert for incident {incident_id}",
+            "description": description,
             "severity": self._map_severity(severity),
             "tags": [incident_id, f"attense:incident-{incident_id}"],
             "type": "siem",
