@@ -1,12 +1,21 @@
 import json
+import os
 import urllib.request
 import time
 
 BASE = 'http://localhost:8010'
 
+# The /internal/webhook/hive endpoint authenticates callers with TheHive's
+# shared bearer secret (matches attense-app's WEBHOOK_SECRET), so present it.
+WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', 'changeme-webhook')
+
 def post(path, body):
     data = json.dumps(body).encode()
-    req = urllib.request.Request(f'{BASE}{path}', data=data, headers={'Content-Type': 'application/json'})
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {WEBHOOK_SECRET}',
+    }
+    req = urllib.request.Request(f'{BASE}{path}', data=data, headers=headers)
     try:
         with urllib.request.urlopen(req) as r:
             return r.status, json.loads(r.read())
