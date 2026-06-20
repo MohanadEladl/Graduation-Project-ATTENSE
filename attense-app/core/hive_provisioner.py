@@ -55,15 +55,21 @@ def create_user_in_org(org_name: str, username: str) -> str:
         client = _admin_client()
         existing = client.get(f"/api/user/{username}", headers={"X-Organisation": org_name})
         if existing.status_code == 404:
-            response = client.post(
-                "/api/v1/user",
-                json={
-                    "login": username,
-                    "name": username,
-                    "organisation": org_name,
-                    "profile": "org-admin",
-                },
-            )
+            response = None
+            for attempt in range(3):
+                response = client.post(
+                    "/api/v1/user",
+                    json={
+                        "login": username,
+                        "name": username,
+                        "organisation": org_name,
+                        "profile": "org-admin",
+                    },
+                )
+                if response.status_code != 403:
+                    break
+                if attempt < 2:
+                    time.sleep(1)
             response.raise_for_status()
         else:
             existing.raise_for_status()

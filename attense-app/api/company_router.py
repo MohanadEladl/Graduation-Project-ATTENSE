@@ -68,6 +68,22 @@ def confirm(company_id: str, session: dict = Depends(require_session)):
         hive_provisioner.create_org(company["name"])
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    manager = next(
+        (
+            user
+            for user in user_store.get_users_by_company(company_id)
+            if user["role"] == "soc_manager" and user["username"] == company["created_by"]
+        ),
+        None,
+    )
+    if manager is not None:
+        try:
+            hive_key = hive_provisioner.create_user_in_org(company["name"], manager["username"])
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        user_store.set_hive_key(manager["id"], hive_key)
+
     return company_store.confirm_company(company_id)
 
 

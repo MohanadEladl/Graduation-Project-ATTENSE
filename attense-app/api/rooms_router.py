@@ -55,7 +55,12 @@ def start(room_id: str, session: dict = Depends(require_session)):
 @router.delete("/{room_id}")
 def delete(room_id: str, session: dict = Depends(require_session)):
     _require_soc_manager(session)
-    spin_down_room(room_id)
+    try:
+        spin_down_room(room_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"message": "Room closed successfully"}
 
 

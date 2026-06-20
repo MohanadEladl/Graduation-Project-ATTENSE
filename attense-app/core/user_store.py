@@ -6,6 +6,8 @@ from typing import Optional
 
 import bcrypt
 
+from core import company_store
+
 VALID_ROLES = {
     "ciso",
     "soc_manager",
@@ -93,6 +95,9 @@ def register_user(
     if role != "ciso" and company_id is None:
         raise ValueError("company_id is required for this role")
 
+    if role != "ciso" and company_store.get_company(company_id) is None:
+        raise ValueError("Company does not exist")
+
     users = _load_users()
     if username_exists(username):
         raise ValueError(f"Username already exists: {username}")
@@ -149,3 +154,10 @@ def get_users_by_company(company_id: str) -> list[dict]:
         for user in users
         if user["company_id"] == company_id
     ]
+
+
+def get_user_by_username(username: str) -> Optional[dict]:
+    for user in _load_users():
+        if user["username"] == username:
+            return {k: v for k, v in user.items() if k != "hashed_password"}
+    return None

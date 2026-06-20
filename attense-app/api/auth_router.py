@@ -39,7 +39,12 @@ def logout(body: LogoutRequest):
 
 @router.get("/me")
 def me(session: dict = Depends(require_session)):
-    return {"username": session["username"], "role": session["role"]}
+    response = {"username": session["username"], "role": session["role"]}
+    if session["role"] in user_store.HIVE_KEY_ROLES:
+        user = user_store.get_user_by_username(session["username"])
+        if user is not None:
+            response["hive_key"] = user.get("hive_key")
+    return response
 
 
 @router.post("/bootstrap-ciso")
