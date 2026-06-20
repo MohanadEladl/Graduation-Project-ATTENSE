@@ -3,6 +3,24 @@
 #   1. Wazuh agent   → ships logs to wazuh-manager
 #   2. nginx         → reverse proxy port 80 → Flask :5000
 #   3. Flask app     → intentionally vulnerable Python web app
+# Builder stage: only python3-pip/python3-venv (needed to build the venv) and
+# the Flask app's deps live here. requirements.txt is copied and installed
+# before anything else so this layer is cache-hit on unrelated rebuilds.
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY app/requirements.txt /tmp/requirements.txt
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Final stage: only the built venv is copied in below (see "Flask vulnerable
+# app" section) — final stage's python3 install skips pip/venv entirely,
+# since the venv already carries its own pip.
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -13,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl gnupg apt-transport-https lsb-release ca-certificates \
         nginx \
         iputils-ping \
-        python3 python3-pip python3-venv \
+        python3 \
         procps netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
@@ -36,9 +54,8 @@ RUN chown root:wazuh /var/ossec/etc/ossec.conf && chmod 660 /var/ossec/etc/ossec
 
 # ── Flask vulnerable app ──────────────────────────────────────────────────────
 WORKDIR /app
-COPY app/requirements.txt /app/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt || \
-    pip3 install --no-cache-dir -r requirements.txt
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 COPY app/ /app/
 
@@ -52,4 +69,8 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
+# Security boundary exception: this container intentionally stays root.
+# nginx's master process must bind port 80 (a privileged port) and the Wazuh
+# agent manages its own privileged daemons — neither works after USER drops
+# root, and this entrypoint boots both as PID 1 in sequence.
 CMD ["/entrypoint.sh"]

@@ -12,9 +12,22 @@
 # ATTENSE Core never talks to them directly.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Builder stage: deps copied and installed before any source code, so this
+# layer is cache-hit on every rebuild that doesn't touch requirments.txt.
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+COPY requirments.txt .
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir -r requirments.txt
+
+# Final stage: only the built venv is copied in below — pip's own footprint
+# never reaches the shipped image.
 FROM python:3.11-slim
 
-# ── System dependencies ───────────────────────────────────────────────────────
+# ── System dependencies ──────────────────────────────────────────────────────
+# update+install+cleanup chained in one RUN so the apt cache never persists
+# in its own layer.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         supervisor \
         curl \
@@ -23,8 +36,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── Python dependencies ───────────────────────────────────────────────────────
 WORKDIR /app
-COPY requirments.txt .
-RUN pip install --no-cache-dir -r requirments.txt
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # ── BlueTeam source ───────────────────────────────────────────────────────────
 COPY . .
@@ -37,7 +50,7 @@ COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
 # ── Log directory ─────────────────────────────────────────────────────────────
-RUN mkdir -p /var/log
+RUN mkdir -p /var/log && chmod 777 /var/log
 
 # ── Environment defaults ──────────────────────────────────────────────────────
 ENV ATTENSE_APP_PATH=/attense_app
@@ -47,6 +60,12 @@ ENV WEBHOOK_SECRET=changeme-webhook
 
 # Only the BlueTeam API is exposed externally
 EXPOSE 8010
+
+# Security boundary: drop root for the running process. No privileged ports
+# or system capabilities are needed (supervisord only spawns uvicorn on 8010).
+RUN groupadd -g 1000 appgroup && useradd -u 1000 -g appgroup -M -s /usr/sbin/nologin appuser \
+    && chown -R appuser:appgroup /app
+USER appuser
 
 # supervisord manages all internal processes
 # start.sh waits for internal dependencies before exec'ing supervisord

@@ -1,0 +1,22 @@
+# The backend Dockerfile only COPYs core/ modules/ utils/ engine/ backend/
+# main.py explicitly — frontend/ is its own build context (has its own
+# .dockerignore) and would otherwise drag its node_modules into every
+# backend build's context upload.
+frontend/
+
+.git
+.gitignore
+*.md
+
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+.venv/
+venv/
+env/
+
+logs/
+.vscode/
+.idea/
