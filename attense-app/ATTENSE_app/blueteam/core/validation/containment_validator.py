@@ -17,7 +17,7 @@ def validate_initiate_containment(incident: Incident, store) -> None:
     - Incident must be in DETECTED status (confirmed true positive).
     - A containment_initiated event must not already exist.
     """
-    from config.constants import (
+    from ...config.constants import (
         STATUS_DETECTED,
         EVENT_CONTAINMENT_INITIATED,
     )
@@ -41,7 +41,7 @@ def validate_complete_containment(incident: Incident, store) -> None:
     - Incident must not already be CONTAINED or ENDED.
     - containment_succeeded/failed must not already exist.
     """
-    from config.constants import (
+    from ...config.constants import (
         TERMINAL_STATUSES,
         EVENT_CONTAINMENT_INITIATED,
         EVENT_CONTAINMENT_SUCCEEDED,

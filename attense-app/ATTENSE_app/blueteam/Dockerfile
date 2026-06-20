@@ -17,7 +17,7 @@
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
-COPY requirments.txt .
+COPY ATTENSE_app/blueteam/requirments.txt .
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir -r requirments.txt
 
@@ -38,16 +38,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH=/app
 
 # ── BlueTeam source ───────────────────────────────────────────────────────────
-COPY . .
+COPY ATTENSE_app /app/ATTENSE_app
 
 # ── Supervisord configuration ─────────────────────────────────────────────────
-COPY supervisord.conf /etc/supervisor/conf.d/blueteam.conf
+COPY ATTENSE_app/blueteam/supervisord.conf /etc/supervisor/conf.d/blueteam.conf
 
 # ── Startup wait script ───────────────────────────────────────────────────────
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+COPY ATTENSE_app/blueteam/start.sh /start.sh
+RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh
 
 # ── Log directory ─────────────────────────────────────────────────────────────
 RUN mkdir -p /var/log && chmod 777 /var/log
@@ -55,11 +56,12 @@ RUN mkdir -p /var/log && chmod 777 /var/log
 # ── Environment defaults ──────────────────────────────────────────────────────
 ENV ATTENSE_APP_PATH=/attense_app
 ENV HIVE_URL=http://localhost:9000
-ENV HIVE_API_KEY=changeme
-ENV WEBHOOK_SECRET=changeme-webhook
 
 # Only the BlueTeam API is exposed externally
 EXPOSE 8010
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=15s --retries=12 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=2)"
 
 # Security boundary: drop root for the running process. No privileged ports
 # or system capabilities are needed (supervisord only spawns uvicorn on 8010).

@@ -17,25 +17,25 @@ from __future__ import annotations
 
 import logging
 
-from core.blueactions.alert_actions import (
+from ..blueactions.alert_actions import (
     build_raise_alert_event,
     build_investigate_alert_event,
     build_deny_alert_event,
 )
-from core.validation.alert_validator import (
+from ..validation.alert_validator import (
     validate_raise_alert,
     validate_investigate_alert,
     validate_deny_alert,
 )
-from infrastructure.eventstore.event_emitter import EventEmitter
-from infrastructure.thehive.hive_client import HiveClient
-from infrastructure.cortex.enrichment_service import EnrichmentReport
-from schemas.requests.alert_requests import (
+from ...infrastructure.eventstore.event_emitter import EventEmitter
+from ...infrastructure.thehive.hive_client import HiveClient
+from ...infrastructure.cortex.enrichment_service import EnrichmentReport
+from ...schemas.requests.alert_requests import (
     RaiseAlertRequest,
     InvestigateAlertRequest,
     DenyAlertRequest,
 )
-from schemas.responses.action_response import ActionResponse
+from ...schemas.responses.action_response import ActionResponse
 
 logger = logging.getLogger(__name__)
 

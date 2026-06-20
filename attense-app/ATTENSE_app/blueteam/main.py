@@ -4,22 +4,15 @@ main.py — Blue Team Service Entry Point
 Starts the FastAPI application for the Blue Team simulation.
 """
 
-import sys
-import os
 import logging
-
-# Ensure the blueteam package root is in sys.path
-_BLUETEAM_PATH = os.path.dirname(__file__)
-if _BLUETEAM_PATH not in sys.path:
-    sys.path.insert(0, _BLUETEAM_PATH)
 
 # FastAPI imports
 from fastapi import FastAPI
 
 # Local imports
-from api.router import router as blueteam_router
-from api.webhook_router import webhook_router as hive_webhook_router
-from api.middleware import RequestLoggingMiddleware, TimingMiddleware
+from .api.router import router as blueteam_router
+from .api.webhook_router import webhook_router as hive_webhook_router
+from .api.middleware import RequestLoggingMiddleware, TimingMiddleware
 
 # Setup logging
 logging.basicConfig(

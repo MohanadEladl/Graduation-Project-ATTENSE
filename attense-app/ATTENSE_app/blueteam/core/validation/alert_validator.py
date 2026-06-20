@@ -10,7 +10,7 @@ Raises ValueError with a descriptive message on any violation.
 from __future__ import annotations
 
 from ATTENSE_app.incidents.incident import Incident
-from infrastructure.eventstore.event_emitter import EventEmitter
+from ...infrastructure.eventstore.event_emitter import EventEmitter
 
 
 def validate_raise_alert(incident: Incident, store) -> None:
@@ -21,7 +21,7 @@ def validate_raise_alert(incident: Incident, store) -> None:
     - Incident must not be in a terminal state (CONTAINED or ENDED).
     - An alert_raised event must not already exist for this incident.
     """
-    from config.constants import TERMINAL_STATUSES, EVENT_ALERT_RAISED
+    from ...config.constants import TERMINAL_STATUSES, EVENT_ALERT_RAISED
     if incident.status in TERMINAL_STATUSES:
         raise ValueError(
             f"Cannot raise alert on incident '{incident.incident_id}': "
@@ -42,7 +42,7 @@ def validate_investigate_alert(incident: Incident, store) -> None:
     - An alert_raised event must exist (can't investigate what wasn't raised).
     - An alert_investigation_started event must NOT already exist.
     """
-    from config.constants import (
+    from ...config.constants import (
         TERMINAL_STATUSES,
         EVENT_ALERT_RAISED,
         EVENT_ALERT_INVESTIGATION_STARTED,
@@ -70,7 +70,7 @@ def validate_deny_alert(incident: Incident, store) -> None:
     - An alert_investigation_started event must exist first.
     - Incident must not already be confirmed or in a terminal state.
     """
-    from config.constants import (
+    from ...config.constants import (
         TERMINAL_STATUSES,
         EVENT_ALERT_INVESTIGATION_STARTED,
         EVENT_INCIDENT_CONFIRMED,

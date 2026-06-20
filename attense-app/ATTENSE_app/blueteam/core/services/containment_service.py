@@ -25,22 +25,22 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from config.constants import CONTAINMENT_LATE_THRESHOLD_SECONDS
-from core.blueactions.containment_actions import (
+from ...config.constants import CONTAINMENT_LATE_THRESHOLD_SECONDS
+from ..blueactions.containment_actions import (
     build_initiate_containment_event,
     build_complete_containment_event,
 )
-from core.validation.containment_validator import (
+from ..validation.containment_validator import (
     validate_initiate_containment,
     validate_complete_containment,
 )
-from infrastructure.eventstore.event_emitter import EventEmitter
-from infrastructure.sandbox.target_connector import TargetConnector
-from schemas.requests.containment_requests import (
+from ...infrastructure.eventstore.event_emitter import EventEmitter
+from ...infrastructure.sandbox.target_connector import TargetConnector
+from ...schemas.requests.containment_requests import (
     InitiateContainmentRequest,
     CompleteContainmentRequest,
 )
-from schemas.responses.action_response import ActionResponse
+from ...schemas.responses.action_response import ActionResponse
 
 logger = logging.getLogger(__name__)
 

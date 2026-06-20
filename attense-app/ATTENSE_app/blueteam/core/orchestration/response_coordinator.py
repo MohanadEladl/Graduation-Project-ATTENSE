@@ -18,9 +18,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from infrastructure.eventstore.event_emitter import EventEmitter
-from infrastructure.thehive.hive_client import HiveClient
-from infrastructure.sandbox.target_connector import TargetConnector
+from ...infrastructure.eventstore.event_emitter import EventEmitter
+from ...infrastructure.thehive.hive_client import HiveClient
+from ...infrastructure.sandbox.target_connector import TargetConnector
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +81,10 @@ class ResponseCoordinator:
         containment is only meaningful when the analyst chooses the action.
         Returns a summary dict with event IDs and current incident status.
         """
-        from core.services.alert_service import investigate_alert
-        from core.services.incident_service import confirm_incident
-        from schemas.requests.alert_requests import InvestigateAlertRequest
-        from schemas.requests.incident_requests import ConfirmIncidentRequest
+        from ..services.alert_service import investigate_alert
+        from ..services.incident_service import confirm_incident
+        from ...schemas.requests.alert_requests import InvestigateAlertRequest
+        from ...schemas.requests.incident_requests import ConfirmIncidentRequest
 
         logger.info(
             "[ResponseCoordinator] Starting automated triage for incident '%s'.",

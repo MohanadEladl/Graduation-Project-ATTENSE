@@ -20,8 +20,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from infrastructure.cortex.virustotal_client import VirusTotalClient, VTResult
-from infrastructure.cortex.abuseipdb_client import AbuseIPDBClient, AbuseIPResult
+from .virustotal_client import VirusTotalClient, VTResult
+from .abuseipdb_client import AbuseIPDBClient, AbuseIPResult
 
 logger = logging.getLogger(__name__)
 

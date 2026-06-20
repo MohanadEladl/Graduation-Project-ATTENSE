@@ -1,11 +1,12 @@
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 
 import docker
 
-from core import port_pool, user_store
+from core import company_store, port_pool, user_store
 
 
 TEMP_PATH = os.getenv("ATTENSE_TEMP_PATH", "/attense/temp")
@@ -34,8 +35,11 @@ def _save_room(room: dict) -> None:
 
 
 def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
-    # scenario_id identifies the requested scenario but is not part of the room schema.
-    _ = scenario_id
+    company = company_store.get_company(company_id)
+    if company is None:
+        raise ValueError(f"Company not found: {company_id}")
+    if company["status"] != "active":
+        raise RuntimeError("Company must be confirmed before creating rooms")
     room_id = str(uuid.uuid4())
     incident_id = str(uuid.uuid4())
     port = port_pool.acquire()
@@ -44,6 +48,7 @@ def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
         "room_id": room_id,
         "company_id": company_id,
         "incident_id": incident_id,
+        "scenario_id": scenario_id,
         "port": port,
         "status": "created",
         "blue_team_members": [],
@@ -62,6 +67,8 @@ def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
 
 def spin_up_blueteam(room_id: str) -> dict:
     room = _load_room(room_id)
+    if room["status"] == "active":
+        return room
 
     soc_manager = next(
         (
@@ -78,7 +85,7 @@ def spin_up_blueteam(room_id: str) -> dict:
 
     try:
         client = docker.from_env()
-        client.containers.run(
+        container = client.containers.run(
             image=BLUETEAM_IMAGE,
             name=f"blueteam_{room_id}",
             environment={
@@ -91,9 +98,27 @@ def spin_up_blueteam(room_id: str) -> dict:
             network=DOCKER_NETWORK,
             detach=True,
         )
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            container.reload()
+            state = container.attrs.get("State", {})
+            health = state.get("Health", {}).get("Status")
+            if health == "healthy":
+                break
+            if state.get("Status") in {"exited", "dead"} or health == "unhealthy":
+                raise RuntimeError(
+                    f"Blue Team container became {health or state.get('Status')}"
+                )
+            time.sleep(2)
+        else:
+            raise RuntimeError("Blue Team container did not become healthy within 90 seconds")
         room["status"] = "active"
         _save_room(room)
     except Exception as exc:
+        try:
+            container.remove(force=True)
+        except Exception:
+            pass
         raise RuntimeError(f"Failed to start Blue Team room {room_id}: {exc}") from exc
 
     return room

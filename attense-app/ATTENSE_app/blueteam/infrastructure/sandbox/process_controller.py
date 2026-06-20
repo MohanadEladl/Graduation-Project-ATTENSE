@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from infrastructure.sandbox.target_connector import TargetConnector
+from .target_connector import TargetConnector
 
 logger = logging.getLogger(__name__)
 

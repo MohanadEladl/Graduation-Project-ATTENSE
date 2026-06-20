@@ -27,17 +27,29 @@ def _require_soc_manager(session: dict) -> None:
 @router.post("/create")
 def create(body: CreateRoomRequest, session: dict = Depends(require_session)):
     _require_soc_manager(session)
-    return create_room(
-        company_id=session["company_id"],
-        scenario_id=body.scenario_id,
-        created_by=session["username"],
-    )
+    if not session.get("company_id"):
+        raise HTTPException(status_code=409, detail="SOC manager is not assigned to a company")
+    try:
+        return create_room(
+            company_id=session["company_id"],
+            scenario_id=body.scenario_id,
+            created_by=session["username"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/{room_id}/start")
 def start(room_id: str, session: dict = Depends(require_session)):
     _require_soc_manager(session)
-    return spin_up_blueteam(room_id)
+    try:
+        return spin_up_blueteam(room_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.delete("/{room_id}")

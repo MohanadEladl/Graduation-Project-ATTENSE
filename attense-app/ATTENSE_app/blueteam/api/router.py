@@ -36,24 +36,24 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from .dependencies import get_event_emitter, get_hive_client, get_sandbox_connector, get_enrichment_service, get_settings
-from core.services.alert_service import raise_alert, investigate_alert, deny_alert
-from core.services.incident_service import confirm_incident
-from core.services.containment_service import initiate_containment, complete_containment
-from infrastructure.eventstore.event_emitter import EventEmitter
-from infrastructure.thehive.hive_client import HiveClient
-from infrastructure.sandbox.target_connector import TargetConnector
-from infrastructure.cortex.enrichment_service import EnrichmentService
-from schemas.requests.alert_requests import (
+from ..core.services.alert_service import raise_alert, investigate_alert, deny_alert
+from ..core.services.incident_service import confirm_incident
+from ..core.services.containment_service import initiate_containment, complete_containment
+from ..infrastructure.eventstore.event_emitter import EventEmitter
+from ..infrastructure.thehive.hive_client import HiveClient
+from ..infrastructure.sandbox.target_connector import TargetConnector
+from ..infrastructure.cortex.enrichment_service import EnrichmentService
+from ..schemas.requests.alert_requests import (
     RaiseAlertRequest,
     InvestigateAlertRequest,
     DenyAlertRequest,
 )
-from schemas.requests.incident_requests import ConfirmIncidentRequest
-from schemas.requests.containment_requests import (
+from ..schemas.requests.incident_requests import ConfirmIncidentRequest
+from ..schemas.requests.containment_requests import (
     InitiateContainmentRequest,
     CompleteContainmentRequest,
 )
-from schemas.responses.action_response import ActionResponse
+from ..schemas.responses.action_response import ActionResponse
 
 logger = logging.getLogger(__name__)
 

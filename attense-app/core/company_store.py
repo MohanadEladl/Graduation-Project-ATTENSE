@@ -50,3 +50,8 @@ def confirm_company(company_id: str) -> Optional[dict]:
             _save_companies(companies)
             return company
     return None
+
+
+def delete_company(company_id: str) -> None:
+    companies = [c for c in _load_companies() if c["id"] != company_id]
+    _save_companies(companies)

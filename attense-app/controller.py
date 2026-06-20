@@ -24,6 +24,18 @@ class AttenseController:
     def __init__(self):
         self.incidents = {}
         self.last_pos = 0
+        self._blueteam_ready = threading.Event()
+        self._blueteam_error = None
+        self._blueteam_thread = None
+
+    def blueteam_status(self) -> dict:
+        """Return the observed state of the embedded Blue Team API."""
+        thread_alive = self._blueteam_thread is not None and self._blueteam_thread.is_alive()
+        return {
+            "healthy": self._blueteam_ready.is_set() and thread_alive,
+            "thread_alive": thread_alive,
+            "error": self._blueteam_error,
+        }
 
     def process_event(self, event_data: dict):
         try:
@@ -65,12 +77,23 @@ class AttenseController:
             try:
                 # Import here to avoid import-time side effects when controller is used in tests
                 from ATTENSE_app.blueteam.main import app as blueteam_app
-                uvicorn.run(blueteam_app, host="0.0.0.0", port=8010, log_level="info")
-            except Exception as e:
-                logger.error(f"Failed to start Blue Team app: {e}", exc_info=True)
 
-        t = threading.Thread(target=_start_blueteam, daemon=True)
-        t.start()
+                self._blueteam_error = None
+                self._blueteam_ready.set()
+                uvicorn.run(blueteam_app, host="0.0.0.0", port=8010, log_level="info")
+                self._blueteam_error = "Blue Team API server stopped unexpectedly"
+            except Exception as e:
+                self._blueteam_error = f"{type(e).__name__}: {e}"
+                logger.error(f"Failed to start Blue Team app: {e}", exc_info=True)
+            finally:
+                self._blueteam_ready.clear()
+
+        self._blueteam_thread = threading.Thread(
+            target=_start_blueteam,
+            name="blueteam-api",
+            daemon=True,
+        )
+        self._blueteam_thread.start()
         
         while True:
             if not os.path.exists(DATA_PATH):

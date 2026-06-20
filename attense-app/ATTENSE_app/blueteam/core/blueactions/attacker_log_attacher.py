@@ -26,8 +26,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from infrastructure.sandbox.lab_evidence_connector import LabEvidenceConnector
-from infrastructure.thehive.hive_client import HiveClient
+from ...infrastructure.sandbox.lab_evidence_connector import LabEvidenceConnector
+from ...infrastructure.thehive.hive_client import HiveClient
 
 logger = logging.getLogger(__name__)
 

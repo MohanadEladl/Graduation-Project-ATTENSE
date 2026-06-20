@@ -18,7 +18,7 @@ def validate_confirm_incident(incident: Incident, store) -> None:
     - Incident must not already be confirmed, contained, or ended.
     - Incident must not have been denied (false positive path).
     """
-    from config.constants import (
+    from ...config.constants import (
         TERMINAL_STATUSES,
         EVENT_ALERT_INVESTIGATION_STARTED,
         EVENT_INCIDENT_CONFIRMED,

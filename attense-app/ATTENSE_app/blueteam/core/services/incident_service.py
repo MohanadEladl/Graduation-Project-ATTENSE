@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import logging
 
-from core.blueactions.investigation_actions import build_confirm_incident_event
-from core.validation.incident_validator import validate_confirm_incident
-from infrastructure.eventstore.event_emitter import EventEmitter
-from infrastructure.thehive.hive_client import HiveClient
-from schemas.requests.incident_requests import ConfirmIncidentRequest
-from schemas.responses.action_response import ActionResponse
+from ..blueactions.investigation_actions import build_confirm_incident_event
+from ..validation.incident_validator import validate_confirm_incident
+from ...infrastructure.eventstore.event_emitter import EventEmitter
+from ...infrastructure.thehive.hive_client import HiveClient
+from ...schemas.requests.incident_requests import ConfirmIncidentRequest
+from ...schemas.responses.action_response import ActionResponse
 
 logger = logging.getLogger(__name__)
 

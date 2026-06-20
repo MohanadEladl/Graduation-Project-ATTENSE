@@ -106,7 +106,8 @@ services:
   # Build-only prerequisite for dynamically created Blue Team room containers.
   blueteam-image:
     build:
-      context: ./attense-app/ATTENSE_app/blueteam
+      context: ./attense-app
+      dockerfile: ATTENSE_app/blueteam/Dockerfile
     image: attense-app-blueteam
     command: ["true"]
     restart: "no"
@@ -123,37 +124,27 @@ services:
       signal-store:
         condition: service_started
       thehive:
-        condition: service_started
+        condition: service_healthy
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
-      # Real key for 'attense-analyst@thehive.local' goes in the root .env
-      # file (gitignored) as HIVE_API_KEY — see secrets/ATTENSE.env's
-      # conventions. The org/user didn't exist until this session, so this
-      # was always a non-functional placeholder before.
-      HIVE_API_KEY: "${HIVE_API_KEY:-changeme}"
-      # Blue Team webhook secret (placeholder for future HMAC validation; same
-      # name/value as secrets/ATTENSE.env's WEBHOOK_SECRET and the Dockerfile).
-      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-changeme-webhook}"
       # Sandbox / Target Agent
       SANDBOX_URL: "http://target-agent:80"
-      # NOTE: VIRUSTOTAL_API_KEY / ABUSEIPDB_API_KEY are NOT set here on purpose —
-      # they come from the env_file below (secrets/enrichment.env). A value in
-      # `environment:` would override env_file, so leaving them out lets the real
-      # keys through. Missing/empty keys still disable enrichment gracefully.
+      # Secrets and enrichment keys are injected from the files below. Keeping
+      # them out of `environment` avoids overriding those runtime values.
     env_file:
+      - ./secrets/ATTENSE.env
       - ./secrets/enrichment.env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - attense_ssd_volume:/attense/data:ro
       - attense_temp:/attense/temp
-      - ./attense-app:/app
     ports:
       - "8010:8010"
       - "8020:8020"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8020/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8020/health >/dev/null && curl -fsS http://localhost:8010/health >/dev/null"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -319,6 +310,22 @@ services:
       - attense_net
 
   # ── TheHive: Case Management UI ─────────────────────────────────────────────
+  cassandra-init:
+    image: cassandra:4.1
+    container_name: attense_cassandra_init
+    restart: "no"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -ec
+      - >
+        cqlsh cassandra -e "CREATE KEYSPACE IF NOT EXISTS thehive
+        WITH replication = {'class': 'NetworkTopologyStrategy', 'datacenter1': 1};"
+    networks:
+      - attense_net
+
   thehive:
     image: thehiveproject/thehive4:4.1.24-1
     container_name: attense_thehive
@@ -327,13 +334,15 @@ services:
     depends_on:
       cassandra:
         condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
       elasticsearch:
         condition: service_healthy
     environment:
       - JVM_OPTS=-Xms512m -Xmx512m
-      # Bearer secret TheHive signs webhooks with — must equal attense-app's
-      # WEBHOOK_SECRET. application.conf reads it via ${?WEBHOOK_SECRET}.
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-changeme-webhook}
+    # WEBHOOK_SECRET is shared with attense-app at runtime.
+    env_file:
+      - ./secrets/ATTENSE.env
     command: >
       --secret "attense-super-secret-key-that-is-at-least-64-bytes-long-for-thehive-so-it-starts"
       --cql-hostnames cassandra
@@ -341,6 +350,12 @@ services:
       - ./thehive/application.conf:/etc/thehive/application.conf
     ports:
       - "9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/api/status >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
     networks:
       - attense_net
 
@@ -351,7 +366,7 @@ services:
     restart: "no"
     depends_on:
       thehive:
-        condition: service_started
+        condition: service_healthy
     environment:
       - THEHIVE_URL=http://thehive:9000
       - THEHIVE_ORG_NAME=blue-team

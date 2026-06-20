@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from infrastructure.thehive.hive_client import HiveClient
+from .hive_client import HiveClient
 
 logger = logging.getLogger(__name__)
 

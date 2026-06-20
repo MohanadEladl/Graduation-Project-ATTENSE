@@ -1,7 +1,7 @@
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth_router import router as auth_router
@@ -37,4 +37,14 @@ app.include_router(rooms_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "active_incidents": len(controller.incidents)}
+    blueteam = controller.blueteam_status()
+    if not blueteam["healthy"]:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "degraded", "blue_team": blueteam},
+        )
+    return {
+        "status": "ok",
+        "active_incidents": len(controller.incidents),
+        "blue_team": blueteam,
+    }
