@@ -9,9 +9,11 @@ RUN npm install --no-audit --no-fund
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+# nginxinc/nginx-unprivileged already runs as the non-root `nginx` user and
+# listens on 8080 by default — no USER/EXPOSE gymnastics needed to drop root.
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
