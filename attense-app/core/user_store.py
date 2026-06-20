@@ -34,6 +34,14 @@ def _save_users(users: list[dict]) -> None:
         json.dump(users, f, indent=2)
 
 
+def username_exists(username: str) -> bool:
+    return any(user["username"] == username for user in _load_users())
+
+
+def ciso_exists() -> bool:
+    return any(user["role"] == "ciso" for user in _load_users())
+
+
 def create_user(
     username: str,
     email: str,
@@ -77,6 +85,7 @@ def register_user(
     password: str,
     role: str,
     company_id: Optional[str] = None,
+    hive_key: Optional[str] = None,
 ) -> dict:
     if role not in VALID_ROLES:
         raise ValueError(f"Role must be one of: {', '.join(sorted(VALID_ROLES))}")
@@ -85,8 +94,11 @@ def register_user(
         raise ValueError("company_id is required for this role")
 
     users = _load_users()
-    if any(u["username"] == username for u in users):
+    if username_exists(username):
         raise ValueError(f"Username already exists: {username}")
+
+    if role not in HIVE_KEY_ROLES:
+        hive_key = None
 
     hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -97,7 +109,7 @@ def register_user(
         "hashed_password": hashed_password,
         "role": role,
         "company_id": company_id if role != "ciso" else None,
-        "hive_key": None,
+        "hive_key": hive_key,
     }
 
     users.append(user)

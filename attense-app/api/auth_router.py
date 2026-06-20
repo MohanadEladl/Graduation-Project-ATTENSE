@@ -16,6 +16,12 @@ class LogoutRequest(BaseModel):
     token: str
 
 
+class BootstrapCisoRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
 @router.post("/login")
 def login(body: LoginRequest):
     user = user_store.login_user(body.username, body.password)
@@ -34,3 +40,16 @@ def logout(body: LogoutRequest):
 @router.get("/me")
 def me(session: dict = Depends(require_session)):
     return {"username": session["username"], "role": session["role"]}
+
+
+@router.post("/bootstrap-ciso")
+def bootstrap_ciso(body: BootstrapCisoRequest):
+    if user_store.ciso_exists():
+        raise HTTPException(status_code=403, detail="CISO already exists")
+    try:
+        user = user_store.register_user(
+            body.username, body.email, body.password, "ciso", company_id=None
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return user
