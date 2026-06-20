@@ -103,6 +103,14 @@ services:
       - attense_net
 
   # ── Attense App ────────────────────────────────────────────────────────────────────────────────
+  # Build-only prerequisite for dynamically created Blue Team room containers.
+  blueteam-image:
+    build:
+      context: ./attense-app/ATTENSE_app/blueteam
+    image: attense-app-blueteam
+    command: ["true"]
+    restart: "no"
+
   attense-app:
     build:
       context: ./attense-app
@@ -110,8 +118,12 @@ services:
     hostname: attense-app
     restart: unless-stopped
     depends_on:
-      - signal-store
-      - thehive
+      blueteam-image:
+        condition: service_completed_successfully
+      signal-store:
+        condition: service_started
+      thehive:
+        condition: service_started
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
       # TheHive integration
@@ -133,12 +145,15 @@ services:
     env_file:
       - ./secrets/enrichment.env
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - attense_ssd_volume:/attense/data:ro
+      - attense_temp:/attense/temp
       - ./attense-app:/app
     ports:
       - "8010:8010"
+      - "8020:8020"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/health',timeout=3).status==200 else 1)\""]
+      test: ["CMD-SHELL", "curl -f http://localhost:8020/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -232,9 +247,9 @@ services:
     depends_on:
       - red-team-backend
     ports:
-      - "3000:80"
+      - "3000:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/frontend-health | grep -q ok"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -476,6 +491,7 @@ services:
 
 networks:
   attense_net:
+    name: attense_net
     driver: bridge
 
 volumes:
@@ -486,6 +502,8 @@ volumes:
   wazuh_manager_queue:
   wazuh_alerts:
   attense_ssd_volume:
+  attense_temp:
+  attense_backup:
   red_team_logs:
   ollama_data:
   # BlueTeam internal storage — Cassandra and Elasticsearch run inside the blueteam container
