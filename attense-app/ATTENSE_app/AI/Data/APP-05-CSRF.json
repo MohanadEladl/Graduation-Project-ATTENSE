@@ -1,96 +1,210 @@
 {
+  "schema_version": "2.0.0",
   "attack_id": "APP-05",
   "attack_name": "Cross-Site Request Forgery (CSRF)",
-  "owasp": {
-    "category": "A01:2021",
-    "name": "Broken Access Control",
-    "source": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"
-  },
-  "mitre": {
-    "technique_id": "T1185",
-    "technique_name": "Browser Session Hijacking",
-    "tactic": "Collection",
-    "source": "https://attack.mitre.org/techniques/T1185/"
-  },
   "description": "Cross-Site Request Forgery (CSRF) tricks an authenticated victim's browser into sending unintended state-changing requests to a web application. Because the browser automatically includes session cookies, the application cannot distinguish the forged request from a legitimate one unless CSRF tokens or SameSite cookie policies are enforced.",
+  "owasp": {
+    "category": "A01:2025",
+    "name": "Broken Access Control",
+    "source": "https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/"
+  },
+  "mitre_attack": {
+    "primary": [],
+    "related": [
+      {
+        "technique_id": "T1185",
+        "technique_name": "Browser Session Hijacking",
+        "tactic": "Collection",
+        "source": "https://attack.mitre.org/techniques/T1185/"
+      }
+    ],
+    "mapping_note": "Enterprise ATT&CK has no direct CSRF technique. T1185 is related only when the operation hijacks or manipulates an authenticated browser session; it must not be presented as a one-to-one CSRF mapping."
+  },
   "cvss_methodology": {
     "version": "CVSS v3.1",
-    "calculator": "https://www.first.org/cvss/calculator/3.1",
-    "reference": "https://www.first.org/cvss/specification-document"
+    "source": "https://www.first.org/cvss/v3-1/specification-document",
+    "note": "CVSS measures vulnerability severity. It does not prescribe SOC response deadlines.",
+    "latest_available_version": "CVSS v4.0",
+    "latest_specification": "https://www.first.org/cvss/v4-0/specification-document",
+    "migration_note": "CVSS v4.0 is current, but its metrics and scoring are not one-to-one with v3.1. Existing scenario vectors remain v3.1 until individually re-assessed."
   },
-  "ttc_model": {
-    "k": 3600,
-    "formula_expected": "TTC_expected_sec = k × (10 − base_score)",
-    "formula_max": "TTC_max_sec = TTC_expected_sec × 1.5",
-    "notes": "TTC measures the window between victim interaction with the malicious page and the point at which the fraudulent action becomes operationally irreversible."
+  "response_framework": {
+    "name": "NIST SP 800-61 Rev. 3",
+    "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final",
+    "note": "Response events implement Detect, Respond, Recover, and continuous-improvement outcomes. Numeric exercise thresholds are local policy, not NIST requirements."
   },
-  "rules": [
+  "timing_model": {
+    "type": "exercise_policy",
+    "ttc_expected_formula": "max(900, 3600 * (10 - cvss_base_score))",
+    "ttc_max_formula": "ttc_expected_sec * 1.5",
+    "minimum_ttc_sec": 900,
+    "mtta_thresholds_sec": {
+      "low": 600,
+      "medium": 750,
+      "high": 900,
+      "very_high": 1200
+    },
+    "note": "The 900-second floor prevents zero-length and division-by-zero windows at CVSS 10.0. These values are simulation policy and must be calibrated with organizational risk and service objectives."
+  },
+  "incident_response_rules": [
     {
-      "rule_id": "CSRF-R01",
-      "name": "MTTA Threshold Breach",
-      "description": "Mean Time To Acknowledge exceeded for the detected difficulty level.",
-      "thresholds": {
-        "low": 600,
-        "medium": 750,
-        "high": 900,
-        "very_high": 1200
-      },
-      "penalty": -15,
-      "trigger": "investigation_started timestamp − alert_raised timestamp > threshold[detection_difficulty]"
+      "id": "CSRF-R01",
+      "description": "Alert triage started within the difficulty-adjusted MTTA threshold",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "alert_investigation_started occurs after mtta_threshold_sec or is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CSRF-R02",
-      "name": "Incident Not Confirmed",
-      "description": "No incident_confirmed event recorded in the event log (only applies when R05 did not fire).",
-      "penalty": -15,
-      "trigger": "incident_confirmed absent AND alert_denied absent"
+      "id": "CSRF-R02",
+      "description": "Incident assessed and confirmed or formally dismissed",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "neither incident_confirmed nor dismissal_approved is present",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CSRF-R03",
-      "name": "Containment Missed Before TTC_max",
-      "description": "containment_initiated was not observed before TTC_max elapsed from alert_raised.",
-      "penalty": -25,
-      "trigger": "containment_initiated absent OR containment_initiated − alert_raised > TTC_max_sec"
+      "id": "CSRF-R03",
+      "description": "Relevant evidence preserved before destructive containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "incident_confirmed is present but evidence_preserved is absent or occurs after containment_initiated",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CSRF-R04",
-      "name": "Containment Failed",
-      "description": "containment_succeeded was never recorded; containment_score = 0.",
-      "penalty": -30,
-      "trigger": "containment_succeeded absent"
+      "id": "CSRF-R04",
+      "description": "Containment initiated before TTC maximum",
+      "type": "critical",
+      "penalty_points": -25,
+      "trigger": "containment_initiated is absent or occurs after ttc_max_sec",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CSRF-R05",
-      "name": "Alert Denied Without Confirmation",
-      "description": "Analyst dismissed a Wazuh alert at level ≥ 6 without a preceding incident_confirmed event.",
-      "level_threshold": 6,
-      "penalty": -20,
-      "trigger": "alert_denied present AND incident_confirmed absent AND wazuh_rule_level >= 6"
+      "id": "CSRF-R05",
+      "description": "Containment succeeded",
+      "type": "critical",
+      "penalty_points": -30,
+      "trigger": "containment_succeeded is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CSRF-R06",
+      "description": "Root cause or malicious artifact eradicated after containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "containment_succeeded is present but eradication_completed is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CSRF-R07",
+      "description": "Recovery validated before normal operation resumed",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "eradication_completed is present but recovery_validated is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CSRF-R08",
+      "description": "Lessons learned and improvement actions recorded",
+      "type": "minor",
+      "penalty_points": -5,
+      "trigger": "recovery_validated is present but lessons_learned_recorded is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CSRF-R09",
+      "description": "Medium-or-higher alerts are not denied without documented approval",
+      "type": "major",
+      "penalty_points": -20,
+      "trigger": "alert_denied is present for severity medium or higher without a preceding dismissal_approved event",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     }
   ],
   "scoring": {
     "base_score": 100,
-    "ttc_decay": "linear from 100 at TTC_expected down to 0 at TTC_max; 0 if exceeded",
-    "bonus": {
-      "formula": "min(β × d × (1 / TTD), 25)",
-      "beta": 4500,
-      "d_values": { "low": 1, "medium": 2, "high": 3, "very_high": 4 },
-      "cap": 25
+    "formula": "clamp(round((base_score + penalty_total) * ttc_factor + response_difficulty_bonus, 2), 0, 100)",
+    "ttc_factor": "1 when containment succeeds by ttc_expected; linear decay to 0 at ttc_max; 0 when containment is absent or later than ttc_max",
+    "response_difficulty_bonus": {
+      "formula": "min(4500 * difficulty_numeric / max(investigation_delay_sec, 1), 25)",
+      "condition": "awarded only when containment_succeeded is present",
+      "difficulty_numeric": {
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "very_high": 4
+      },
+      "maximum": 25,
+      "zero_delay_policy": "A zero-second investigation delay uses a one-second denominator and therefore receives the capped bonus."
     },
     "verdict_bands": {
-      "excellent":     { "min": 90,  "max": 125 },
-      "acceptable":    { "min": 70,  "max": 89  },
-      "needs_review":  { "min": 50,  "max": 69  },
-      "failed":        { "min": 0,   "max": 49  }
+      "excellent": {
+        "min": 90,
+        "max": 100
+      },
+      "acceptable": {
+        "min": 70,
+        "max": 89.99
+      },
+      "needs_review": {
+        "min": 50,
+        "max": 69.99
+      },
+      "failed": {
+        "min": 0,
+        "max": 49.99
+      }
     }
+  },
+  "wazuh": {
+    "custom_rule_id_range": "100000-120000",
+    "custom_rule_guidance": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html",
+    "stock_rules": [],
+    "custom_rules": [
+      {
+        "rule_id": "100501",
+        "level": 8,
+        "description": "State-changing request has an authenticated cookie, lacks a valid anti-CSRF token, and Origin/Referer is absent or untrusted",
+        "depends_on": [
+          "reverse-proxy structured log",
+          "application CSRF validation log"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      },
+      {
+        "rule_id": "100502",
+        "level": 8,
+        "description": "Rule 100501 condition plus a credentialed cross-origin response or reflected untrusted Origin",
+        "depends_on": [
+          "100501",
+          "response header telemetry"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      },
+      {
+        "rule_id": "100503",
+        "level": 8,
+        "description": "CSP frame-ancestors report is correlated with an authenticated privileged state-changing request",
+        "depends_on": [
+          "browser CSP report",
+          "application audit log"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      }
+    ],
+    "note": "Custom entries are dataset detection specifications and must be implemented and tested in the deployed Wazuh manager before use. Stock rule descriptions and levels match the linked upstream ruleset."
   },
   "scenarios": [
     {
       "scenario_id": "CSRF-S1",
       "label": "Forged Funds Transfer via CSRF — No Confidentiality Impact, High Integrity",
       "description": "Attacker hosts a malicious page that silently triggers a POST /transfer request using the victim's authenticated banking session. No CSRF token present on the endpoint. Confidentiality unaffected; integrity severely impacted by unauthorised fund transfer. Scope unchanged.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "The attacker themselves requires no credentials; the attack exploits the victim's authenticated session."
+      },
       "cvss": {
-        "vector": "AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N",
         "base_score": 6.5,
         "component_rationale": {
           "AV_N": "Attack delivered remotely via attacker-controlled web page",
@@ -102,49 +216,120 @@
           "I_H": "Unauthorised financial transaction executed with high integrity impact",
           "A_N": "No availability impact",
           "formula_trace": "ISCBase=1−(1×0.44×1)=0.56; ISC=6.42×0.56=3.595; Expl=8.22×0.85×0.77×0.85×0.62=2.835; Score=Roundup(min(3.595+2.835,10))=Roundup(6.430)=6.5"
-        }
+        },
+        "version": "3.1"
       },
-      "computed_ttc": {
-        "TTC_expected_sec": 12600,
-        "TTC_expected_hr": 3.50,
-        "TTC_max_sec": 18900,
-        "TTC_max_hr": 5.25
+      "alert_severity": "medium",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 12600,
+        "ttc_max_sec": 18900
       },
-      "detection_difficulty": "medium",
-      "detection_difficulty_rationale": "Forged POST requests to /transfer appear identical to legitimate transfers; detection requires Referer-header analysis and missing CSRF token correlation, which Wazuh rule 31105 performs but generates moderate false-positive rates.",
-      "attack_requires_auth": false,
-      "attack_auth_rationale": "The attacker themselves requires no credentials; the attack exploits the victim's authenticated session.",
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "Detection uses custom Wazuh rule 100501 (State-changing request lacks an anti-CSRF token and has a foreign origin); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100501",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "State-changing request lacks an anti-CSRF token and has a foreign origin"
+      },
       "event_log": [
-        { "t_sec": 0,    "actor": "attacker",           "event": "alert_raised",           "detail": "Wazuh rule 31105 level 6 fired: POST /api/transfer request with missing X-CSRF-Token header detected; Referer header points to external domain attacker-site.com; transaction amount $5000 to account 9876543210." },
-        { "t_sec": 600,  "actor": "blue_team/analyst-1", "event": "investigation_started",  "detail": "Analyst-1 opened alert — MTTA 600s, within 750s medium threshold. Cross-referenced Referer with transfer logs; session cookie matched authenticated user victim@example.com." },
-        { "t_sec": 1200, "actor": "blue_team/analyst-2", "event": "incident_confirmed",     "detail": "Analyst-2 confirmed CSRF: transfer request originated from external page via auto-submitted form; X-CSRF-Token absent from request; legitimate transfer page always includes it. Fraudulent transfer of $5000 confirmed." },
-        { "t_sec": 9000, "actor": "blue_team/analyst-3", "event": "containment_initiated",  "detail": "Analyst-3 invalidated victim session; transaction reversal initiated with payment processor; CSRF token validation enforced on all state-changing endpoints via middleware patch." },
-        { "t_sec": 9500, "actor": "blue_team/analyst-3", "event": "containment_succeeded",  "detail": "CSRF token middleware active; repeat attack attempt returns 403 CSRF validation failed. Session invalidated and reissued. SameSite=Strict applied to session cookie. TTC_actual=9500s < TTC_expected=12600s." }
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100501 level 8 fired: State-changing request lacks an anti-CSRF token and has a foreign origin."
+        },
+        {
+          "t_offset_sec": 600,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 600s, within 750s medium threshold. Cross-referenced Referer with transfer logs; session cookie matched authenticated user victim@example.com."
+        },
+        {
+          "t_offset_sec": 1200,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed CSRF: transfer request originated from external page via auto-submitted form; X-CSRF-Token absent from request; legitimate transfer page always includes it. Fraudulent transfer of $5000 confirmed."
+        },
+        {
+          "t_offset_sec": 8940,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 9000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 invalidated victim session; transaction reversal initiated with payment processor; CSRF token validation enforced on all state-changing endpoints via middleware patch."
+        },
+        {
+          "t_offset_sec": 9500,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "CSRF token middleware active; repeat attack attempt returns 403 CSRF validation failed. Session invalidated and reissued. SameSite=Strict applied to session cookie. TTC_actual=9500s < TTC_expected=12600s."
+        },
+        {
+          "t_offset_sec": 9800,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 10100,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 10400,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
       ],
-      "rules_evaluation": {
-        "CSRF-R01": { "fired": false, "note": "MTTA 600s < 750s threshold for medium difficulty" },
-        "CSRF-R02": { "fired": false, "note": "incident_confirmed present at t=1200s" },
-        "CSRF-R03": { "fired": false, "note": "containment_initiated at t=9000s < TTC_max 18900s" },
-        "CSRF-R04": { "fired": false, "note": "containment_succeeded present at t=9500s" },
-        "CSRF-R05": { "fired": false, "note": "No alert_denied event" }
-      },
-      "test_assertion": {
-        "TTC_actual_sec": 9500,
-        "TTC_score": 100,
+      "expected_evaluation": {
+        "violated_rule_ids": [],
         "penalty_total": 0,
-        "TTD_sec": 600,
-        "bonus": 15,
-        "final_score": 115,
-        "verdict": "excellent",
-        "notes": "TTC_actual 9500s < TTC_expected 12600s → ttc_score=100. Bonus=min(4500×2×(1/600),25)=min(15,25)=15. Final=100+0+15=115."
+        "ttc_actual_sec": 9500,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 15.0,
+        "final_score": 100,
+        "verdict": "excellent"
       }
     },
     {
       "scenario_id": "CSRF-S2",
       "label": "CSRF with Partial Confidentiality — MTTA Breach and Alert Dismissed",
       "description": "Attacker forges a POST request that both executes a state change and returns user PII in the response body (confidentiality L). MTTA exceeded and the Wazuh alert dismissed without incident confirmation, leaving the attacker undetected.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Authentication requirement follows the endpoint access described by the scenario."
+      },
       "cvss": {
-        "vector": "AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:H/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:H/A:N",
         "base_score": 7.1,
         "component_rationale": {
           "AV_N": "Attack delivered remotely via attacker-controlled page",
@@ -156,46 +341,78 @@
           "I_H": "Unauthorised state change with high integrity impact",
           "A_N": "No availability impact",
           "formula_trace": "ISCBase=1−(0.78×0.44×1)=0.6568; ISC=6.42×0.6568=4.217; Expl=8.22×0.85×0.77×0.85×0.62=2.835; Score=Roundup(min(4.217+2.835,10))=Roundup(7.052)=7.1"
-        }
+        },
+        "version": "3.1"
       },
-      "computed_ttc": {
-        "TTC_expected_sec": 10440,
-        "TTC_expected_hr": 2.90,
-        "TTC_max_sec": 15660,
-        "TTC_max_hr": 4.35
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 900,
+        "ttc_expected_sec": 10440,
+        "ttc_max_sec": 15660
       },
-      "detection_difficulty": "high",
-      "detection_difficulty_rationale": "CORS misconfiguration combined with CSRF is a subtle compound vulnerability; Referer header checks alone are insufficient as the forged request mimics same-origin patterns via iframe nesting. Wazuh correlation is less reliable at this confidence level.",
-      "attack_requires_auth": false,
+      "detection": {
+        "difficulty": "high",
+        "rationale": "CORS misconfiguration combined with CSRF is a subtle compound vulnerability; Referer header checks alone are insufficient as the forged request mimics same-origin patterns via iframe nesting. Wazuh correlation is less reliable at this confidence level. Detection uses custom Wazuh rule 100502 (Cross-origin state change combined with unsafe CORS response); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100502",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "Cross-origin state change combined with unsafe CORS response"
+      },
       "event_log": [
-        { "t_sec": 0,    "actor": "attacker",           "event": "alert_raised",           "detail": "Wazuh rule 31106 level 6 fired: cross-origin POST to /api/account/update without CSRF token; Referer: attacker-iframe.net; CORS header Access-Control-Allow-Origin: * on response enables data read-back." },
-        { "t_sec": 1100, "actor": "blue_team/analyst-1", "event": "investigation_started",  "detail": "Analyst-1 opened alert — MTTA 1100s, exceeds 900s high threshold. CSRF-R01 triggered. Cross-origin POST noted; analyst assessed as legitimate cross-origin API call from partner domain." },
-        { "t_sec": 1500, "actor": "blue_team/analyst-1", "event": "alert_denied",           "detail": "Analyst-1 closed as false-positive — partner integration uses cross-origin requests. Wazuh rule level 6 dismissed without incident confirmation. CSRF-R04 and CSRF-R05 triggered." }
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100502 level 8 fired: Cross-origin state change combined with unsafe CORS response."
+        },
+        {
+          "t_offset_sec": 1100,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 1100s, exceeds 900s high threshold. CSRF-R01 triggered. Cross-origin POST noted; analyst assessed as legitimate cross-origin API call from partner domain."
+        },
+        {
+          "t_offset_sec": 1500,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_denied",
+          "outcome": "failure",
+          "detail": "The analyst denied the alert without documented approval. This triggers CSRF-R09; all other missing response actions are evaluated independently."
+        }
       ],
-      "rules_evaluation": {
-        "CSRF-R01": { "fired": true,  "penalty": -15, "note": "MTTA 1100s > 900s high threshold" },
-        "CSRF-R02": { "fired": false, "note": "R05 takes precedence when alert_denied fires without confirmation" },
-        "CSRF-R03": { "fired": false, "note": "TTC_max not elapsed at dismissal time; R04/R05 capture the failure" },
-        "CSRF-R04": { "fired": true,  "penalty": -30, "note": "containment_succeeded never recorded; containment_score=0" },
-        "CSRF-R05": { "fired": true,  "penalty": -20, "note": "alert_denied at t=1500s without incident_confirmed; Wazuh rule level 6 >= threshold 6" }
-      },
-      "test_assertion": {
-        "TTC_actual_sec": null,
-        "TTC_score": 0,
-        "penalty_total": -65,
-        "TTD_sec": null,
-        "bonus": 0,
-        "final_score": 35,
-        "verdict": "failed",
-        "notes": "No containment → TTC contribution=0. Penalties: CSRF-R01(−15)+CSRF-R04(−30)+CSRF-R05(−20)=−65. Final=100−65=35."
+      "expected_evaluation": {
+        "violated_rule_ids": [
+          "CSRF-R01",
+          "CSRF-R02",
+          "CSRF-R04",
+          "CSRF-R05",
+          "CSRF-R09"
+        ],
+        "penalty_total": -105,
+        "ttc_actual_sec": null,
+        "ttc_factor": 0.0,
+        "response_difficulty_bonus": 0,
+        "final_score": 0,
+        "verdict": "failed"
       }
     },
     {
       "scenario_id": "CSRF-S3",
       "label": "Nested Iframe CSRF with Clickjacking — Scope Changed, Good Response",
       "description": "Attacker uses a clickjacked iframe nested inside a legitimate-looking page to trigger a CSRF request. The CORS misconfiguration allows partial response read-back. Scope changed because the forged request crosses a subdomain boundary, affecting a sibling application service. High attack complexity due to specific iframe nesting requirements.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Authentication requirement follows the endpoint access described by the scenario."
+      },
       "cvss": {
-        "vector": "AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:H/A:N",
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:H/A:N",
         "base_score": 6.9,
         "component_rationale": {
           "AV_N": "Attack delivered remotely",
@@ -207,41 +424,135 @@
           "I_H": "High integrity impact: privileged action executed on sibling service",
           "A_N": "No availability impact",
           "formula_trace": "ISCBase=1−(0.78×0.44×1)=0.6568; ISC(S:C)=7.52×(0.6568−0.029)−3.25×((0.6568−0.02)^15)=4.717; Expl=8.22×0.85×0.44×0.85×0.62=1.620; Score=Roundup(min(1.08×(4.717+1.620),10))=Roundup(min(6.844,10))=6.9"
-        }
+        },
+        "version": "3.1"
       },
-      "computed_ttc": {
-        "TTC_expected_sec": 11160,
-        "TTC_expected_hr": 3.10,
-        "TTC_max_sec": 16740,
-        "TTC_max_hr": 4.65
+      "alert_severity": "medium",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 11160,
+        "ttc_max_sec": 16740
       },
-      "detection_difficulty": "medium",
-      "detection_difficulty_rationale": "CSP violation reports from the browser and X-Frame-Options bypass alerts in Wazuh provide reasonable detection signal; however correlating the CSRF attempt with the clickjacking overlay requires cross-application log correlation.",
-      "attack_requires_auth": false,
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "CSP violation reports from the browser and X-Frame-Options bypass alerts in Wazuh provide reasonable detection signal; however correlating the CSRF attempt with the clickjacking overlay requires cross-application log correlation. Detection uses custom Wazuh rule 100503 (Framing violation correlated with a privileged state-changing request); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100503",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "Framing violation correlated with a privileged state-changing request"
+      },
       "event_log": [
-        { "t_sec": 0,    "actor": "attacker",           "event": "alert_raised",           "detail": "Wazuh rule 31107 level 7 fired: CSP frame-ancestors violation and missing X-Frame-Options on sub2.example.com; cross-origin POST from embedded iframe targeting /admin/action on sibling subdomain detected." },
-        { "t_sec": 700,  "actor": "blue_team/analyst-1", "event": "investigation_started",  "detail": "Analyst-1 opened alert — MTTA 700s, within 750s medium threshold. CSP violation log showed iframe embedding from attacker domain; Wazuh correlated with POST to sibling admin endpoint." },
-        { "t_sec": 2000, "actor": "blue_team/analyst-2", "event": "incident_confirmed",     "detail": "Analyst-2 confirmed attack chain: clickjacked iframe triggered admin action on sub2 service; CORS misconfiguration on sub2 returned partial account data to attacker origin. Admin action reversed." },
-        { "t_sec": 9000, "actor": "blue_team/analyst-3", "event": "containment_initiated",  "detail": "Analyst-3 added X-Frame-Options: DENY and Content-Security-Policy: frame-ancestors 'none' to sub2 service; CSRF tokens enforced on all admin endpoints; SameSite=Strict on admin session cookie." },
-        { "t_sec": 9800, "actor": "blue_team/analyst-3", "event": "containment_succeeded",  "detail": "Re-test confirms iframe embedding blocked (CSP violation with no execution); CSRF token now required on admin actions. CORS policy restricted to known partner origins only. TTC_actual=9800s < TTC_expected=11160s." }
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100503 level 8 fired: Framing violation correlated with a privileged state-changing request."
+        },
+        {
+          "t_offset_sec": 700,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 700s, within 750s medium threshold. CSP violation log showed iframe embedding from attacker domain; Wazuh correlated with POST to sibling admin endpoint."
+        },
+        {
+          "t_offset_sec": 2000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed attack chain: clickjacked iframe triggered admin action on sub2 service; CORS misconfiguration on sub2 returned partial account data to attacker origin. Admin action reversed."
+        },
+        {
+          "t_offset_sec": 8940,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 9000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 added X-Frame-Options: DENY and Content-Security-Policy: frame-ancestors 'none' to sub2 service; CSRF tokens enforced on all admin endpoints; SameSite=Strict on admin session cookie."
+        },
+        {
+          "t_offset_sec": 9800,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "Re-test confirms iframe embedding blocked (CSP violation with no execution); CSRF token now required on admin actions. CORS policy restricted to known partner origins only. TTC_actual=9800s < TTC_expected=11160s."
+        },
+        {
+          "t_offset_sec": 10100,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 10400,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 10700,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
       ],
-      "rules_evaluation": {
-        "CSRF-R01": { "fired": false, "note": "MTTA 700s < 750s threshold for medium difficulty" },
-        "CSRF-R02": { "fired": false, "note": "incident_confirmed present at t=2000s" },
-        "CSRF-R03": { "fired": false, "note": "containment_initiated at t=9000s < TTC_max 16740s" },
-        "CSRF-R04": { "fired": false, "note": "containment_succeeded present at t=9800s" },
-        "CSRF-R05": { "fired": false, "note": "No alert_denied event" }
-      },
-      "test_assertion": {
-        "TTC_actual_sec": 9800,
-        "TTC_score": 100,
+      "expected_evaluation": {
+        "violated_rule_ids": [],
         "penalty_total": 0,
-        "TTD_sec": 700,
-        "bonus": 12.86,
-        "final_score": 112.86,
-        "verdict": "excellent",
-        "notes": "TTC_actual 9800s < TTC_expected 11160s → ttc_score=100. Bonus=min(4500×2×(1/700),25)=min(12.857,25)=12.86. Final=100+0+12.86=112.86."
+        "ttc_actual_sec": 9800,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 12.86,
+        "final_score": 100,
+        "verdict": "excellent"
       }
     }
-  ]
+  ],
+  "references": [
+    {
+      "title": "NIST SP 800-61 Rev. 3",
+      "url": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "title": "FIRST CVSS v3.1 Specification",
+      "url": "https://www.first.org/cvss/v3-1/specification-document"
+    },
+    {
+      "title": "FIRST CVSS v4.0 Specification (current migration target)",
+      "url": "https://www.first.org/cvss/v4-0/specification-document"
+    },
+    {
+      "title": "Wazuh custom rules",
+      "url": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+    },
+    {
+      "title": "OWASP Top 10:2025 — Broken Access Control",
+      "url": "https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/"
+    }
+  ],
+  "dataset_metadata": {
+    "last_authoritative_source_review": "2026-06-20",
+    "source_policy": "Use upstream standards and vendor rulesets; label project-specific detection logic as custom.",
+    "cvss_profile": "Validated CVSS v3.1 compatibility profile; migrate through a separate expert review rather than automatic vector conversion."
+  }
 }

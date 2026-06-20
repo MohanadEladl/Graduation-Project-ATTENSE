@@ -130,6 +130,7 @@ def list_modules() -> list[dict]:
             "category":    m.category.value,
             "scenario_id": m.scenario_id,
             "severity":    m.severity.value,
+            "mitre":       getattr(m, "mitre", {}),
             "steps": getattr(m, "steps", []),
             # Lab guidance metadata — credentials_hint is stripped to avoid spoiling
             # the brute-force challenge via public API inspection.

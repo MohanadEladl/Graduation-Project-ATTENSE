@@ -85,6 +85,8 @@ export default function Mission() {
     stepsForAccordion = labSteps.map(s => ({
       title: s.action || s.title || 'Step',
       hint:  '', // keep accordion clean — the expected outcome is in 'expected'
+      command: s.command || '',
+      technique: s.technique || '',
       expected: s.expected || '',
     }))
   } else {
@@ -131,6 +133,31 @@ export default function Mission() {
                 <p className="text-[13.5px] text-attense-muted leading-relaxed max-w-2xl">
                   {module.description}
                 </p>
+
+                {/* MITRE ATT&CK technique chips */}
+                {Array.isArray(module.mitre?.techniques) && module.mitre.techniques.length > 0 && (
+                  <div className="mt-4">
+                    <div className="text-[9px] font-mono tracking-[0.28em] text-attense-muted mb-2">
+                      MITRE ATT&CK
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {module.mitre.techniques.map(t => (
+                        <a
+                          key={t.id}
+                          href={`https://attack.mitre.org/techniques/${(t.id || '').replace('.', '/')}/`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={t.tactic ? `${t.tactic} — ${t.name}` : t.name}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-attense-red/30 bg-attense-red/5 px-2.5 py-1
+                                     font-mono text-[10px] text-attense-text hover:border-attense-red/60 hover:bg-attense-red/10 transition-colors"
+                        >
+                          <span className="font-semibold text-attense-red">{t.id}</span>
+                          <span className="text-attense-muted truncate max-w-[180px]">{t.name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <SeverityBadge severity={module.severity} className="shrink-0" />
             </div>

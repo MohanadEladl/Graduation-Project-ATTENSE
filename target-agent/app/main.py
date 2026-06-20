@@ -23,6 +23,7 @@ from routes.search  import search_bp
 from routes.system  import system_bp
 from routes.files   import files_bp
 from routes.profile import profile_bp
+from routes.containment import containment_bp
 
 # Operator-mode parallel routes (harder backend, same UI templates).
 # Mounted under /op/* — reached via the lab-browser proxy at /target-op/*
@@ -186,6 +187,7 @@ app.register_blueprint(search_bp)
 app.register_blueprint(system_bp,  url_prefix="/system")
 app.register_blueprint(files_bp,   url_prefix="/files")
 app.register_blueprint(profile_bp, url_prefix="/profile")
+app.register_blueprint(containment_bp, url_prefix="/containment")
 
 # Operator-mode (HARDER) parallel backend. All 7 module surfaces now
 # have a routes_op/ counterpart with stricter logic — same UI, harder

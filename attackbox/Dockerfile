@@ -79,4 +79,10 @@ RUN printf '%s\n' \
 ENV USER_AGENT="AttenseAttackBox/1.0" \
     HTTP_USER_AGENT="AttenseAttackBox/1.0"
 
+# Security boundary exception: this container intentionally stays root.
+# The red-team-backend runs operator commands here via `docker exec`, and
+# tools like nmap's SYN scan need CAP_NET_RAW; non-root would silently break
+# half the toolset's scan modes. There's also no build-vs-runtime split for
+# apt-installed pentest binaries, so multistage wouldn't shrink this image —
+# see attackbox/Dockerfile history for that reasoning.
 CMD ["sleep", "infinity"]

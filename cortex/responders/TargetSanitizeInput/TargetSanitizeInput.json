@@ -1,0 +1,15 @@
+{
+  "name": "TargetSanitizeInput",
+  "version": "1.0",
+  "author": "ATTENSE",
+  "url": "https://github.com/DarineNadaa/Graduation-Project",
+  "license": "MIT",
+  "description": "Enable output escaping on the vulnerable search endpoint to contain reflected XSS.",
+  "dataTypeList": ["thehive:case_artifact"],
+  "command": "TargetSanitizeInput/target_sanitize_input.py",
+  "baseConfig": "TargetContainment",
+  "configurationItems": [
+    {"name": "target_url", "description": "Target-agent base URL", "type": "string", "multi": false, "required": true, "defaultValue": "http://target-agent:80"},
+    {"name": "containment_api_token", "description": "Target containment API token", "type": "string", "multi": false, "required": true}
+  ]
+}

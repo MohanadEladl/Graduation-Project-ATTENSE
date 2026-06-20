@@ -3,6 +3,7 @@ output.py – Dispatch StandardEvents to the configured destination.
 
 OUTPUT_MODE=file  → append one JSON line per event to OUTPUT_PATH
 OUTPUT_MODE=http  → POST each event to EVENT_STORE_URL (with retry backoff)
+OUTPUT_MODE=both  → do both of the above for each event
 """
 from __future__ import annotations
 
@@ -148,9 +149,13 @@ def dispatch(event: Event) -> None:
     Mode is controlled by the ``OUTPUT_MODE`` environment variable:
     * ``file``  → append to ``OUTPUT_PATH``
     * ``http``  → POST to ``EVENT_STORE_URL``
+    * ``both``  → append to ``OUTPUT_PATH`` AND POST to ``EVENT_STORE_URL``
     """
     mode = settings.output_mode.lower().strip()
     if mode == "http":
+        post_event(event)
+    elif mode == "both":
+        write_file(event)
         post_event(event)
     elif mode == "file":
         write_file(event)

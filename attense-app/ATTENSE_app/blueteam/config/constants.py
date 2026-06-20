@@ -67,3 +67,4 @@ CONTAINMENT_STRATEGIES = {
 # Timing Thresholds (seconds)
 # ─────────────────────────────────────────────────────────────────────────────
 CONTAINMENT_LATE_THRESHOLD_SECONDS = 300   # 5 minutes → partial success
+CONTAINMENT_INVESTIGATION_MIN_SECONDS = 5  # gap below this since investigation start → flagged premature

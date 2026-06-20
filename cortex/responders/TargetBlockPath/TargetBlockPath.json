@@ -1,0 +1,15 @@
+{
+  "name": "TargetBlockPath",
+  "version": "1.0",
+  "author": "ATTENSE",
+  "url": "https://github.com/DarineNadaa/Graduation-Project",
+  "license": "MIT",
+  "description": "Block a path observable and directory-traversal patterns in the target file viewer.",
+  "dataTypeList": ["thehive:case_artifact"],
+  "command": "TargetBlockPath/target_block_path.py",
+  "baseConfig": "TargetContainment",
+  "configurationItems": [
+    {"name": "target_url", "description": "Target-agent base URL", "type": "string", "multi": false, "required": true, "defaultValue": "http://target-agent:80"},
+    {"name": "containment_api_token", "description": "Target containment API token", "type": "string", "multi": false, "required": true}
+  ]
+}

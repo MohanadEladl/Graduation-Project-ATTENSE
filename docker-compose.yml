@@ -21,9 +21,15 @@ services:
     container_name: attense_target_agent
     hostname: target-agent
     restart: unless-stopped
+    environment:
+      - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
     depends_on:
       wazuh-manager:
         condition: service_healthy
+    # Wazuh's firewall-drop active-response runs iptables on this agent —
+    # iptables needs NET_ADMIN, which containers don't have by default.
+    cap_add:
+      - NET_ADMIN
     ports:
       - "8081:80"
     volumes:
@@ -85,7 +91,7 @@ services:
         condition: service_healthy
     environment:
       WAZUH_ALERTS_PATH: /wazuh/alerts/alerts.json
-      OUTPUT_MODE: file
+      OUTPUT_MODE: both
       OUTPUT_PATH: /attense/data/mapped_events.jsonl
       EVENT_STORE_URL: "http://attense-app:8010/blueteam/raise-alert"
       INCIDENT_ID: "phase3-incident-001"
@@ -106,6 +112,14 @@ services:
       - attense_net
 
   # ── Attense App ────────────────────────────────────────────────────────────────────────────────
+  # Build-only prerequisite for dynamically created Blue Team room containers.
+  blueteam-image:
+    build:
+      context: ./attense-app/ATTENSE_app/blueteam
+    image: attense-app-blueteam
+    command: ["true"]
+    restart: "no"
+
   attense-app:
     build:
       context: ./attense-app
@@ -113,27 +127,44 @@ services:
     hostname: attense-app
     restart: unless-stopped
     depends_on:
-      - signal-store
-      - thehive
+      blueteam-image:
+        condition: service_completed_successfully
+      signal-store:
+        condition: service_started
+      thehive:
+        condition: service_started
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
       ACTIONS_LOG_DIR: /attense/actions
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
-      HIVE_API_KEY: "changeme"
+      # Real key for 'attense-analyst@thehive.local' goes in the root .env
+      # file (gitignored) as HIVE_API_KEY — see secrets/ATTENSE.env's
+      # conventions. The org/user didn't exist until this session, so this
+      # was always a non-functional placeholder before.
+      HIVE_API_KEY: "${HIVE_API_KEY:-changeme}"
+      # Blue Team webhook secret (placeholder for future HMAC validation; same
+      # name/value as secrets/ATTENSE.env's WEBHOOK_SECRET and the Dockerfile).
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-changeme-webhook}"
       # Sandbox / Target Agent
       SANDBOX_URL: "http://target-agent:80"
-      # Cortex-Lite enrichment (leave empty to disable gracefully)
-      VIRUSTOTAL_API_KEY: ""
-      ABUSEIPDB_API_KEY: ""
+      # NOTE: VIRUSTOTAL_API_KEY / ABUSEIPDB_API_KEY are NOT set here on purpose —
+      # they come from the env_file below (secrets/enrichment.env). A value in
+      # `environment:` would override env_file, so leaving them out lets the real
+      # keys through. Missing/empty keys still disable enrichment gracefully.
+    env_file:
+      - ./secrets/enrichment.env
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - attense_ssd_volume:/attense/data:ro
       - attense_actions_data:/attense/actions
+      - attense_temp:/attense/temp
       - ./attense-app:/app
     ports:
       - "8010:8010"
+      - "8020:8020"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/health',timeout=3).status==200 else 1)\""]
+      test: ["CMD-SHELL", "curl -f http://localhost:8020/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -227,9 +258,9 @@ services:
     depends_on:
       - red-team-backend
     ports:
-      - "3000:80"
+      - "3000:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/frontend-health | grep -q ok"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -245,12 +276,32 @@ services:
     container_name: attense_cassandra
     hostname: cassandra
     restart: unless-stopped
+    command: >
+      bash -lc "sed -ri
+      -e 's/^read_request_timeout_in_ms:.*/read_request_timeout_in_ms: 20000/'
+      -e 's/^range_request_timeout_in_ms:.*/range_request_timeout_in_ms: 20000/'
+      -e 's/^write_request_timeout_in_ms:.*/write_request_timeout_in_ms: 20000/'
+      -e 's/^counter_write_request_timeout_in_ms:.*/counter_write_request_timeout_in_ms: 20000/'
+      -e 's/^request_timeout_in_ms:.*/request_timeout_in_ms: 30000/'
+      /etc/cassandra/cassandra.yaml
+      && exec /usr/local/bin/docker-entrypoint.sh cassandra -f"
     environment:
-      - MAX_HEAP_SIZE=512M
-      - HEAP_NEWSIZE=100M
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=256M
       - CASSANDRA_CLUSTER_NAME=hive
+      - CASSANDRA_READ_REQUEST_TIMEOUT_IN_MS=20000
+      - CASSANDRA_RANGE_REQUEST_TIMEOUT_IN_MS=20000
+      - CASSANDRA_WRITE_REQUEST_TIMEOUT_IN_MS=20000
+      - CASSANDRA_COUNTER_WRITE_REQUEST_TIMEOUT_IN_MS=20000
+      - CASSANDRA_REQUEST_TIMEOUT_IN_MS=30000
     volumes:
       - blueteam_cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh cassandra -e 'SELECT now() FROM system.local;' >/dev/null 2>&1"]
+      interval: 20s
+      timeout: 15s
+      retries: 20
+      start_period: 120s
     networks:
       - attense_net
 
@@ -266,9 +317,15 @@ services:
       - cluster.name=hive
       - thread_pool.search.queue_size=100000
       - thread_pool.write.queue_size=10000
-      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
     volumes:
       - blueteam_elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
     networks:
       - attense_net
 
@@ -279,10 +336,15 @@ services:
     hostname: thehive
     restart: unless-stopped
     depends_on:
-      - cassandra
-      - elasticsearch
+      cassandra:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
     environment:
       - JVM_OPTS=-Xms512m -Xmx512m
+      # Bearer secret TheHive signs webhooks with — must equal attense-app's
+      # WEBHOOK_SECRET. application.conf reads it via ${?WEBHOOK_SECRET}.
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-changeme-webhook}
     command: >
       --secret "attense-super-secret-key-that-is-at-least-64-bytes-long-for-thehive-so-it-starts"
       --cql-hostnames cassandra
@@ -322,6 +384,24 @@ services:
     networks:
       - attense_net
 
+  # TheHive Init: creates the Blue Team organisation/user and API key.
+  thehive-init:
+    image: python:3.11-slim
+    container_name: attense_thehive_init
+    restart: "no"
+    depends_on:
+      thehive:
+        condition: service_started
+    environment:
+      - THEHIVE_URL=http://thehive:9000
+      - THEHIVE_ORG_NAME=blue-team
+      - THEHIVE_WEBHOOK_ENDPOINT=blueteam
+    volumes:
+      - ./scripts:/scripts:ro
+    command: python /scripts/setup_thehive.py
+    networks:
+      - attense_net
+
 
   # ── Cortex: Active-Response Engine (Responders for TheHive) ─────────────────
   cortex:
@@ -330,7 +410,8 @@ services:
     hostname: cortex
     restart: unless-stopped
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
     environment:
       - JVM_OPTS=-Xms512m -Xmx512m
       - CORTEX_PLAY_SECRET=${CORTEX_PLAY_SECRET:-5f6e69909a9ca4768d36c3f418a9a6e0857a0eac393d18071291f0971abc7e80f3dd02112b7f4505ae8f17eb8500aa61}
@@ -354,7 +435,7 @@ services:
   # Waits for Cortex to be healthy, then runs setup_cortex.py which:
   #   1. Creates the admin user + ATTENSE org in Cortex
   #   2. Generates an API key for the org
-  #   3. Enables the WazuhBlockIP responder
+  #   3. Enables Wazuh and target-app containment responders
   #   4. Patches thehive/application.conf with the real key
   #   5. Restarts TheHive via Docker socket so it picks up the new key
   #   6. Deletes secrets/ATTENSE.env from disk
@@ -370,6 +451,8 @@ services:
       - THEHIVE_CONF_PATH=/thehive/application.conf
       - CORTEX_ORG_NAME=ATTENSE
       - CORTEX_PLAY_SECRET=${CORTEX_PLAY_SECRET:-5f6e69909a9ca4768d36c3f418a9a6e0857a0eac393d18071291f0971abc7e80f3dd02112b7f4505ae8f17eb8500aa61}
+      - TARGET_URL=http://target-agent:80
+      - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
     volumes:
       - ./scripts:/scripts:ro          # setup_cortex.py lives here
       - ./thehive:/thehive             # script patches application.conf here
@@ -377,6 +460,57 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock   # to restart TheHive
     command: >
       bash -c "pip install requests --quiet && python /scripts/setup_cortex.py"
+    networks:
+      - attense_net
+
+  # ── Wazuh Init: One-shot fixups (runs once, fixes manager state) ────────────
+  # The manager's /var/ossec/etc lives in the wazuh_manager_etc named volume,
+  # not a repo-tracked file, so these fixes don't survive a fresh volume on
+  # their own. Waits for wazuh-manager to be healthy, then runs
+  # setup_wazuh.py which:
+  #   1. Fixes log directory ownership (root -> wazuh) so wazuh-analysisd
+  #      doesn't crash-loop on permission errors.
+  #   2. Adds active-response command bindings (firewall-drop, route-null,
+  #      disable-account) to ossec.conf.
+  #   3. Restarts Wazuh daemons if anything changed.
+  wazuh-init:
+    image: python:3.11-slim
+    container_name: attense_wazuh_init
+    restart: "no"
+    depends_on:
+      wazuh-manager:
+        condition: service_healthy
+    environment:
+      - WAZUH_CONTAINER=attense_wazuh_manager
+    volumes:
+      - ./scripts:/scripts:ro          # setup_wazuh.py lives here
+      - /var/run/docker.sock:/var/run/docker.sock   # to exec into wazuh-manager
+    command: python /scripts/setup_wazuh.py
+    networks:
+      - attense_net
+
+  # Wazuh Agent Watchdog: keeps the disposable target-agent enrolled.
+  # If the manager has a disconnected target-agent record that blocks fresh
+  # enrollment, this service removes the stale record and restarts the target.
+  wazuh-agent-watchdog:
+    image: python:3.11-slim
+    container_name: attense_wazuh_agent_watchdog
+    restart: unless-stopped
+    depends_on:
+      wazuh-manager:
+        condition: service_healthy
+      target-agent:
+        condition: service_started
+    environment:
+      - WAZUH_CONTAINER=attense_wazuh_manager
+      - TARGET_CONTAINER=attense_target_agent
+      - TARGET_AGENT_NAME=target-agent
+      - CHECK_INTERVAL_SECONDS=30
+      - STALE_AFTER_MISSES=2
+    volumes:
+      - ./scripts:/scripts:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: python /scripts/wazuh_agent_watchdog.py
     networks:
       - attense_net
 
@@ -398,6 +532,7 @@ services:
 
 networks:
   attense_net:
+    name: attense_net
     driver: bridge
 
 volumes:
@@ -411,6 +546,8 @@ volumes:
   wazuh_logs_firewall:
   attense_actions_data:
   attense_ssd_volume:
+  attense_temp:
+  attense_backup:
   red_team_logs:
   ollama_data:
   # BlueTeam internal storage — Cassandra and Elasticsearch run inside the blueteam container

@@ -1,96 +1,225 @@
 {
+  "schema_version": "2.0.0",
   "attack_id": "APP-02",
   "attack_name": "Command Injection",
-  "owasp": {
-    "category": "A03:2021",
-    "name": "Injection",
-    "source": "https://owasp.org/Top10/A03_2021-Injection/"
-  },
-  "mitre": {
-    "technique_id": "T1059.004",
-    "technique_name": "Unix Shell",
-    "tactic": "Execution",
-    "source": "https://attack.mitre.org/techniques/T1059/004/"
-  },
   "description": "Command Injection occurs when untrusted input is passed to a system shell without proper sanitisation. An attacker can append OS commands to application-level calls, achieving arbitrary code execution under the web-server process account.",
+  "owasp": {
+    "category": "A05:2025",
+    "name": "Injection",
+    "source": "https://owasp.org/Top10/2025/A05_2025-Injection/"
+  },
+  "mitre_attack": {
+    "primary": [
+      {
+        "technique_id": "T1190",
+        "technique_name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "source": "https://attack.mitre.org/techniques/T1190/"
+      }
+    ],
+    "related": [
+      {
+        "technique_id": "T1059.004",
+        "technique_name": "Command and Scripting Interpreter: Unix Shell",
+        "tactic": "Execution",
+        "source": "https://attack.mitre.org/techniques/T1059/004/"
+      }
+    ],
+    "mapping_note": "T1190 covers exploitation of the vulnerable endpoint; T1059.004 applies when the injected command is executed by a Unix shell."
+  },
   "cvss_methodology": {
     "version": "CVSS v3.1",
-    "calculator": "https://www.first.org/cvss/calculator/3.1",
-    "reference": "https://www.first.org/cvss/specification-document"
+    "source": "https://www.first.org/cvss/v3-1/specification-document",
+    "note": "CVSS measures vulnerability severity. It does not prescribe SOC response deadlines.",
+    "latest_available_version": "CVSS v4.0",
+    "latest_specification": "https://www.first.org/cvss/v4-0/specification-document",
+    "migration_note": "CVSS v4.0 is current, but its metrics and scoring are not one-to-one with v3.1. Existing scenario vectors remain v3.1 until individually re-assessed."
   },
-  "ttc_model": {
-    "k": 3600,
-    "formula_expected": "TTC_expected_sec = k × (10 − base_score)",
-    "formula_max": "TTC_max_sec = TTC_expected_sec × 1.5",
-    "notes": "TTC represents the window before exploitation becomes operationally impactful. Higher CVSS = narrower window."
+  "response_framework": {
+    "name": "NIST SP 800-61 Rev. 3",
+    "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final",
+    "note": "Response events implement Detect, Respond, Recover, and continuous-improvement outcomes. Numeric exercise thresholds are local policy, not NIST requirements."
   },
-  "rules": [
+  "timing_model": {
+    "type": "exercise_policy",
+    "ttc_expected_formula": "max(900, 3600 * (10 - cvss_base_score))",
+    "ttc_max_formula": "ttc_expected_sec * 1.5",
+    "minimum_ttc_sec": 900,
+    "mtta_thresholds_sec": {
+      "low": 600,
+      "medium": 750,
+      "high": 900,
+      "very_high": 1200
+    },
+    "note": "The 900-second floor prevents zero-length and division-by-zero windows at CVSS 10.0. These values are simulation policy and must be calibrated with organizational risk and service objectives."
+  },
+  "incident_response_rules": [
     {
-      "rule_id": "CMDI-R01",
-      "name": "MTTA Threshold Breach",
-      "description": "Mean Time To Acknowledge exceeded for the detected difficulty level.",
-      "thresholds": {
-        "low": 600,
-        "medium": 750,
-        "high": 900,
-        "very_high": 1200
-      },
-      "penalty": -15,
-      "trigger": "investigation_started timestamp − alert_raised timestamp > threshold[detection_difficulty]"
+      "id": "CMDI-R01",
+      "description": "Alert triage started within the difficulty-adjusted MTTA threshold",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "alert_investigation_started occurs after mtta_threshold_sec or is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CMDI-R02",
-      "name": "Incident Not Confirmed",
-      "description": "No incident_confirmed event recorded in the event log (only applies when R05 did not fire).",
-      "penalty": -15,
-      "trigger": "incident_confirmed absent AND alert_denied absent"
+      "id": "CMDI-R02",
+      "description": "Incident assessed and confirmed or formally dismissed",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "neither incident_confirmed nor dismissal_approved is present",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CMDI-R03",
-      "name": "Containment Missed Before TTC_max",
-      "description": "containment_initiated was not observed before TTC_max elapsed from alert_raised.",
-      "penalty": -25,
-      "trigger": "containment_initiated absent OR containment_initiated − alert_raised > TTC_max_sec"
+      "id": "CMDI-R03",
+      "description": "Relevant evidence preserved before destructive containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "incident_confirmed is present but evidence_preserved is absent or occurs after containment_initiated",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CMDI-R04",
-      "name": "Containment Failed",
-      "description": "containment_succeeded was never recorded; containment_score = 0.",
-      "penalty": -30,
-      "trigger": "containment_succeeded absent"
+      "id": "CMDI-R04",
+      "description": "Containment initiated before TTC maximum",
+      "type": "critical",
+      "penalty_points": -25,
+      "trigger": "containment_initiated is absent or occurs after ttc_max_sec",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     },
     {
-      "rule_id": "CMDI-R05",
-      "name": "Alert Denied Without Confirmation",
-      "description": "Analyst dismissed a Wazuh alert at level ≥ 7 without a preceding incident_confirmed event.",
-      "level_threshold": 7,
-      "penalty": -20,
-      "trigger": "alert_denied present AND incident_confirmed absent AND wazuh_rule_level >= 7"
+      "id": "CMDI-R05",
+      "description": "Containment succeeded",
+      "type": "critical",
+      "penalty_points": -30,
+      "trigger": "containment_succeeded is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CMDI-R06",
+      "description": "Root cause or malicious artifact eradicated after containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "containment_succeeded is present but eradication_completed is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CMDI-R07",
+      "description": "Recovery validated before normal operation resumed",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "eradication_completed is present but recovery_validated is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CMDI-R08",
+      "description": "Lessons learned and improvement actions recorded",
+      "type": "minor",
+      "penalty_points": -5,
+      "trigger": "recovery_validated is present but lessons_learned_recorded is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "CMDI-R09",
+      "description": "Medium-or-higher alerts are not denied without documented approval",
+      "type": "major",
+      "penalty_points": -20,
+      "trigger": "alert_denied is present for severity medium or higher without a preceding dismissal_approved event",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
     }
   ],
   "scoring": {
     "base_score": 100,
-    "ttc_decay": "linear from 100 at TTC_expected down to 0 at TTC_max; 0 if exceeded",
-    "bonus": {
-      "formula": "min(β × d × (1 / TTD), 25)",
-      "beta": 4500,
-      "d_values": { "low": 1, "medium": 2, "high": 3, "very_high": 4 },
-      "cap": 25
+    "formula": "clamp(round((base_score + penalty_total) * ttc_factor + response_difficulty_bonus, 2), 0, 100)",
+    "ttc_factor": "1 when containment succeeds by ttc_expected; linear decay to 0 at ttc_max; 0 when containment is absent or later than ttc_max",
+    "response_difficulty_bonus": {
+      "formula": "min(4500 * difficulty_numeric / max(investigation_delay_sec, 1), 25)",
+      "condition": "awarded only when containment_succeeded is present",
+      "difficulty_numeric": {
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "very_high": 4
+      },
+      "maximum": 25,
+      "zero_delay_policy": "A zero-second investigation delay uses a one-second denominator and therefore receives the capped bonus."
     },
     "verdict_bands": {
-      "excellent":     { "min": 90,  "max": 125 },
-      "acceptable":    { "min": 70,  "max": 89  },
-      "needs_review":  { "min": 50,  "max": 69  },
-      "failed":        { "min": 0,   "max": 49  }
+      "excellent": {
+        "min": 90,
+        "max": 100
+      },
+      "acceptable": {
+        "min": 70,
+        "max": 89.99
+      },
+      "needs_review": {
+        "min": 50,
+        "max": 69.99
+      },
+      "failed": {
+        "min": 0,
+        "max": 49.99
+      }
     }
+  },
+  "wazuh": {
+    "custom_rule_id_range": "100000-120000",
+    "custom_rule_guidance": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html",
+    "stock_rules": [
+      {
+        "rule_id": "31104",
+        "level": 6,
+        "description": "Common web attack pattern, including selected command and traversal strings",
+        "source": "https://github.com/wazuh/wazuh/blob/master/ruleset/rules/0245-web_rules.xml"
+      }
+    ],
+    "custom_rules": [
+      {
+        "rule_id": "100201",
+        "level": 9,
+        "description": "Web request contains shell metacharacters and the serving process spawns a shell or utility",
+        "depends_on": [
+          "31104",
+          "auditd execve telemetry"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      },
+      {
+        "rule_id": "100202",
+        "level": 8,
+        "description": "Application request is followed by abnormal sleep syscalls or DNS queries to a newly observed domain",
+        "depends_on": [
+          "application log",
+          "auditd",
+          "DNS log"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      },
+      {
+        "rule_id": "100203",
+        "level": 8,
+        "description": "Authenticated API request is correlated with an unexpected child process under the application service account",
+        "depends_on": [
+          "application log",
+          "auditd execve telemetry"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      }
+    ],
+    "note": "Custom entries are dataset detection specifications and must be implemented and tested in the deployed Wazuh manager before use. Stock rule descriptions and levels match the linked upstream ruleset."
   },
   "scenarios": [
     {
       "scenario_id": "CMDI-S1",
       "label": "Unauthenticated OS Command Injection via Web Form",
       "description": "Attacker submits a crafted HTTP request to a ping-utility endpoint, injecting a semicolon-delimited shell command. No authentication required. Full command execution under www-data. Scope unchanged (single web process).",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Authentication requirement follows the endpoint access described by the scenario."
+      },
       "cvss": {
-        "vector": "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
         "base_score": 9.8,
         "component_rationale": {
           "AV_N": "Exploitable remotely over the network",
@@ -102,48 +231,120 @@
           "I_H": "Arbitrary write / file creation possible",
           "A_H": "Attacker can terminate processes or exhaust resources",
           "formula_trace": "ISCBase=1−(0.44×0.44×0.44)=0.9149; ISC=6.42×0.9149=5.873; Expl=8.22×0.85×0.77×0.85×0.85=3.887; Score=Roundup(min(5.873+3.887,10))=Roundup(9.76)=9.8"
-        }
+        },
+        "version": "3.1"
       },
-      "computed_ttc": {
-        "TTC_expected_sec": 720,
-        "TTC_expected_hr": 0.20,
-        "TTC_max_sec": 1080,
-        "TTC_max_hr": 0.30
+      "alert_severity": "critical",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 900,
+        "ttc_max_sec": 1350
       },
-      "detection_difficulty": "medium",
-      "detection_difficulty_rationale": "Injection pattern is directly visible in web server access logs and matched by Wazuh rule 91001; correlation with syslog auditd events is straightforward.",
-      "attack_requires_auth": false,
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "Detection uses custom Wazuh rule 100201 (Shell metacharacters correlated with a spawned process); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100201",
+        "level": 9,
+        "rule_source": "custom",
+        "description": "Shell metacharacters correlated with a spawned process"
+      },
       "event_log": [
-        { "t_sec": 0,   "actor": "attacker",          "event": "alert_raised",             "detail": "Wazuh rule 91001 level 9 fired: OS command injection pattern detected in POST /api/ping body; source IP 10.10.10.45" },
-        { "t_sec": 300, "actor": "blue_team/analyst-1","event": "investigation_started",    "detail": "Analyst-1 opened alert — MTTA 300s, within 750s medium threshold. Wazuh correlation shows semicolon in request body: 'host=127.0.0.1;id'" },
-        { "t_sec": 420, "actor": "blue_team/analyst-2","event": "incident_confirmed",       "detail": "Analyst-2 replayed request in sandbox — confirmed RCE; output of 'id' command returned in HTTP response. Shell confirmed as www-data." },
-        { "t_sec": 550, "actor": "blue_team/analyst-3","event": "containment_initiated",    "detail": "Analyst-3 deployed WAF rule blocking semicolons and backticks in ping endpoint parameter; source IP blocked at perimeter firewall." },
-        { "t_sec": 650, "actor": "blue_team/analyst-3","event": "containment_succeeded",   "detail": "Probe from attacker IP blocked; WAF returning 403. Application-level input validation patch queued for next deployment window." }
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100201 level 9 fired: Shell metacharacters correlated with a spawned process."
+        },
+        {
+          "t_offset_sec": 300,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 300s, within 750s medium threshold. Wazuh correlation shows semicolon in request body: 'host=127.0.0.1;id'"
+        },
+        {
+          "t_offset_sec": 420,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 replayed request in sandbox — confirmed RCE; output of 'id' command returned in HTTP response. Shell confirmed as www-data."
+        },
+        {
+          "t_offset_sec": 490,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 550,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 deployed WAF rule blocking semicolons and backticks in ping endpoint parameter; source IP blocked at perimeter firewall."
+        },
+        {
+          "t_offset_sec": 650,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "Probe from attacker IP blocked; WAF returning 403. Application-level input validation patch queued for next deployment window."
+        },
+        {
+          "t_offset_sec": 950,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 1250,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 1550,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
       ],
-      "rules_evaluation": {
-        "CMDI-R01": { "fired": false, "note": "MTTA 300s < 750s threshold for medium difficulty" },
-        "CMDI-R02": { "fired": false, "note": "incident_confirmed present at t=420s" },
-        "CMDI-R03": { "fired": false, "note": "containment_initiated at t=550s < TTC_max 1080s" },
-        "CMDI-R04": { "fired": false, "note": "containment_succeeded present at t=650s" },
-        "CMDI-R05": { "fired": false, "note": "No alert_denied event" }
-      },
-      "test_assertion": {
-        "TTC_actual_sec": 650,
-        "TTC_score": 100,
+      "expected_evaluation": {
+        "violated_rule_ids": [],
         "penalty_total": 0,
-        "TTD_sec": 300,
-        "bonus": 25,
-        "final_score": 125,
-        "verdict": "excellent",
-        "notes": "TTC_actual 650s < TTC_expected 720s → ttc_score=100. Bonus=min(4500×2×(1/300),25)=min(30,25)=25 (capped). Final=100+0+25=125."
+        "ttc_actual_sec": 650,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 25,
+        "final_score": 100,
+        "verdict": "excellent"
       }
     },
     {
       "scenario_id": "CMDI-S2",
       "label": "Blind Time-Based Command Injection via Authenticated Endpoint (Scope Changed)",
       "description": "Authenticated low-privilege user exploits a server-side report-generation endpoint via blind time-based injection. The injected payload exfiltrates data via out-of-band DNS queries. Scope changed because the pivot reaches a secondary backend service outside the web process.",
+      "attack_context": {
+        "requires_authentication": true,
+        "authentication_level": "low_privilege",
+        "rationale": "Attacker must hold a valid low-privilege user session to access the report-generation endpoint."
+      },
       "cvss": {
-        "vector": "AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:L",
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:L",
         "base_score": 8.4,
         "component_rationale": {
           "AV_N": "Exploitable remotely over the network",
@@ -155,47 +356,77 @@
           "I_H": "Write access to backend filesystem via injected commands",
           "A_L": "Limited availability impact; service degradation possible from timing payloads",
           "formula_trace": "ISCBase=1−(0.44×0.44×0.78)=0.8493; ISC(S:C)=7.52×(0.8493−0.029)−3.25×((0.8493−0.02)^15)=5.971; Expl=8.22×0.85×0.44×0.68×0.85=1.777; Score=Roundup(min(1.08×(5.971+1.777),10))=Roundup(min(8.368,10))=8.4"
-        }
+        },
+        "version": "3.1"
       },
-      "computed_ttc": {
-        "TTC_expected_sec": 5760,
-        "TTC_expected_hr": 1.60,
-        "TTC_max_sec": 8640,
-        "TTC_max_hr": 2.40
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 900,
+        "ttc_expected_sec": 5760,
+        "ttc_max_sec": 8640
       },
-      "detection_difficulty": "high",
-      "detection_difficulty_rationale": "Blind injection has no direct response output; the OOB DNS exfiltration channel is subtle and requires correlation of DNS resolver logs with application audit trails.",
-      "attack_requires_auth": true,
-      "attack_auth_rationale": "Attacker must hold a valid low-privilege user session to access the report-generation endpoint.",
+      "detection": {
+        "difficulty": "high",
+        "rationale": "Blind injection has no direct response output; the OOB DNS exfiltration channel is subtle and requires correlation of DNS resolver logs with application audit trails. Detection uses custom Wazuh rule 100202 (Timing or DNS behavior correlated with a request parameter); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100202",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "Timing or DNS behavior correlated with a request parameter"
+      },
       "event_log": [
-        { "t_sec": 0,    "actor": "attacker",           "event": "alert_raised",           "detail": "Wazuh rule 91003 level 8 fired: anomalous sleep() syscall sequence detected in report-generator process; correlated with unusual outbound DNS requests to attacker-controlled domain." },
-        { "t_sec": 750,  "actor": "blue_team/analyst-1", "event": "investigation_started",  "detail": "Analyst-1 opened alert — MTTA 750s, within 900s high threshold. Initial review flagged alert as potentially false-positive due to legitimate DNS traffic patterns." },
-        { "t_sec": 1200, "actor": "blue_team/analyst-1", "event": "alert_denied",           "detail": "Analyst-1 closed alert as false-positive — DNS queries attributed to CDN health checks. Wazuh rule level 8 dismissal without incident confirmation. CMDI-R04 and CMDI-R05 triggered." }
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100202 level 8 fired: Timing or DNS behavior correlated with a request parameter."
+        },
+        {
+          "t_offset_sec": 750,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 750s, within 900s high threshold. Initial review flagged alert as potentially false-positive due to legitimate DNS traffic patterns."
+        },
+        {
+          "t_offset_sec": 1200,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_denied",
+          "outcome": "failure",
+          "detail": "The analyst denied the alert without documented approval. This triggers CMDI-R09; all other missing response actions are evaluated independently."
+        }
       ],
-      "rules_evaluation": {
-        "CMDI-R01": { "fired": false, "note": "MTTA 750s = 750s threshold for high difficulty (boundary, not breached)" },
-        "CMDI-R02": { "fired": false, "note": "R05 takes precedence when alert_denied fires without confirmation" },
-        "CMDI-R03": { "fired": false, "note": "TTC_max not yet elapsed at time of dismissal; no containment attempt made but R05/R04 cover the failure" },
-        "CMDI-R04": { "fired": true,  "penalty": -30, "note": "containment_succeeded never recorded; containment_score=0" },
-        "CMDI-R05": { "fired": true,  "penalty": -20, "note": "alert_denied at t=1200s without incident_confirmed; Wazuh rule level 8 >= threshold 7" }
-      },
-      "test_assertion": {
-        "TTC_actual_sec": null,
-        "TTC_score": 0,
-        "penalty_total": -50,
-        "TTD_sec": null,
-        "bonus": 0,
-        "final_score": 50,
-        "verdict": "failed",
-        "notes": "No containment → TTC contribution=0. Penalties: CMDI-R04(−30)+CMDI-R05(−20)=−50. Base 100−50=50, but TTC=0 drives final to failed verdict. R02 suppressed by R05 per engine rules."
+      "expected_evaluation": {
+        "violated_rule_ids": [
+          "CMDI-R02",
+          "CMDI-R04",
+          "CMDI-R05",
+          "CMDI-R09"
+        ],
+        "penalty_total": -90,
+        "ttc_actual_sec": null,
+        "ttc_factor": 0.0,
+        "response_difficulty_bonus": 0,
+        "final_score": 0,
+        "verdict": "failed"
       }
     },
     {
       "scenario_id": "CMDI-S3",
       "label": "Authenticated Low-Privilege Command Injection with Delayed Containment",
       "description": "Low-privilege authenticated user injects commands into a file-conversion utility. The injection is partially sanitised (limited I/A impact), scope unchanged. The SOC detects and contains within the expected window despite delayed investigation.",
+      "attack_context": {
+        "requires_authentication": true,
+        "authentication_level": "low_privilege",
+        "rationale": "Attacker requires a valid low-privilege session to reach the file-conversion endpoint."
+      },
       "cvss": {
-        "vector": "AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:L",
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:L",
         "base_score": 7.6,
         "component_rationale": {
           "AV_N": "Exploitable remotely over the network",
@@ -207,42 +438,135 @@
           "I_L": "Limited write capability; partial file overwrite only",
           "A_L": "Limited availability impact; service slowdown possible",
           "formula_trace": "ISCBase=1−(0.44×0.78×0.78)=0.7325; ISC=6.42×0.7325=4.703; Expl=8.22×0.85×0.77×0.62×0.85=2.835; Score=Roundup(min(4.703+2.835,10))=Roundup(7.538)=7.6"
-        }
+        },
+        "version": "3.1"
       },
-      "computed_ttc": {
-        "TTC_expected_sec": 8640,
-        "TTC_expected_hr": 2.40,
-        "TTC_max_sec": 12960,
-        "TTC_max_hr": 3.60
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 8640,
+        "ttc_max_sec": 12960
       },
-      "detection_difficulty": "medium",
-      "detection_difficulty_rationale": "auditd syscall events for execve() combined with web server logs provide clear injection evidence; standard Wazuh correlation rules apply.",
-      "attack_requires_auth": true,
-      "attack_auth_rationale": "Attacker requires a valid low-privilege session to reach the file-conversion endpoint.",
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "auditd syscall events for execve() combined with web server logs provide clear injection evidence; standard Wazuh correlation rules apply. Detection uses custom Wazuh rule 100203 (Authenticated request correlated with an unexpected execve event); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100203",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "Authenticated request correlated with an unexpected execve event"
+      },
       "event_log": [
-        { "t_sec": 0,    "actor": "attacker",           "event": "alert_raised",           "detail": "Wazuh rule 91002 level 7 fired: execve() syscall chain anomaly in file-converter process; user_id mapped to low-privilege account test_user." },
-        { "t_sec": 600,  "actor": "blue_team/analyst-1", "event": "investigation_started",  "detail": "Analyst-1 opened alert — MTTA 600s, within 750s medium threshold. Correlation of auditd execve log with web access log confirmed injection vector in filename parameter." },
-        { "t_sec": 1200, "actor": "blue_team/analyst-2", "event": "incident_confirmed",     "detail": "Analyst-2 confirmed injected command 'cat /etc/passwd' executed. Credential file read confirmed from process output captured in auditd." },
-        { "t_sec": 7500, "actor": "blue_team/analyst-3", "event": "containment_initiated",  "detail": "Analyst-3 applied input sanitisation hotfix to filename parameter (allowlist of alphanumeric and dot); test_user account suspended pending investigation." },
-        { "t_sec": 8000, "actor": "blue_team/analyst-3", "event": "containment_succeeded",  "detail": "Re-test of injection vector returns 400 Bad Request. Hotfix validated. Credential rotation ticket raised. TTC_actual=8000s < TTC_expected=8640s." }
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100203 level 8 fired: Authenticated request correlated with an unexpected execve event."
+        },
+        {
+          "t_offset_sec": 600,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 600s, within 750s medium threshold. Correlation of auditd execve log with web access log confirmed injection vector in filename parameter."
+        },
+        {
+          "t_offset_sec": 1200,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed injected command 'cat /etc/passwd' executed. Credential file read confirmed from process output captured in auditd."
+        },
+        {
+          "t_offset_sec": 7440,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 7500,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 applied input sanitisation hotfix to filename parameter (allowlist of alphanumeric and dot); test_user account suspended pending investigation."
+        },
+        {
+          "t_offset_sec": 8000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "Re-test of injection vector returns 400 Bad Request. Hotfix validated. Credential rotation ticket raised. TTC_actual=8000s < TTC_expected=8640s."
+        },
+        {
+          "t_offset_sec": 8300,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 8600,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 8900,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
       ],
-      "rules_evaluation": {
-        "CMDI-R01": { "fired": false, "note": "MTTA 600s < 750s threshold for medium difficulty" },
-        "CMDI-R02": { "fired": false, "note": "incident_confirmed present at t=1200s" },
-        "CMDI-R03": { "fired": false, "note": "containment_initiated at t=7500s < TTC_max 12960s" },
-        "CMDI-R04": { "fired": false, "note": "containment_succeeded present at t=8000s" },
-        "CMDI-R05": { "fired": false, "note": "No alert_denied event" }
-      },
-      "test_assertion": {
-        "TTC_actual_sec": 8000,
-        "TTC_score": 100,
+      "expected_evaluation": {
+        "violated_rule_ids": [],
         "penalty_total": 0,
-        "TTD_sec": 600,
-        "bonus": 15,
-        "final_score": 115,
-        "verdict": "excellent",
-        "notes": "TTC_actual 8000s < TTC_expected 8640s → ttc_score=100. Bonus=min(4500×2×(1/600),25)=min(15,25)=15. Final=100+0+15=115."
+        "ttc_actual_sec": 8000,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 15.0,
+        "final_score": 100,
+        "verdict": "excellent"
       }
     }
-  ]
+  ],
+  "references": [
+    {
+      "title": "NIST SP 800-61 Rev. 3",
+      "url": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "title": "FIRST CVSS v3.1 Specification",
+      "url": "https://www.first.org/cvss/v3-1/specification-document"
+    },
+    {
+      "title": "FIRST CVSS v4.0 Specification (current migration target)",
+      "url": "https://www.first.org/cvss/v4-0/specification-document"
+    },
+    {
+      "title": "Wazuh custom rules",
+      "url": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+    },
+    {
+      "title": "OWASP Top 10:2025 — Injection",
+      "url": "https://owasp.org/Top10/2025/A05_2025-Injection/"
+    }
+  ],
+  "dataset_metadata": {
+    "last_authoritative_source_review": "2026-06-20",
+    "source_policy": "Use upstream standards and vendor rulesets; label project-specific detection logic as custom.",
+    "cvss_profile": "Validated CVSS v3.1 compatibility profile; migrate through a separate expert review rather than automatic vector conversion."
+  }
 }

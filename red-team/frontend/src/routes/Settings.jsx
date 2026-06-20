@@ -78,8 +78,8 @@ export default function Settings() {
     })
   }, [])
 
-  const completed = sessions.filter(s => s.learning_success || s.learning_state === 'completed')
-  const running   = sessions.filter(s => s.mission_started_at && !s.learning_success && s.learning_state !== 'completed')
+  const completed = sessions.filter(s => s.learning_success)
+  const running   = sessions.filter(s => s.mission_started_at && !s.learning_success)
 
   const todayStart = useMemo(() => {
     const d = new Date(); d.setHours(0,0,0,0); return d.getTime() / 1000

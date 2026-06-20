@@ -33,8 +33,6 @@ from datetime import datetime
 from typing import Optional
 
 from ATTENSE_app.events.event import Event
-from core.blueactions.analyst_action_extractor import extract_analyst_action
-from routers.analyst_actions import store_analyst_action
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +56,6 @@ class HiveEventTranslator:
         emitter.emit(incident, store, event)
     """
 
-    def __init__(self) -> None:
-        # Cache: TheHive case _id  → ATTENSE incident_id
-        # Populated when case events with attense:incident-* tags arrive.
-        # Used to resolve incident_id for child task/log events that carry
-        # no case tags — only a reference back to the parent case ID.
-        self._case_incident_map: dict[str, str] = {}
-
     def translate(self, payload: dict, incident_id: str) -> Optional[Event]:
         """
         Translate a Hive webhook payload into an ATTENSE Event.
@@ -79,29 +70,10 @@ class HiveEventTranslator:
         Event  — if a mapping exists for the Hive objectType/operation.
         None   — if this webhook type has no ATTENSE mapping (silently ignored).
         """
-        # TheHive 4.1.24 CE sends lowercase objectType/operation ("case", "create").
-        # Normalise to lowercase here; all comparisons below use lowercase.
-        object_type = payload.get("objectType", "").lower()
-        operation   = payload.get("operation",   "").lower()
+        object_type = payload.get("objectType", "")
+        operation   = payload.get("operation", "")
         object_data = payload.get("object", {})
         hive_status = object_data.get("status", "")
-
-        # Analyst action extraction — independent of the ATTENSE event
-        # translation below. Runs even for Hive events that don't map to
-        # an ATTENSE incident-state event, since it writes to the separate
-        # analyst-action scoring store used by the Watcher Agent endpoints.
-        # Pass incident_id explicitly so task events (which carry no case tags)
-        # can still be scored correctly.
-        try:
-            action = extract_analyst_action(payload, incident_id=incident_id)
-            if action:
-                store_analyst_action(action)
-                logger.info(
-                    "[HiveTranslator] analyst action recorded: %s → %s",
-                    action["analyst_id"], action["event_type"],
-                )
-        except Exception as exc:
-            logger.warning("[HiveTranslator] Analyst action extraction failed: %s", exc)
 
         attense_event_type, target_type, outcome = self._resolve_mapping(
             object_type, operation, payload
@@ -156,59 +128,77 @@ class HiveEventTranslator:
         """
         Map a (objectType, operation, payload) triple to an ATTENSE
         (event_type, target_type, outcome) triple.
-
-        object_type and operation are expected already normalised to lowercase
-        by the caller (TheHive 4.1.24 CE sends lowercase; earlier versions may
-        send title case — normalising at the top of translate() handles both).
         """
         object_data = payload.get("object", {})
         details = payload.get("details", {})
         hive_status = object_data.get("status", "")
         resolution = object_data.get("resolutionStatus", "")
 
+        # TheHive 4.1.x webhook vocabulary is lowercase and uses internal type
+        # names (e.g. objectType='case', operation='create', 'case_task',
+        # 'case_task_log'). Normalise to canonical tokens so the mappings below
+        # are robust to casing/naming. Status field values (Open/Resolved/…)
+        # stay as-is — those are domain values, not the webhook envelope.
+        otype = {
+            "case": "case", "alert": "alert",
+            "case_task": "task", "task": "task",
+            "case_task_log": "tasklog", "tasklog": "tasklog",
+            "action": "responderaction", "responderaction": "responderaction",
+        }.get(object_type.strip().lower(), object_type.strip().lower())
+        op = operation.strip().lower()  # create | update | delete
+
         # 1. alert_investigation_started
-        if object_type == "alert" and operation == "update":
+        if otype == "alert" and op == "update":
+            # If the owner field was changed/set in this update
             if "owner" in details:
                 return "alert_investigation_started", "alert", "unknown"
 
         # 2. alert_denied
-        if object_type == "alert" and operation == "update":
+        if otype == "alert" and op == "update":
             if hive_status == "Ignored":
                 return "alert_denied", "alert", "false_positive"
 
         # 3. incident_confirmed
-        if object_type == "case" and operation == "create":
+        if otype == "case" and op == "create":
             return "incident_confirmed", "alert", "detected"
-        if object_type == "alert" and operation == "update" and hive_status == "Imported":
+        if otype == "alert" and op == "update" and hive_status == "Imported":
             return "incident_confirmed", "alert", "detected"
 
         # 4. containment_initiated
-        if object_type == "task" and operation == "update" and hive_status in ("InProgress", "Waiting"):
+        if otype == "task" and op == "update" and hive_status in ("InProgress", "Waiting"):
             return "containment_initiated", "host", "unknown"
-        if object_type == "responderaction" and operation == "create":
+        if otype == "responderaction" and op == "create":
             return "containment_initiated", "host", "unknown"
 
         # 5. containment_succeeded / containment_failed — Cortex reports back via ResponderAction/Update
-        if object_type == "responderaction" and operation == "update":
+        # When Cortex finishes running WazuhBlockIP it updates the ResponderAction with its final status.
+        # TheHive emits a webhook for this update — we map it here so the incident can reach CONTAINED.
+        if otype == "responderaction" and op == "update":
             responder_status = object_data.get("status", "")
             if responder_status == "Success":
                 return "containment_succeeded", "host", "success"
             if responder_status in ("Failure", "Timeout"):
                 return "containment_failed", "host", "failure"
+            # Any other intermediate state (e.g. "InProgress") → ignore
             return None, "host", "unknown"
 
         # 5b. containment_succeeded via Task completion (manual task path — no Cortex)
-        if object_type == "task" and operation == "update" and hive_status == "Completed":
+        if otype == "task" and op == "update" and hive_status == "Completed":
             return "containment_succeeded", "host", "success"
-        if object_type == "tasklog" and operation == "create":
+        if otype == "tasklog" and op == "create":
             message = object_data.get("message", "").lower()
+            # If the log does not contain failed/error, we consider it just a general task update.
+
+            # 6. containment_failed
             if "failed" in message or "error" in message:
                 return "containment_failed", "host", "failure"
+
+            # If it's just a regular log on a completed task
             if hive_status == "Completed":
                 return "containment_succeeded", "host", "success"
 
         # 7. incident_ended
-        if object_type == "case" and operation == "update":
+        if otype == "case" and op == "update":
             if hive_status in ("Resolved", "Closed"):
                 if resolution == "FalsePositive":
                     return "alert_denied", "alert", "false_positive"
@@ -218,72 +208,37 @@ class HiveEventTranslator:
                     return "incident_ended", "alert", "success"
                 return "incident_ended", "alert", "unknown"
 
+        # Fallback for unexpected mapping
         return None, "alert", "unknown"
 
-    def extract_incident_id(self, payload: dict) -> Optional[str]:
+    @staticmethod
+    def extract_incident_id(payload: dict) -> Optional[str]:
         """
         Extract the ATTENSE incident_id from a Hive webhook payload.
 
-        Lookup order:
-          1. Case tags:          'attense:incident-<id>'  (case events)
+        Looks in:
+          1. Case tags:          'attense:incident-<id>'
           2. Custom fields:      customFields.attenseIncidentId.string
           3. Description prefix: 'Automated case for incident <id>'
-          4. Case→incident cache: task/log events carry a 'case' field or
-             a top-level 'rootId' pointing back to the parent case; look up
-             that case_id in the cache populated by prior case events.
 
-        When an incident_id is resolved via tags/fields, the case_id→incident_id
-        mapping is registered in self._case_incident_map so that child task events
-        can find it without carrying case tags themselves.
+        Returns None if no incident_id can be found.
         """
         object_data = payload.get("object", {})
 
         # 1. Tags: 'attense:incident-inc-abc123'
         for tag in object_data.get("tags", []):
             if isinstance(tag, str) and tag.startswith("attense:incident-"):
-                incident_id = tag.replace("attense:incident-", "", 1)
-                # Register so child task events can find this incident
-                case_id = object_data.get("_id") or object_data.get("id")
-                if case_id:
-                    self._case_incident_map[case_id] = incident_id
-                return incident_id
+                return tag.replace("attense:incident-", "", 1)
 
         # 2. Custom fields
         custom = object_data.get("customFields", {})
         cf_val = custom.get("attenseIncidentId", {})
         if isinstance(cf_val, dict) and cf_val.get("string"):
-            incident_id = cf_val["string"]
-            case_id = object_data.get("_id") or object_data.get("id")
-            if case_id:
-                self._case_incident_map[case_id] = incident_id
-            return incident_id
+            return cf_val["string"]
 
         # 3. Description fallback
         desc = object_data.get("description", "")
         if desc.startswith("Automated case for incident "):
-            incident_id = desc.replace("Automated case for incident ", "", 1).strip()
-            case_id = object_data.get("_id") or object_data.get("id")
-            if case_id:
-                self._case_incident_map[case_id] = incident_id
-            return incident_id
-
-        # 4. Task / log events: the object has no case tags, but carries a
-        #    'case' field (parent case _id) or the payload has a top-level
-        #    'rootId'.  Look both up in the cache.
-        #    Either field may be a plain string ID or a nested dict — drill
-        #    down until we get a hashable string.
-        def _to_id(v: object) -> str | None:
-            if isinstance(v, str):
-                return v or None
-            if isinstance(v, dict):
-                return v.get("_id") or v.get("id") or None
-            return None
-
-        parent_case = (
-            _to_id(object_data.get("case"))
-            or _to_id(payload.get("rootId"))
-        )
-        if parent_case and parent_case in self._case_incident_map:
-            return self._case_incident_map[parent_case]
+            return desc.replace("Automated case for incident ", "", 1).strip()
 
         return None

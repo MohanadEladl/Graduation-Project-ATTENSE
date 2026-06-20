@@ -1,0 +1,15 @@
+{
+  "name": "TargetKillProcess",
+  "version": "1.0",
+  "author": "ATTENSE",
+  "url": "https://github.com/DarineNadaa/Graduation-Project",
+  "license": "MIT",
+  "description": "Terminate a malicious process by PID inside the monitored target.",
+  "dataTypeList": ["thehive:case_artifact"],
+  "command": "TargetKillProcess/target_kill_process.py",
+  "baseConfig": "TargetContainment",
+  "configurationItems": [
+    {"name": "target_url", "description": "Target-agent base URL", "type": "string", "multi": false, "required": true, "defaultValue": "http://target-agent:80"},
+    {"name": "containment_api_token", "description": "Target containment API token", "type": "string", "multi": false, "required": true}
+  ]
+}
