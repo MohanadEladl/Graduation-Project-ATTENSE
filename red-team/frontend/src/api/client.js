@@ -1,10 +1,24 @@
 // Small REST client. In dev Vite proxies /api to the backend.
 // In production the nginx container proxies /api and /ws to the backend.
 
-const baseHeaders = { 'Content-Type': 'application/json' }
+// Session token captured from the URL on app load (see App.jsx) — forwarded
+// to the backend so it can resolve the real operator identity against
+// attense-app and tag malicious_action_executed events with it instead of
+// the anonymous "redteam-operator" fallback. Best-effort: if it's missing or
+// stale, the backend just degrades to that fallback, nothing here breaks.
+export const SESSION_TOKEN_KEY = 'attense_session_token'
+
+function authHeaders() {
+  const token = localStorage.getItem(SESSION_TOKEN_KEY)
+  return token ? { 'X-Session-Token': token } : {}
+}
+
+function headers(extra) {
+  return { 'Content-Type': 'application/json', ...authHeaders(), ...extra }
+}
 
 async function get(path) {
-  const r = await fetch(path, { headers: baseHeaders })
+  const r = await fetch(path, { headers: headers() })
   if (!r.ok) throw new Error(`GET ${path} → ${r.status}`)
   return r.json()
 }
@@ -12,7 +26,7 @@ async function get(path) {
 async function post(path, body) {
   const r = await fetch(path, {
     method: 'POST',
-    headers: baseHeaders,
+    headers: headers(),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (!r.ok) throw new Error(`POST ${path} → ${r.status}`)
@@ -20,7 +34,7 @@ async function post(path, body) {
 }
 
 async function del(path) {
-  const r = await fetch(path, { method: 'DELETE', headers: baseHeaders })
+  const r = await fetch(path, { method: 'DELETE', headers: headers() })
   if (!r.ok) throw new Error(`DELETE ${path} → ${r.status}`)
   return r.json()
 }

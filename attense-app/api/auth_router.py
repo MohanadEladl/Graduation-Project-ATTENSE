@@ -40,9 +40,10 @@ def logout(body: LogoutRequest):
 @router.get("/me")
 def me(session: dict = Depends(require_session)):
     response = {"username": session["username"], "role": session["role"]}
-    if session["role"] in user_store.HIVE_KEY_ROLES:
-        user = user_store.get_user_by_username(session["username"])
-        if user is not None:
+    user = user_store.get_user_by_username(session["username"])
+    if user is not None:
+        response["type"] = user.get("type")
+        if session["role"] in user_store.HIVE_KEY_ROLES:
             response["hive_key"] = user.get("hive_key")
     return response
 

@@ -5,25 +5,32 @@ Endpoints:
   GET    /health                            – liveness
   GET    /api/modules                       – list all attack modules + metadata
   GET    /api/target                        – current default target
-  POST   /api/sessions                      – create mission session
+  POST   /api/auth/login                    – proxy login to attense-app, returns session token
+  POST   /api/sessions                      – create mission session            [auth required]
   GET    /api/sessions                      – list sessions
   GET    /api/sessions/{sid}                – session snapshot
-  DELETE /api/sessions/{sid}                – close session
-  POST   /api/sessions/{sid}/options        – set one option
-  POST   /api/sessions/{sid}/target         – set target host/port
-  POST   /api/sessions/{sid}/start          – begin mission (no attack)
-  POST   /api/sessions/{sid}/execute        – execute the attack
+  DELETE /api/sessions/{sid}                – close session                     [auth required]
+  POST   /api/sessions/{sid}/options        – set one option                    [auth required]
+  POST   /api/sessions/{sid}/target         – set target host/port              [auth required]
+  POST   /api/sessions/{sid}/start          – begin mission (no attack)         [auth required]
+  POST   /api/sessions/{sid}/execute        – execute the attack                [auth required]
   GET    /api/sessions/{sid}/logs           – full log history
   WS     /ws/sessions/{sid}                 – live log stream
   WS     /ws/shell                          – legacy single-tab shell
 
   Lab Mode (AttackBox):
   GET    /api/operator/attackbox/status      – AttackBox container status
-  POST   /api/operator/attackbox/exec        – run command in AttackBox
+  POST   /api/operator/attackbox/exec        – run command in AttackBox         [auth required]
   GET    /api/operator/attackbox/evidence     – tool command evidence
   GET    /api/operator/zap/status            – ZAP service status
   GET    /api/operator/zap/history           – ZAP proxy history
-  POST   /api/operator/zap/repeater/send     – send request through ZAP
+  POST   /api/operator/zap/repeater/send     – send request through ZAP        [auth required]
+
+[auth required] = caller must send X-Session-Token (from /api/auth/login),
+validated against attense-app's session store on every such request; see
+require_operator_session(). Other state-mutating session routes (variant,
+reset-evidence, restart, report/regenerate, mutations/trigger, mutations/
+schedule, check-progress, skills/update) are also gated the same way.
 
 Modes:
   guided   – rich walkthrough; browser interactions count as evidence
@@ -36,7 +43,7 @@ import os
 import sys
 from typing import Any, Optional
 
-from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -53,6 +60,7 @@ from backend.session_manager import SessionManager # noqa: E402
 from backend.detections import DetectionBroker     # noqa: E402
 from backend import operator_api                   # noqa: E402
 from backend import action_trace                   # noqa: E402
+from backend import identity                        # noqa: E402
 
 
 DEFAULT_HOST = os.getenv("TARGET_HOST", "target-agent")
@@ -164,8 +172,51 @@ def _require_session(sid: str):
     return rec
 
 
+# ── Operator auth (validated against attense-app, not invented here) ─────────
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+async def login(body: LoginBody) -> dict:
+    """
+    Proxy login to attense-app server-side so the browser never needs CORS
+    access to attense-app directly and attense-app's URL stays out of
+    frontend code. Returns attense-app's own response (token + role) as-is.
+    """
+    loop = asyncio.get_running_loop()
+    status_code, payload = await loop.run_in_executor(
+        None, identity.login, body.username, body.password
+    )
+    if status_code != 200:
+        raise HTTPException(status_code=status_code, detail=payload.get("detail", "login_failed"))
+    return payload
+
+
+async def require_operator_session(
+    x_session_token: Optional[str] = Header(default=None),
+) -> dict:
+    """
+    Hard auth gate for endpoints that create or drive a red-team session.
+    Validates X-Session-Token against attense-app's own session store
+    (GET /api/auth/me) and rejects with 401 if missing/invalid. Unlike
+    identity.validate_session()'s soft "return None", routes behind this
+    dependency cannot proceed without a real, currently-valid operator
+    identity.
+    """
+    loop = asyncio.get_running_loop()
+    info = await loop.run_in_executor(None, identity.validate_session, x_session_token)
+    if info is None or not info.get("username"):
+        raise HTTPException(status_code=401, detail="invalid_or_missing_session_token")
+    return info
+
+
 @app.post("/api/sessions")
-async def create_session(body: CreateSessionBody) -> dict:
+async def create_session(
+    body: CreateSessionBody,
+    operator: dict = Depends(require_operator_session),
+) -> dict:
     loop = asyncio.get_running_loop()
     mode = body.mode or "tutorial"
     try:
@@ -174,6 +225,7 @@ async def create_session(body: CreateSessionBody) -> dict:
             mode=mode,
             mutation_mode=bool(body.mutation_mode),
             mutation_intensity=body.mutation_intensity or "single",
+            actor_id=operator["username"],
             loop=loop,
         )
     except KeyError as exc:
@@ -195,7 +247,7 @@ def get_session(sid: str) -> dict:
 
 
 @app.delete("/api/sessions/{sid}")
-def delete_session(sid: str) -> dict:
+def delete_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
     ok = _SESSIONS.delete(sid)
     if not ok:
         raise HTTPException(status_code=404, detail=f"Unknown session: {sid}")
@@ -203,21 +255,25 @@ def delete_session(sid: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/options")
-def set_session_option(sid: str, body: SetOptionBody) -> dict:
+def set_session_option(
+    sid: str, body: SetOptionBody, operator: dict = Depends(require_operator_session)
+) -> dict:
     rec = _require_session(sid)
     _SESSIONS.set_option(rec, body.key, body.value)
     return rec.snapshot()
 
 
 @app.post("/api/sessions/{sid}/target")
-def set_session_target(sid: str, body: SetTargetBody) -> dict:
+def set_session_target(
+    sid: str, body: SetTargetBody, operator: dict = Depends(require_operator_session)
+) -> dict:
     rec = _require_session(sid)
     _SESSIONS.set_target(rec, body.host, body.port)
     return rec.snapshot()
 
 
 @app.post("/api/sessions/{sid}/start")
-async def start_session(sid: str) -> dict:
+async def start_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
     """Begin guided mode — starts the timer + records mission_started_at.
     Does NOT execute the attack."""
     rec = _require_session(sid)
@@ -230,7 +286,7 @@ async def start_session(sid: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/check-progress")
-async def check_progress(sid: str) -> dict:
+async def check_progress(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
     """Inspect target-agent evidence since mission start; do NOT run attack.
 
     Uses the mode and variant_id stored on the session:
@@ -280,7 +336,9 @@ async def list_module_variants(module_id: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/variant")
-async def set_session_variant(sid: str, body: dict) -> dict:
+async def set_session_variant(
+    sid: str, body: dict, operator: dict = Depends(require_operator_session)
+) -> dict:
     """Set the active attack variant for a session.  Body: {variant_id: str}."""
     rec = _require_session(sid)
     variant_id = (body or {}).get("variant_id")
@@ -390,10 +448,11 @@ def _summarise_browser_action(a: dict) -> str:
     return f"{kind} {sel}".strip()
 
 
-@app.post("/api/sessions/{sid}/reset-evidence")
-async def reset_evidence(sid: str) -> dict:
-    """Reset a mission for a fresh attempt. Clears evidence, resets timer,
-    learning state, and mission_started_at. Does NOT delete the session."""
+async def _do_reset_evidence(sid: str) -> dict:
+    """Shared by reset_evidence and restart_session -- pulled out so each
+    route can independently carry its own auth Depends() without one calling
+    the other as a plain function (Depends() markers don't resolve outside
+    FastAPI's request handling)."""
     rec = _require_session(sid)
     import time as _time, urllib.request, urllib.error
     target_url = os.getenv("LAB_EVENTS_URL", "http://target-agent")
@@ -417,10 +476,17 @@ async def reset_evidence(sid: str) -> dict:
     return rec.snapshot()
 
 
+@app.post("/api/sessions/{sid}/reset-evidence")
+async def reset_evidence(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
+    """Reset a mission for a fresh attempt. Clears evidence, resets timer,
+    learning state, and mission_started_at. Does NOT delete the session."""
+    return await _do_reset_evidence(sid)
+
+
 @app.post("/api/sessions/{sid}/restart")
-async def restart_session(sid: str) -> dict:
+async def restart_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
     """Alias for reset-evidence — restarts the mission for a clean attempt."""
-    return await reset_evidence(sid)
+    return await _do_reset_evidence(sid)
 
 
 @app.get("/api/sessions/{sid}/report")
@@ -485,7 +551,7 @@ async def get_report(sid: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/report/regenerate")
-async def regenerate_report(sid: str) -> dict:
+async def regenerate_report(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
     """Clear the cached report and regenerate it fresh."""
     rec = _require_session(sid)
     rec.report_cache = None
@@ -512,7 +578,9 @@ class SkillUpdateBody(BaseModel):
 
 
 @app.post("/api/skills/update")
-async def update_skill(body: SkillUpdateBody) -> dict:
+async def update_skill(
+    body: SkillUpdateBody, operator: dict = Depends(require_operator_session)
+) -> dict:
     rec = _require_session(body.session_id)
     if not rec.report_cache:
         raise HTTPException(status_code=409, detail="No report cache — generate report first")
@@ -606,7 +674,7 @@ async def get_lab_analysis(sid: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/execute")
-async def execute_session(sid: str) -> dict:
+async def execute_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
     """Execute the attack module. This is the ONLY endpoint that runs the attack."""
     rec = _require_session(sid)
     loop = asyncio.get_running_loop()
@@ -772,7 +840,9 @@ class ExecBody(BaseModel):
 
 
 @app.post("/api/operator/attackbox/exec")
-async def attackbox_exec(body: ExecBody) -> dict:
+async def attackbox_exec(
+    body: ExecBody, operator: dict = Depends(require_operator_session)
+) -> dict:
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, operator_api.exec_in_attackbox, body.command)
     # Record evidence for successful/blocked commands
@@ -810,7 +880,7 @@ class RepeaterBody(BaseModel):
 
 
 @app.post("/api/operator/zap/repeater/send")
-def zap_repeater(body: RepeaterBody) -> dict:
+def zap_repeater(body: RepeaterBody, operator: dict = Depends(require_operator_session)) -> dict:
     return operator_api.zap_repeater_send(
         method=body.method, path=body.path,
         headers=body.headers, body=body.body,
@@ -1291,7 +1361,9 @@ def _mutation_status_payload(rec) -> dict:
 
 
 @app.post("/api/sessions/{sid}/mutations/trigger")
-async def trigger_mutation(sid: str, body: dict = Body(...)):
+async def trigger_mutation(
+    sid: str, body: dict = Body(...), operator: dict = Depends(require_operator_session)
+):
     """Activate a mutation on the target-agent for this session."""
     rec = _require_session(sid)
     module_id   = body.get("module_id", "")
@@ -1342,7 +1414,9 @@ async def get_session_mutation_status(sid: str):
 
 
 @app.post("/api/sessions/{sid}/mutations/schedule")
-async def schedule_mutation(sid: str, body: dict = Body(...)):
+async def schedule_mutation(
+    sid: str, body: dict = Body(...), operator: dict = Depends(require_operator_session)
+):
     """
     Schedule a mutation to trigger inside a random delay window.
     Runs in a background thread. Returns immediately.

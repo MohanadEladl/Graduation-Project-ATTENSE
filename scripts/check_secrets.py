@@ -65,6 +65,7 @@ REQUIRED_KEYS = [
     "WAZUH_PASS",
     "ZAP_API_KEY",
     "CONTAINMENT_API_TOKEN",
+    "RED_TEAM_EVENTS_SECRET",
 ]
 
 # Left empty on purpose to disable that enrichment source gracefully.

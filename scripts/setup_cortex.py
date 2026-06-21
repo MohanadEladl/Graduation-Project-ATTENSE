@@ -11,8 +11,10 @@ What it does
 3. Generates an API key for that organisation.
 4. Enables the Wazuh-backed and target-app containment responders, with the
    backend configuration required to work without manual Cortex UI setup.
-5. Writes the API key into thehive/application.conf so TheHive can talk to Cortex.
-6. Prints clear next steps.
+5. Writes the API key into secrets/{ORG_NAME}.env as CORTEX_API_KEY (gitignored).
+   TheHive reads it via `key = ${?CORTEX_API_KEY}` in thehive/application.conf,
+   so the live key is NEVER written into tracked config.
+6. Recreates TheHive (docker compose up -d thehive) so it loads the new key.
 
 Usage (from project root)
 --------------------------
@@ -34,6 +36,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -111,9 +114,10 @@ _load_secrets_file(os.getenv("CORTEX_ORG_NAME", "ATTENSE"))
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 CORTEX_URL        = os.getenv("CORTEX_URL",        "http://localhost:9001")
-THEHIVE_CONF_PATH = os.getenv("THEHIVE_CONF_PATH", str(
-    Path(__file__).resolve().parent.parent / "thehive" / "application.conf"
-))
+
+# Project root + compose service used to recreate TheHive after the key rotates.
+PROJECT_ROOT    = Path(__file__).resolve().parent.parent
+THEHIVE_SERVICE = os.getenv("THEHIVE_SERVICE", "thehive")
 
 # Admin credentials that will be created on first boot
 ADMIN_LOGIN    = os.getenv("CORTEX_ADMIN_LOGIN",    "admin")
@@ -502,84 +506,85 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
             print(f"   ✅ Removed obsolete responder instance '{definition_id}'.")
 
 
-# ── Step 5: Patch thehive/application.conf ────────────────────────────────────
+# ── Step 5: Write CORTEX_API_KEY into secrets/{ORG_NAME}.env ───────────────────
 
-def step_patch_thehive_conf(api_key: str) -> None:
-    """Replace the Cortex API key placeholder in thehive/application.conf."""
-    print(f"\n📝 Step 5: Patching thehive/application.conf …")
+def step_write_cortex_key_env(api_key: str) -> None:
+    """Upsert CORTEX_API_KEY=<key> into secrets/{ORG_NAME}.env.
 
-    conf_path = Path(THEHIVE_CONF_PATH)
-    if not conf_path.exists():
-        print(f"   ❌ File not found: {conf_path}")
-        print(f"      Set THEHIVE_CONF_PATH env var to the correct path.")
-        return
-
-    content = conf_path.read_text(encoding="utf-8")
-
-    # Match the bearer auth 'key = "..."' line inside the cortex block
-    pattern = re.compile(r'(cortex\s*\{[^}]*key\s*=\s*")[^"]*(")', re.DOTALL)
-
-    if not pattern.search(content):
-        print("   ⚠️  Could not find `key = \"...\"` inside the cortex block.")
-        print(f"      Please manually set the key to:\n      {api_key}")
-        return
-
-    new_content = pattern.sub(rf'\g<1>{api_key}\g<2>', content)
-    conf_path.write_text(new_content, encoding="utf-8")
-    print(f"   ✅ API key written to {conf_path}")
-
-
-# ── Step 7: Auto-restart TheHive via Docker socket ───────────────────────────
-
-def step_restart_thehive() -> None:
+    The renewed key is delivered to TheHive purely through the environment: the
+    thehive service loads this file via `env_file` in docker-compose, and
+    thehive/application.conf reads it with `key = ${?CORTEX_API_KEY}`. We must
+    NEVER write the live key into the tracked thehive/application.conf — doing so
+    is exactly what previously leaked the Cortex key into git history. This file
+    is gitignored, so rotating the key here can never end up in a commit.
     """
-    Restart the TheHive container via the Docker Unix socket so it
-    immediately picks up the new Cortex API key we just wrote.
+    print(f"\n📝 Step 5: Writing CORTEX_API_KEY to secrets/{ORG_NAME}.env …")
+    path = _resolve_secrets_path(ORG_NAME)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    Uses only Python stdlib — no pip installs needed.
-    Skips gracefully if the Docker socket is not mounted (e.g. running
-    the script manually on the host outside Docker).
+    new_line = f"CORTEX_API_KEY={api_key}"
+    existing = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 
-    How it works:
-        Docker exposes a REST API over a Unix socket at /var/run/docker.sock.
-        We open that socket like a normal HTTP connection and POST to:
-            /containers/attense_thehive/restart
-        Docker then restarts the container, exactly like `docker restart`.
-    """
-    import http.client as _http
-    import socket as _sock
-
-    DOCKER_SOCKET    = "/var/run/docker.sock"
-    THEHIVE_CONTAINER = os.getenv("THEHIVE_CONTAINER", "attense_thehive")
-
-    print(f"\nStep 7: Restarting TheHive so it picks up the new Cortex key …")
-
-    if not Path(DOCKER_SOCKET).exists():
-        print(f"   Docker socket not found at {DOCKER_SOCKET} — skipping auto-restart.")
-        print(f"   Run manually: docker compose restart thehive")
-        return
-
-    # Build a minimal HTTP client that talks over the Unix socket
-    class _UnixHTTPConnection(_http.HTTPConnection):
-        def connect(self) -> None:
-            self.sock = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
-            self.sock.settimeout(10)
-            self.sock.connect(DOCKER_SOCKET)
-
-    try:
-        conn = _UnixHTTPConnection("localhost")
-        conn.request("POST", f"/containers/{THEHIVE_CONTAINER}/restart")
-        resp = conn.getresponse()
-        if resp.status in (200, 204):
-            print(f"   TheHive is restarting … (Docker status {resp.status})")
-            print(f"   It will be ready in ~30 seconds at http://localhost:9000")
+    replaced = False
+    out: list[str] = []
+    for line in existing:
+        # Replace the active CORTEX_API_KEY= line (ignore commented-out ones).
+        if line.lstrip().startswith("CORTEX_API_KEY=") and not line.lstrip().startswith("#"):
+            out.append(new_line)
+            replaced = True
         else:
-            body = resp.read().decode()
-            print(f"   Docker returned {resp.status}: {body}")
-            print(f"   Run manually: docker compose restart thehive")
+            out.append(line)
+
+    if not replaced:
+        if out and out[-1].strip():
+            out.append("")  # keep a blank line before the appended key
+        out.append("# Cortex API key generated by scripts/setup_cortex.py;")
+        out.append("# read by thehive/application.conf via ${?CORTEX_API_KEY}.")
+        out.append(new_line)
+
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    print(f"   ✅ Key {'updated in' if replaced else 'appended to'} {path}")
+    print("   🔒 Tracked thehive/application.conf left untouched — no key in git.")
+
+
+# ── Step 7: Recreate TheHive so it loads the new CORTEX_API_KEY ───────────────
+
+def step_reload_thehive() -> None:
+    """
+    Recreate the TheHive container so it picks up the CORTEX_API_KEY we just
+    wrote into secrets/{ORG_NAME}.env.
+
+    Why recreate, not restart: docker-compose resolves `env_file` values into a
+    container's environment at CREATE time, so a plain `docker restart` keeps the
+    OLD key. The container must be recreated with `docker compose up -d thehive`
+    (the same recreate pattern setup_thehive.py uses for attense-app after
+    rotating HIVE_API_KEY).
+
+    Runs `docker compose up -d thehive` from the project root, and falls back to
+    printing the command if the docker CLI isn't available here (e.g. when this
+    script runs inside a container without the CLI).
+    """
+    print(f"\n♻️  Step 7: Recreating TheHive so it loads the new Cortex key …")
+    cmd = ["docker", "compose", "up", "-d", THEHIVE_SERVICE]
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=180
+        )
+    except FileNotFoundError:
+        print("   ℹ️  docker CLI not available here — recreate it yourself:")
+        print(f"       docker compose up -d {THEHIVE_SERVICE}")
+        return
     except Exception as exc:
-        print(f"   Could not restart TheHive via socket: {exc}")
-        print(f"   Run manually: docker compose restart thehive")
+        print(f"   ⚠️  Could not recreate TheHive automatically ({exc}). Run:")
+        print(f"       docker compose up -d {THEHIVE_SERVICE}")
+        return
+
+    if result.returncode == 0:
+        print("   ✅ TheHive recreated — ready in ~30s at http://localhost:9000")
+    else:
+        print(f"   ⚠️  `docker compose up -d {THEHIVE_SERVICE}` failed:")
+        print(f"      {(result.stderr or result.stdout).strip()[:200]}")
+        print(f"      Run it manually from {PROJECT_ROOT}.")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -614,19 +619,19 @@ def main() -> None:
     api_key = step_create_api_key(admin_token)
     org_token = _get_session_token(ORG_ADMIN_LOGIN, ORG_ADMIN_PASS)
     step_enable_responders(org_token)
-    step_patch_thehive_conf(api_key)
+    step_write_cortex_key_env(api_key)  # writes CORTEX_API_KEY to secrets/ATTENSE.env (never the tracked conf)
     step_note_secrets_kept()            # keeps ATTENSE.env in place (close_lab.py backs up + deletes)
-    step_restart_thehive()              # auto-restarts TheHive via Docker socket
+    step_reload_thehive()               # recreates TheHive so it loads the new key from env_file
 
     print("\n" + "=" * 60)
     print("Cortex setup complete — fully automated!")
     print()
     print("What just happened:")
     print("  - Cortex admin user + ATTENSE org created")
-    print("  - API key generated and written to thehive/application.conf")
+    print("  - API key generated and written to secrets/ATTENSE.env as CORTEX_API_KEY")
     print(f"  - {len(RESPONDERS)} Wazuh and target-app responders enabled")
     print("  - Secrets file kept in place (close_lab.py backs it up + removes it on close)")
-    print("  - TheHive restarted to pick up the new key")
+    print("  - TheHive recreated to load the new key from the environment")
     print()
     print("You can now:")
     print("  - Open TheHive at http://localhost:9000")

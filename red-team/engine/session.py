@@ -54,10 +54,16 @@ class AttackSession:
         module: BaseModule,
         target: TargetConfig,
         out: Callable[[str], None],
+        actor_id: Optional[str] = None,
     ) -> None:
         self.module = module
         self.target = target
         self._out = out
+        # Resolved operator identity (attense-app username), if the caller has
+        # one -- see backend/identity.py. None until something upstream
+        # actually forwards a session token; engine.run_module() falls back to
+        # a placeholder when this is None.
+        self.actor_id = actor_id
         self.options: dict = {}
         self.timer = Timer()
         self.state: str = "idle"
@@ -294,7 +300,8 @@ class AttackSession:
 
         try:
             self.result = engine.run_module(
-                self.module.module_id, self.target, dict(self.options)
+                self.module.module_id, self.target, dict(self.options),
+                actor_id=self.actor_id,
             )
             self.timer.stop()
             if self.result.error:

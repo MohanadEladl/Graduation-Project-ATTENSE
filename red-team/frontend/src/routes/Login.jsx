@@ -1,16 +1,36 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { SESSION_TOKEN_KEY } from '../api/client.js'
 
 export default function Login() {
   const navigate = useNavigate()
   const [user, setUser] = useState('')
   const [pass, setPass] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (!user || !pass) {
+      setError('Username and password are required.')
+      return
+    }
+    setError('')
     setLoading(true)
-    setTimeout(() => navigate('/select'), 900)
+    try {
+      const r = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.detail || 'Invalid credentials')
+      localStorage.setItem(SESSION_TOKEN_KEY, data.token)
+      navigate('/select')
+    } catch (err) {
+      setError(err.message || 'Login failed')
+      setLoading(false)
+    }
   }
 
   return (
@@ -100,6 +120,10 @@ export default function Login() {
               />
             </div>
           </div>
+
+          {error && (
+            <p className="text-attense-red font-mono text-[11px] mb-4 text-center">{error}</p>
+          )}
 
           <motion.button
             onClick={handleSubmit}

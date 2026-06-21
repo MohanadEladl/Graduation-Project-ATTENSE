@@ -75,6 +75,10 @@ class SessionRecord:
     # Cached generated report (set by the /report endpoint)
     report_cache: Optional[dict] = None
 
+    # Resolved operator identity (attense-app username), if the create-session
+    # caller forwarded a valid session token. See backend/identity.py.
+    actor_id: Optional[str] = None
+
     # Mutation Mode: a normal mission with adaptive target shifts layered on.
     mutation_mode: bool = False
     mutation_intensity: str = "single"
@@ -198,6 +202,7 @@ class SessionRecord:
             "mutation_status":       self.mutation_status,
             "mutation_next_fire_at": self.mutation_next_fire_at,
             "mutation_timeline":     list(self.mutation_timeline),
+            "actor_id":              self.actor_id,
         }
 
 
@@ -254,8 +259,9 @@ class SessionManager:
                 host=snap.get("target", {}).get("host", self._default_host),
                 port=int(snap.get("target", {}).get("port", self._default_port)),
             )
+            actor_id = snap.get("actor_id")
             # No-op emit — restored sessions don't stream logs
-            attack = AttackSession(mod, target, lambda _: None)
+            attack = AttackSession(mod, target, lambda _: None, actor_id=actor_id)
             # Restore engine state so snapshot() returns the right values
             saved_state = snap.get("state", "completed")
             attack.state = saved_state if saved_state in ("idle", "running", "completed", "error") else "completed"
@@ -266,6 +272,7 @@ class SessionManager:
                 mode=snap.get("mode", "tutorial"),
                 target=target,
                 attack=attack,
+                actor_id=actor_id,
             )
             rec.created_at             = snap.get("created_at", time.time())
             rec.mission_started_at     = snap.get("mission_started_at")
@@ -300,6 +307,7 @@ class SessionManager:
         mode: str = "tutorial",
         mutation_mode: bool = False,
         mutation_intensity: str = "single",
+        actor_id: Optional[str] = None,
         loop: asyncio.AbstractEventLoop,
     ) -> SessionRecord:
         mod = self._modules.get(module_id)
@@ -322,13 +330,14 @@ class SessionManager:
         def emit(line: str) -> None:
             record.append_log(line, loop=loop)
 
-        attack = AttackSession(mod, target, emit)
+        attack = AttackSession(mod, target, emit, actor_id=actor_id)
         record = SessionRecord(
             session_id=session_id,
             module=mod,
             mode=mode,
             target=target,
             attack=attack,
+            actor_id=actor_id,
             mutation_mode=bool(mutation_mode),
             mutation_intensity=mutation_intensity if mutation_intensity in ("single", "escalating", "chaos") else "single",
         )
