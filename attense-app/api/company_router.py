@@ -55,6 +55,13 @@ def register_with_manager(body: RegisterCompanyWithManagerRequest):
     return {"company": company, "manager": manager}
 
 
+@router.get("/pending")
+def list_pending(session: dict = Depends(require_session)):
+    if session["role"] != "ciso":
+        raise HTTPException(status_code=403, detail="Only ciso can list pending companies")
+    return company_store.list_companies(status="pending")
+
+
 @router.post("/{company_id}/confirm")
 def confirm(company_id: str, session: dict = Depends(require_session)):
     if session["role"] != "ciso":

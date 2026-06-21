@@ -55,3 +55,10 @@ def confirm_company(company_id: str) -> Optional[dict]:
 def delete_company(company_id: str) -> None:
     companies = [c for c in _load_companies() if c["id"] != company_id]
     _save_companies(companies)
+
+
+def list_companies(status: Optional[str] = None) -> list[dict]:
+    companies = _load_companies()
+    if status is not None:
+        return [c for c in companies if c.get("status") == status]
+    return companies
