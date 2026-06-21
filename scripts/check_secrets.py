@@ -25,6 +25,15 @@ Usage (from project root)
 --------------------------
     python scripts/check_secrets.py
 
+Also runs automatically as the `check-secrets` service in docker-compose.yml,
+gated on thehive-init + cortex-init (so HIVE_API_KEY exists by the time it's
+checked) and gating attense-app + red-team-backend in turn (condition:
+service_completed_successfully) -- a bad/missing secret now fails the stack
+visibly at `docker compose up` instead of surfacing later as confusing 401s.
+In that container HIVE_URL is set to the internal http://thehive:9000, so the
+host-port fallback in point 4 below is only exercised when running this
+script manually on the host with TheHive's port unpublished.
+
 Exits non-zero only if a required key is missing/empty, THEHIVE_ADMIN_PASSWORD
 is still default, or HIVE_API_KEY fails to authenticate. Other unrotated
 defaults print as warnings but don't fail the run.

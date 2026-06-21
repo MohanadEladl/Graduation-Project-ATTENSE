@@ -117,6 +117,8 @@ services:
         condition: service_started
       thehive:
         condition: service_healthy
+      check-secrets:
+        condition: service_completed_successfully
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
       # TheHive integration
@@ -218,9 +220,14 @@ services:
     hostname: red-team-backend
     restart: unless-stopped
     depends_on:
-      - target-agent
-      - attackbox
-      - ollama
+      target-agent:
+        condition: service_started
+      attackbox:
+        condition: service_started
+      ollama:
+        condition: service_started
+      check-secrets:
+        condition: service_completed_successfully
     environment:
       TARGET_HOST: target-agent
       TARGET_PORT: "80"
@@ -387,6 +394,12 @@ services:
       - THEHIVE_URL=http://thehive:9000
       - THEHIVE_ORG_NAME=blue-team
       - THEHIVE_WEBHOOK_ENDPOINT=blueteam
+    # THEHIVE_ADMIN_LOGIN/THEHIVE_ADMIN_PASSWORD come from here. Without this,
+    # setup_thehive.py falls back to its "secret" default and 401s on every
+    # re-run after the admin password has been rotated -- discovered when
+    # wiring check-secrets's dependency on this container completing.
+    env_file:
+      - ./secrets/ATTENSE.env
     volumes:
       - ./scripts:/scripts:ro
     command: python /scripts/setup_thehive.py
@@ -425,9 +438,10 @@ services:
   #   1. Creates the admin user + ATTENSE org in Cortex
   #   2. Generates an API key for the org
   #   3. Enables Wazuh and target-app containment responders
-  #   4. Patches thehive/application.conf with the real key
-  #   5. Restarts TheHive via Docker socket so it picks up the new key
-  #   6. Deletes secrets/ATTENSE.env from disk
+  #   4. Writes the key to secrets/ATTENSE.env as CORTEX_API_KEY (never into
+  #      the tracked thehive/application.conf -- that's what leaked it before)
+  #   5. Recreates TheHive (docker compose up -d thehive) so it loads the key
+  #   6. Keeps secrets/ATTENSE.env in place (close_lab.py backs it up + removes it)
   cortex-init:
     image: python:3.11-slim
     container_name: attense_cortex_init
@@ -448,6 +462,38 @@ services:
       - ./secrets:/secrets             # reads ATTENSE.env then deletes it
       - /var/run/docker.sock:/var/run/docker.sock   # to restart TheHive
     command: python /scripts/setup_cortex.py
+    networks:
+      - attense_net
+
+  # ── Secrets Pre-flight Gate: blocks attense-app/red-team-backend until ──────
+  # scripts/check_secrets.py passes (required keys present, THEHIVE_ADMIN_PASSWORD
+  # rotated off its default, and HIVE_API_KEY live-validated against TheHive).
+  # Used to be a manual step the operator had to remember to run before `up`;
+  # this makes it automatic and makes a bad/missing secret a visible startup
+  # failure instead of confusing 401s once the stack is already running.
+  # Depends on thehive-init + cortex-init (not just thehive itself) so it
+  # checks HIVE_API_KEY after that key has actually been generated and
+  # written to .env -- checking before they run would just fail on a fresh
+  # first boot for the wrong reason.
+  check-secrets:
+    image: python:3.11-slim
+    container_name: attense_check_secrets
+    restart: "no"
+    depends_on:
+      thehive:
+        condition: service_healthy
+      thehive-init:
+        condition: service_completed_successfully
+      cortex-init:
+        condition: service_completed_successfully
+    environment:
+      - HIVE_URL=http://thehive:9000
+    volumes:
+      - .:/app:ro    # whole project root, read-only -- check_secrets.py
+                      # resolves its own ENV_FILES relative to its own path,
+                      # so it needs the real directory layout, not a flat
+                      # single-folder mount like the other init scripts use.
+    command: python /app/scripts/check_secrets.py
     networks:
       - attense_net
 
