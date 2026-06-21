@@ -70,4 +70,24 @@ def get(room_id: str, session: dict = Depends(require_session)):
     if not room_path.exists():
         raise HTTPException(status_code=404, detail="Room not found")
     with room_path.open("r", encoding="utf-8") as room_file:
-        return json.load(room_file)
+        room = json.load(room_file)
+
+    from main import controller
+    from ATTENSE_app.reports.report import generate_report
+
+    incident_ids = room.get("incidents") or (
+        [room["incident_id"]] if room.get("incident_id") else []
+    )
+    detail = []
+    for incident_id in incident_ids:
+        incident = controller.incidents.get(incident_id)
+        if incident is None:
+            detail.append({"incident_id": incident_id, "status": "no_events"})
+        else:
+            detail.append({
+                "incident_id": incident_id,
+                "status": incident.status,
+                "report": generate_report(incident),
+            })
+    room["incidents_detail"] = detail
+    return room

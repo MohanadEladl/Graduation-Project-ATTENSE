@@ -4,6 +4,7 @@ import os
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 import docker
 
@@ -51,6 +52,7 @@ def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
         "room_id": room_id,
         "company_id": company_id,
         "incident_id": incident_id,
+        "incidents": [incident_id],
         "scenario_id": scenario_id,
         "port": port,
         "status": "created",
@@ -95,7 +97,7 @@ def spin_up_blueteam(room_id: str) -> dict:
             image=BLUETEAM_IMAGE,
             name=container_name,
             environment={
-                "INCIDENT_ID": room["incident_id"],
+                "INCIDENT_ID": (room.get("incidents") or [room["incident_id"]])[0],
                 "HIVE_URL": "http://thehive:9000",
                 "HIVE_API_KEY": soc_manager["hive_key"],
                 "SANDBOX_URL": "http://target-agent:80",
@@ -158,6 +160,12 @@ def spin_up_blueteam(room_id: str) -> dict:
 def spin_down_room(room_id: str) -> dict:
     room = _load_room(room_id)
 
+    if room["status"] == "created":
+        port_pool.release(room["port"])
+        room["status"] = "closed"
+        _save_room(room)
+        return room
+
     try:
         client = docker.from_env()
         container = client.containers.get(f"blueteam_{room_id}")
@@ -170,3 +178,29 @@ def spin_down_room(room_id: str) -> dict:
     room["status"] = "closed"
     _save_room(room)
     return room
+
+
+def add_incident(room_id: str, incident_id: str) -> dict:
+    """Associate an incident with a room (idempotent). Returns the room."""
+    room = _load_room(room_id)
+    incidents = room.setdefault("incidents", [])
+    if incident_id not in incidents:
+        incidents.append(incident_id)
+        _save_room(room)
+    return room
+
+
+def find_room_id_for_incident(incident_id: str) -> Optional[str]:
+    """Return the room_id whose designated or associated incidents include
+    incident_id, or None if no room matches."""
+    if not ROOMS_DIR.exists():
+        return None
+    for path in ROOMS_DIR.glob("*.json"):
+        try:
+            with path.open("r", encoding="utf-8") as room_file:
+                room = json.load(room_file)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if room.get("incident_id") == incident_id or incident_id in room.get("incidents", []):
+            return room.get("room_id")
+    return None

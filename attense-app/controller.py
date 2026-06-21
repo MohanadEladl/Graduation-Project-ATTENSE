@@ -59,7 +59,15 @@ class AttenseController:
             if incident_id not in self.incidents:
                 logger.info(f"New incident detected: {incident_id}")
                 self.incidents[incident_id] = Incident(incident_id, event.scenario_id)
-            
+                # Link the incident back to its room, if one matches.
+                try:
+                    from core import room_manager
+                    room_id = room_manager.find_room_id_for_incident(incident_id)
+                    if room_id:
+                        room_manager.add_incident(room_id, incident_id)
+                except Exception as e:
+                    logger.warning(f"Could not associate incident {incident_id} with a room: {e}")
+
             incident = self.incidents[incident_id]
             incident.apply_event(event)
             
