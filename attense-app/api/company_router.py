@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -22,6 +24,7 @@ class CreateUserRequest(BaseModel):
     email: str
     password: str
     role: str
+    type: Optional[str] = None
 
 
 class RegisterCompanyWithManagerRequest(BaseModel):
@@ -113,7 +116,20 @@ def create_user(
 
     hive_key = None
     try:
-        # Validate duplicates before creating a remote TheHive identity.
+        # Validate all local constraints before creating a remote TheHive identity.
+        if body.role not in user_store.VALID_ROLES:
+            raise ValueError(
+                f"Role must be one of: "
+                f"{', '.join(sorted(user_store.VALID_ROLES))}"
+            )
+        if body.role == "red_team":
+            if body.type not in user_store.RED_TEAM_TYPES:
+                raise ValueError(
+                    f"type is required for red_team and must be one of: "
+                    f"{', '.join(sorted(user_store.RED_TEAM_TYPES))}"
+                )
+        elif body.type is not None:
+            raise ValueError("type must be None for non-red-team roles")
         if user_store.username_exists(body.username):
             raise ValueError(f"Username already exists: {body.username}")
     except ValueError as exc:
@@ -121,13 +137,23 @@ def create_user(
 
     if body.role in HIVE_KEY_ROLES:
         try:
-            hive_key = hive_provisioner.create_user_in_org(company["name"], body.username)
+            hive_key = hive_provisioner.create_user_in_org(
+                company["name"],
+                body.username,
+                attense_role=body.role,
+            )
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     try:
         user = user_store.register_user(
-            body.username, body.email, body.password, body.role, company_id, hive_key
+            body.username,
+            body.email,
+            body.password,
+            body.role,
+            company_id=company_id,
+            hive_key=hive_key,
+            type=body.type,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
