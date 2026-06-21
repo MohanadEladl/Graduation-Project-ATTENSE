@@ -1,12 +1,18 @@
 import urllib.request
 import urllib.error
 import json
+import os
+
+
+HIVE_API_KEY = os.environ.get('HIVE_API_KEY')
+if not HIVE_API_KEY:
+    raise SystemExit('HIVE_API_KEY must be set in the environment')
 
 req = urllib.request.Request(
     'http://thehive:9000/api/v1/query',
     data=json.dumps({'query': [{'_name': 'listNotifier'}]}).encode(),
     headers={
-        'Authorization': 'Bearer REVOKED-HIVE-API-KEY',
+        'Authorization': f'Bearer {HIVE_API_KEY}',
         'Content-Type': 'application/json'
     }
 )

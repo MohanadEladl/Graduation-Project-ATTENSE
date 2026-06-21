@@ -461,16 +461,21 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
         display_name = RESPONDER_DISPLAY_NAMES[responder_name]
         existing = enabled_by_definition.get(worker_definition_id)
         if existing:
+            # Always refresh configuration (not just rename on mismatch): Cortex
+            # does not pick up env var changes for an already-enabled responder
+            # on its own, so re-running this script after rotating WAZUH_PASS /
+            # CONTAINMENT_API_TOKEN must re-PATCH it here or the rotation never
+            # reaches the responder that actually sends the credential.
+            patch_body = {"configuration": configuration}
             if existing.get("name") != display_name:
-                _req(
-                    "PATCH",
-                    f"/api/responder/{existing['id']}",
-                    {"name": display_name},
-                    token=org_token,
-                )
-                print(f"   ✅ Renamed '{responder_name}' to '{display_name}'.")
-            else:
-                print(f"   ✅ '{display_name}' already enabled for org '{ORG_NAME}' — skipping.")
+                patch_body["name"] = display_name
+            _req(
+                "PATCH",
+                f"/api/responder/{existing['id']}",
+                patch_body,
+                token=org_token,
+            )
+            print(f"   ✅ '{display_name}' enabled for org '{ORG_NAME}' — configuration refreshed.")
             continue
 
         # Note: the org is implied by the caller's own session/org

@@ -42,3 +42,8 @@ secrets/
 
 # Gemini
 .gemini/
+
+# Local session/chat notes — not for commit
+SESSION_CONTEXT.md
+PUBLIC_EXPOSURE_CHANGES.md
+SECRET_ROTATION_CHANGES.md

@@ -30,8 +30,6 @@ services:
     # iptables needs NET_ADMIN, which containers don't have by default.
     cap_add:
       - NET_ADMIN
-    ports:
-      - "8081:80"
     volumes:
       - target_nginx_logs:/var/log/nginx
       - target_flask_logs:/app/logs
@@ -51,10 +49,6 @@ services:
     container_name: attense_wazuh_manager
     hostname: wazuh.manager
     restart: unless-stopped
-    ports:
-      - "1514:1514"
-      - "1515:1515"
-      - "55000:55000"
     volumes:
       - wazuh_manager_etc:/var/ossec/etc
       - wazuh_manager_queue:/var/ossec/queue
@@ -91,8 +85,6 @@ services:
       - wazuh_alerts:/wazuh/alerts:ro
       - attense_ssd_volume:/attense/data
       - ./attense-app:/attense_app:ro
-    ports:
-      - "8005:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)\""]
       interval: 15s
@@ -129,19 +121,21 @@ services:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
+      HIVE_API_KEY: "${HIVE_API_KEY}"
+      VIRUSTOTAL_API_KEY: "${VIRUSTOTAL_API_KEY}"
+      ABUSEIPDB_API_KEY: "${ABUSEIPDB_API_KEY}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET}"
       # Sandbox / Target Agent
       SANDBOX_URL: "http://target-agent:80"
-      # Secrets and enrichment keys are injected from the files below. Keeping
-      # them out of `environment` avoids overriding those runtime values.
+      # Remaining per-organisation runtime secrets are injected below.
+      # API/enrichment keys and WEBHOOK_SECRET come from root .env above.
     env_file:
       - ./secrets/ATTENSE.env
-      - ./secrets/enrichment.env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - attense_ssd_volume:/attense/data:ro
       - attense_temp:/attense/temp
     ports:
-      - "8010:8010"
       - "8020:8020"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8020/health >/dev/null && curl -fsS http://localhost:8010/health >/dev/null"]
@@ -162,6 +156,12 @@ services:
     command: sleep infinity
     depends_on:
       - target-agent
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     networks:
       - attense_net
 
@@ -176,7 +176,7 @@ services:
     # frontend ZAP panel stuck on "offline").
     command: >
       zap.sh -daemon -silent -host 0.0.0.0 -port 8080
-      -config api.key=attense-lab-key
+      -config api.key=${ZAP_API_KEY}
       -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
       -config connection.timeoutInSecs=20
     depends_on:
@@ -184,7 +184,7 @@ services:
     networks:
       - attense_net
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:8080/JSON/core/view/version/?apikey=attense-lab-key' >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:8080/JSON/core/view/version/?apikey=${ZAP_API_KEY}' >/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -198,6 +198,12 @@ services:
     restart: unless-stopped
     volumes:
       - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - attense_net
 
@@ -218,13 +224,17 @@ services:
       LOG_DIR: /red-team/logs
       ATTACKBOX_CONTAINER: attense-attackbox
       ZAP_API_URL: "http://zap:8080"
-      ZAP_API_KEY: "attense-lab-key"
+      ZAP_API_KEY: "${ZAP_API_KEY}"
       OLLAMA_URL: "http://ollama:11434"
     volumes:
       - red_team_logs:/red-team/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - attense_net
 
@@ -237,8 +247,6 @@ services:
     restart: unless-stopped
     depends_on:
       - red-team-backend
-    ports:
-      - "3000:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
@@ -340,16 +348,15 @@ services:
         condition: service_healthy
     environment:
       - JVM_OPTS=-Xms512m -Xmx512m
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
     # WEBHOOK_SECRET is shared with attense-app at runtime.
     env_file:
       - ./secrets/ATTENSE.env
     command: >
-      --secret "attense-super-secret-key-that-is-at-least-64-bytes-long-for-thehive-so-it-starts"
+      --secret "${THEHIVE_SECRET}"
       --cql-hostnames cassandra
     volumes:
       - ./thehive/application.conf:/etc/thehive/application.conf
-    ports:
-      - "9000:9000"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9000/api/status >/dev/null"]
       interval: 10s
@@ -394,8 +401,6 @@ services:
       - ./cortex/application.conf:/etc/cortex/application.conf
       - ./cortex/responders:/opt/cortex/responders
       - /var/run/docker.sock:/var/run/docker.sock
-    ports:
-      - "9001:9001"
     healthcheck:
       # Cortex is ready when /api/status returns HTTP 200
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9001/api/status', timeout=5)\" 2>/dev/null || exit 1"]
@@ -485,6 +490,12 @@ services:
       - ./scripts:/scripts:ro
       - /var/run/docker.sock:/var/run/docker.sock
     command: python /scripts/wazuh_agent_watchdog.py
+    healthcheck:
+      test: ["CMD-SHELL", "grep -aq 'wazuh_agent_watchdog.py' /proc/1/cmdline"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - attense_net
 
@@ -495,12 +506,16 @@ services:
     container_name: attense_react
     hostname: attense-react
     restart: unless-stopped
-    ports:
-      - "5173:5173"
     volumes:
       - ./AttenseFront/attense-react/src:/app/src
       - ./AttenseFront/attense-react/public:/app/public
       - ./AttenseFront/attense-react/index.html:/app/index.html
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - attense_net
 

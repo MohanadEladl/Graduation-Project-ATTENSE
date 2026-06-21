@@ -46,7 +46,6 @@ def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
         raise RuntimeError("Company must be confirmed before creating rooms")
     room_id = str(uuid.uuid4())
     incident_id = str(uuid.uuid4())
-    port = port_pool.acquire()
 
     room = {
         "room_id": room_id,
@@ -54,18 +53,14 @@ def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
         "incident_id": incident_id,
         "incidents": [incident_id],
         "scenario_id": scenario_id,
-        "port": port,
+        "internal_url": f"http://blueteam_{room_id}:8010",
         "status": "created",
         "blue_team_members": [],
         "red_team_members": [],
         "created_by": created_by,
     }
 
-    try:
-        _save_room(room)
-    except Exception:
-        port_pool.release(port)
-        raise
+    _save_room(room)
 
     return room
 
@@ -102,7 +97,6 @@ def spin_up_blueteam(room_id: str) -> dict:
                 "HIVE_API_KEY": soc_manager["hive_key"],
                 "SANDBOX_URL": "http://target-agent:80",
             },
-            ports={"8010/tcp": room["port"]},
             network=DOCKER_NETWORK,
             detach=True,
         )
@@ -148,10 +142,6 @@ def spin_up_blueteam(room_id: str) -> dict:
                         container_name,
                         [c.id for c in leftover],
                     )
-        # No port_pool.release() here: the port was acquired in create_room and
-        # is still owned by this room (status stays "created"). Releasing it
-        # would let another room acquire a port this room's file still claims.
-        # The port is freed only by spin_down_room.
         raise RuntimeError(f"Failed to start Blue Team room {room_id}: {exc}") from exc
 
     return room
@@ -161,7 +151,8 @@ def spin_down_room(room_id: str) -> dict:
     room = _load_room(room_id)
 
     if room["status"] == "created":
-        port_pool.release(room["port"])
+        if room.get("port") is not None:  # Legacy rooms created before ports were internal-only.
+            port_pool.release(room["port"])
         room["status"] = "closed"
         _save_room(room)
         return room
@@ -174,7 +165,8 @@ def spin_down_room(room_id: str) -> dict:
     except Exception as exc:
         raise RuntimeError(f"Failed to stop Blue Team room {room_id}: {exc}") from exc
 
-    port_pool.release(room["port"])
+    if room.get("port") is not None:  # Legacy rooms created before ports were internal-only.
+        port_pool.release(room["port"])
     room["status"] = "closed"
     _save_room(room)
     return room
