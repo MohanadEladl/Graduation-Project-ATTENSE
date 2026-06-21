@@ -48,8 +48,19 @@ def create_org(company_name: str) -> str:
     return company_name
 
 
-def create_user_in_org(org_name: str, username: str) -> str:
-    """Create an org-scoped analyst and return a newly generated API key."""
+def create_user_in_org(org_name: str, username: str, attense_role: str) -> str:
+    """Create an org-scoped user and return a newly generated API key."""
+    profiles = {
+        "soc_manager": "admin",
+        "soc_l2": "analyst",
+        "soc_l1": "analyst",
+    }
+    if attense_role not in profiles:
+        raise ValueError(
+            "attense_role must be one of: soc_l1, soc_l2, soc_manager"
+        )
+    profile = profiles[attense_role]
+
     client = None
     try:
         client = _admin_client()
@@ -63,7 +74,7 @@ def create_user_in_org(org_name: str, username: str) -> str:
                         "login": username,
                         "name": username,
                         "organisation": org_name,
-                        "profile": "org-admin",
+                        "profile": profile,
                     },
                 )
                 if response.status_code != 403:
