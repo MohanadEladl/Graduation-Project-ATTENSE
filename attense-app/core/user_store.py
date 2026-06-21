@@ -13,9 +13,10 @@ VALID_ROLES = {
     "soc_manager",
     "soc_l2",
     "soc_l1",
-    "professional",
-    "intermediate",
+    "red_team",
 }
+
+RED_TEAM_TYPES = {"expert", "intermediate"}
 
 HIVE_KEY_ROLES = {"soc_manager", "soc_l1", "soc_l2"}
 
@@ -27,7 +28,10 @@ def _load_users() -> list[dict]:
     if not USERS_FILE.exists():
         return []
     with open(USERS_FILE, "r") as f:
-        return json.load(f)
+        users = json.load(f)
+    for user in users:
+        user.setdefault("type", None)
+    return users
 
 
 def _save_users(users: list[dict]) -> None:
@@ -71,6 +75,7 @@ def create_user(
         "email": email,
         "hashed_password": hashed_password,
         "role": role,
+        "type": None,
         "company_id": company_id,
         "hive_key": hive_key,
     }
@@ -88,9 +93,19 @@ def register_user(
     role: str,
     company_id: Optional[str] = None,
     hive_key: Optional[str] = None,
+    type: Optional[str] = None,
 ) -> dict:
     if role not in VALID_ROLES:
         raise ValueError(f"Role must be one of: {', '.join(sorted(VALID_ROLES))}")
+
+    if role == "red_team":
+        if type not in RED_TEAM_TYPES:
+            raise ValueError(
+                f"type is required for red_team and must be one of: "
+                f"{', '.join(sorted(RED_TEAM_TYPES))}"
+            )
+    elif type is not None:
+        raise ValueError("type must be None for non-red-team roles")
 
     if role != "ciso" and company_id is None:
         raise ValueError("company_id is required for this role")
@@ -113,6 +128,7 @@ def register_user(
         "email": email,
         "hashed_password": hashed_password,
         "role": role,
+        "type": type,
         "company_id": company_id if role != "ciso" else None,
         "hive_key": hive_key,
     }
@@ -131,6 +147,7 @@ def login_user(username: str, password: str) -> Optional[dict]:
                     "id": user["id"],
                     "username": user["username"],
                     "role": user["role"],
+                    "type": user.get("type"),
                     "company_id": user["company_id"],
                 }
             return None
