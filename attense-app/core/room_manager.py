@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 import uuid
@@ -7,6 +8,8 @@ from pathlib import Path
 import docker
 
 from core import company_store, port_pool, user_store
+
+logger = logging.getLogger(__name__)
 
 
 TEMP_PATH = os.getenv("ATTENSE_TEMP_PATH", "/attense/temp")
@@ -83,11 +86,14 @@ def spin_up_blueteam(room_id: str) -> dict:
             f"No SOC manager with a Hive API key found for company {room['company_id']}"
         )
 
+    client = None
+    container = None
+    container_name = f"blueteam_{room_id}"
     try:
         client = docker.from_env()
         container = client.containers.run(
             image=BLUETEAM_IMAGE,
-            name=f"blueteam_{room_id}",
+            name=container_name,
             environment={
                 "INCIDENT_ID": room["incident_id"],
                 "HIVE_URL": "http://thehive:9000",
@@ -115,10 +121,35 @@ def spin_up_blueteam(room_id: str) -> dict:
         room["status"] = "active"
         _save_room(room)
     except Exception as exc:
-        try:
-            container.remove(force=True)
-        except Exception:
-            pass
+        # Best-effort teardown of whatever container this attempt created.
+        if container is not None:
+            try:
+                container.remove(force=True)
+            except Exception:
+                logger.exception(
+                    "Failed to force-remove Blue Team container %s during cleanup",
+                    container_name,
+                )
+        # Re-check the container is actually gone; a lingering container keeps
+        # room["port"] bound and would block any retry of this room.
+        if client is not None:
+            try:
+                leftover = client.containers.list(all=True, filters={"name": container_name})
+            except Exception:
+                logger.exception(
+                    "Could not verify removal of Blue Team container %s", container_name
+                )
+            else:
+                if leftover:
+                    logger.error(
+                        "Blue Team container %s still present after force-remove: %s",
+                        container_name,
+                        [c.id for c in leftover],
+                    )
+        # No port_pool.release() here: the port was acquired in create_room and
+        # is still owned by this room (status stays "created"). Releasing it
+        # would let another room acquire a port this room's file still claims.
+        # The port is freed only by spin_down_room.
         raise RuntimeError(f"Failed to start Blue Team room {room_id}: {exc}") from exc
 
     return room
