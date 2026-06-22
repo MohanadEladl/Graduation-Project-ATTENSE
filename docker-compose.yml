@@ -84,7 +84,7 @@ services:
     volumes:
       - wazuh_alerts:/wazuh/alerts:ro
       - attense_ssd_volume:/attense/data
-      - ./attense-app:/attense_app:ro
+      - ./AttensePortal/attense-app:/attense_app:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)\""]
       interval: 15s
@@ -98,15 +98,21 @@ services:
   # Build-only prerequisite for dynamically created Blue Team room containers.
   blueteam-image:
     build:
-      context: ./attense-app
-      dockerfile: ATTENSE_app/blueteam/Dockerfile
+      # Context is the repo root: blueteam/Dockerfile needs to COPY both the
+      # top-level blueteam/ tree and AttensePortal/attense-app/ATTENSE_app/
+      # (the sibling modules blueteam imports as ATTENSE_app.events etc.).
+      context: .
+      dockerfile: blueteam/Dockerfile
     image: attense-app-blueteam
     command: ["true"]
     restart: "no"
 
   attense-app:
     build:
-      context: ./attense-app
+      # Context is the repo root for the same reason as blueteam-image above —
+      # this Dockerfile also COPYs the top-level blueteam/ tree (embedded copy).
+      context: .
+      dockerfile: AttensePortal/attense-app/Dockerfile
     container_name: attense_app
     hostname: attense-app
     restart: unless-stopped
@@ -123,7 +129,6 @@ services:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
-      HIVE_API_KEY: "${HIVE_API_KEY}"
       VIRUSTOTAL_API_KEY: "${VIRUSTOTAL_API_KEY}"
       ABUSEIPDB_API_KEY: "${ABUSEIPDB_API_KEY}"
       WEBHOOK_SECRET: "${WEBHOOK_SECRET}"
@@ -239,12 +244,17 @@ services:
       # Where core/engine.py posts malicious_action_executed after a module runs.
       ATTENSE_APP_URL: "http://attense-app:8020"
       RED_TEAM_EVENTS_SECRET: "${RED_TEAM_EVENTS_SECRET}"
-      # Matches signal-store's INCIDENT_ID (docker-compose.yml signal-store block) so
-      # both sides tag the one active lab's events with the same incident.
+      # Fallback only: sessions whose operator has joined a room use that
+      # room's own incident_id instead (see attense-app's GET /api/auth/me
+      # and core/engine.py's incident_id param). This env var only applies
+      # when no room is joined. Matches signal-store's INCIDENT_ID below for
+      # that no-room case so both sides still agree on one incident.
       INCIDENT_ID: "phase3-incident-001"
     volumes:
       - red_team_logs:/red-team/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "8000:8000"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
       interval: 15s
@@ -263,6 +273,8 @@ services:
     restart: unless-stopped
     depends_on:
       - red-team-backend
+    ports:
+      - "3000:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
@@ -373,6 +385,8 @@ services:
       --cql-hostnames cassandra
     volumes:
       - ./thehive/application.conf:/etc/thehive/application.conf
+    ports:
+      - "9000:9000"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9000/api/status >/dev/null"]
       interval: 10s
@@ -557,14 +571,14 @@ services:
   # ── Attense React ───────────────────────────────────────────────────────────
   attense-react:
     build:
-      context: ./AttenseFront/attense-react
+      context: ./AttensePortal/AttenseFront/attense-react
     container_name: attense_react
     hostname: attense-react
     restart: unless-stopped
     volumes:
-      - ./AttenseFront/attense-react/src:/app/src
-      - ./AttenseFront/attense-react/public:/app/public
-      - ./AttenseFront/attense-react/index.html:/app/index.html
+      - ./AttensePortal/AttenseFront/attense-react/src:/app/src
+      - ./AttensePortal/AttenseFront/attense-react/public:/app/public
+      - ./AttensePortal/AttenseFront/attense-react/index.html:/app/index.html
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s

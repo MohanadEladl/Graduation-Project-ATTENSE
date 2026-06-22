@@ -641,4 +641,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        with open("/secrets/cortex_init_error.txt", "w") as f:
+            traceback.print_exc(file=f)
+        raise
