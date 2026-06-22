@@ -45,7 +45,6 @@ def raise_alert(
     emitter: EventEmitter,
     hive: HiveClient,
     enrichment_report: EnrichmentReport,
-    auto_create_case: bool = False,
 ) -> ActionResponse:
     """
     Simulate the SIEM detecting an anomaly and raising an alert, and forward it to TheHive.
@@ -53,11 +52,6 @@ def raise_alert(
     Called by: system / SIEM automation
     Pre-condition: incident not already CONTAINED or ENDED.
     Emits: alert_raised
-
-    If *auto_create_case* is True, the new alert is immediately promoted to a
-    case (alert → case). That fires TheHive's CaseCreated webhook, which makes
-    the Blue Team backend auto-attach the attacker activity log — so an attack
-    surfaces as a fully-populated case with no manual analyst step.
     """
     incident, store = emitter.get_or_create(body.incident_id, body.scenario_id)
     validate_raise_alert(incident, store)
@@ -73,19 +67,14 @@ def raise_alert(
     )
     emitter.emit(incident, store, event)
 
-    # Convert Cortex-Lite enrichment report IOCs to TheHive artifacts format,
-    # attaching the actual AbuseIPDB/VirusTotal findings to each observable so
-    # the analyst sees real evidence in TheHive before choosing a response.
+    # Convert Cortex-Lite enrichment report IOCs to TheHive artifacts format
     artifacts = []
     for ip in enrichment_report.iocs_found.get("ips", []):
-        message, tags = enrichment_report.describe(ip, "ip")
-        artifacts.append({"dataType": "ip", "data": ip, "message": message, "tags": tags})
+        artifacts.append({"dataType": "ip", "data": ip, "message": "Attacker IP"})
     for url in enrichment_report.iocs_found.get("urls", []):
-        message, tags = enrichment_report.describe(url, "url")
-        artifacts.append({"dataType": "url", "data": url, "message": message, "tags": tags})
+        artifacts.append({"dataType": "url", "data": url, "message": "Malicious URL"})
     for h in enrichment_report.iocs_found.get("hashes", []):
-        message, tags = enrichment_report.describe(h, "hash")
-        artifacts.append({"dataType": "hash", "data": h, "message": message, "tags": tags})
+        artifacts.append({"dataType": "hash", "data": h, "message": "Malicious File Hash"})
 
     # Create the Alert in TheHive
     try:
@@ -94,7 +83,6 @@ def raise_alert(
             title=body.rule_name or "SIEM Alert",
             severity=body.severity,
             artifacts=artifacts,
-            enrichment_summary=enrichment_report.enrichment_note,
         )
         alert_id = res.get("id") or res.get("_id")
         if alert_id:
@@ -102,20 +90,6 @@ def raise_alert(
                 "[AlertService] Alert created in TheHive: alert_id=%s for incident '%s'.",
                 alert_id, incident.incident_id,
             )
-            # Auto-promote alert → case so the incident surfaces automatically
-            # (the CaseCreated webhook then triggers attacker-log attachment).
-            if auto_create_case:
-                case = hive.promote_alert_to_case(alert_id)
-                if case.get("id") or case.get("_id"):
-                    logger.info(
-                        "[AlertService] Alert %s auto-promoted to case %s (incident '%s').",
-                        alert_id, case.get("id") or case.get("_id"), incident.incident_id,
-                    )
-                else:
-                    logger.warning(
-                        "[AlertService] Auto-promote of alert %s returned no case id: %s",
-                        alert_id, case,
-                    )
         else:
             logger.warning(
                 "[AlertService] TheHive created alert but returned no ID: %s",
@@ -123,7 +97,7 @@ def raise_alert(
             )
     except Exception as exc:
         logger.warning(
-            "[AlertService] TheHive alert creation/promotion failed (non-fatal): %s",
+            "[AlertService] TheHive alert creation failed (non-fatal): %s",
             exc,
         )
 

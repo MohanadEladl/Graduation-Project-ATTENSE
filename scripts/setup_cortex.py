@@ -9,8 +9,7 @@ What it does
 1. Waits for the Cortex container to become healthy.
 2. Creates the first admin user + organisation via the Cortex bootstrap API.
 3. Generates an API key for that organisation.
-4. Enables the Wazuh-backed and target-app containment responders, with the
-   backend configuration required to work without manual Cortex UI setup.
+4. Enables the WazuhBlockIP responder in that organisation.
 5. Writes the API key into thehive/application.conf so TheHive can talk to Cortex.
 6. Prints clear next steps.
 
@@ -33,21 +32,24 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+try:
+    import requests as _requests
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
+
 
 # ── Load secrets/{ORG_NAME}.env automatically ────────────────────────────────
-# The secrets file is named after the organisation (e.g. ATTENSE.env). It is
-# EPHEMERAL: scripts/close_lab.py timestamp-backs-up and deletes it when the lab
-# is closed, and this script auto-restores it from the newest backup on open
-# (see _restore_secrets_if_missing above). It holds org bootstrap/runtime
-# secrets only — externally-issued keys (VirusTotal/AbuseIPDB) live in the
-# PERSISTENT secrets/enrichment.env instead.
+# The secrets file is named after the organisation (e.g. ATTENSE.env).
+# It is a TEMPORARY file: setup_cortex.py deletes it after a successful run
+# because the API key has been written to thehive/application.conf and the
+# plaintext copy is no longer needed.
 #
 # Load order: env vars already set in the shell always win over the file.
 
@@ -57,28 +59,6 @@ _SECRETS_DIR = Path(__file__).resolve().parent.parent / "secrets"
 def _resolve_secrets_path(org_name: str) -> Path:
     """Return the path to secrets/{org_name}.env."""
     return _SECRETS_DIR / f"{org_name}.env"
-
-
-def _restore_secrets_if_missing(org_name: str) -> None:
-    """
-    Re-open support: if secrets/{org_name}.env is gone (deleted by close_lab.py
-    when the lab was last closed), restore it from the newest timestamped backup
-    under secrets/backups/. Backup names end in a UTC stamp (…Z), which sorts
-    lexically, so the last entry is the most recent. No-op if the file exists or
-    there are no backups.
-    """
-    path = _resolve_secrets_path(org_name)
-    if path.exists():
-        return
-    backups = sorted((_SECRETS_DIR / "backups").glob(f"{path.name}.*"))
-    if not backups:
-        return
-    latest = backups[-1]
-    try:
-        shutil.copy2(latest, path)
-        print(f"♻️  Restored {path.name} from latest backup: {latest.name}")
-    except Exception as exc:
-        print(f"⚠️  Could not restore {path.name} from {latest.name}: {exc}")
 
 
 def _load_secrets_file(org_name: str = "ATTENSE") -> Path | None:
@@ -101,10 +81,9 @@ def _load_secrets_file(org_name: str = "ATTENSE") -> Path | None:
     return path
 
 
-# Bootstrap: restore the ephemeral org secrets file from backup if a prior
-# close deleted it, then load it. We default to 'ATTENSE' for the first pass,
-# then re-resolve after ORG_NAME is set below.
-_restore_secrets_if_missing(os.getenv("CORTEX_ORG_NAME", "ATTENSE"))
+# Bootstrap: load using the default org name so the config block below can read
+# CORTEX_ORG_NAME if it was set in the file (circular but safe — we default to
+# 'ATTENSE' for the first pass, then re-resolve after ORG_NAME is set).
 _load_secrets_file(os.getenv("CORTEX_ORG_NAME", "ATTENSE"))
 
 
@@ -120,42 +99,13 @@ ADMIN_LOGIN    = os.getenv("CORTEX_ADMIN_LOGIN",    "admin")
 ADMIN_PASSWORD = os.getenv("CORTEX_ADMIN_PASSWORD", "attense-Admin1!")  # ≥8 chars, 1 upper, 1 digit
 ADMIN_NAME     = os.getenv("CORTEX_ADMIN_NAME",     "ATTENSE Admin")
 
-# Organisation that owns the Wazuh-backed responders
+# Organisation that owns the WazuhBlockIP responder
 ORG_NAME       = os.getenv("CORTEX_ORG_NAME",       "ATTENSE")
 ORG_ADMIN_LOGIN = os.getenv("CORTEX_ORG_ADMIN",     "attense-analyst")
 ORG_ADMIN_PASS  = os.getenv("CORTEX_ORG_PASS",      "attense-Analyst1!")
 
-# Responders to enable, grouped by backend configuration.
-WAZUH_RESPONDERS = {"WazuhBlockIP", "WazuhIsolateHost", "WazuhDisableAccount"}
-TARGET_RESPONDERS = {
-    "TargetSanitizeInput",
-    "TargetKillProcess",
-    "TargetBlockPath",
-    "TargetRemoveFile",
-    "TargetEnableCsrfProtection",
-}
-RESPONDERS = sorted(WAZUH_RESPONDERS | TARGET_RESPONDERS)
-RESPONDER_DISPLAY_NAMES = {
-    "WazuhBlockIP": "IPLocker",
-    "WazuhIsolateHost": "IsolateHost",
-    "WazuhDisableAccount": "DisableAccount",
-    "TargetSanitizeInput": "SanitizeInput",
-    "TargetKillProcess": "KillProcess",
-    "TargetBlockPath": "BlockPath",
-    "TargetRemoveFile": "RemoveFile",
-    "TargetEnableCsrfProtection": "EnableCSRFProtection",
-}
-
-# Wazuh connection details passed into each responder's configuration so
-# they work immediately after setup, without manual Cortex UI configuration.
-# Reuses the same WAZUH_API_URL / WAZUH_USER / WAZUH_PASS keys already
-# defined in secrets/{ORG_NAME}.env for the responders themselves.
-WAZUH_API_URL      = os.getenv("WAZUH_API_URL",      "https://wazuh-manager:55000")
-WAZUH_USER         = os.getenv("WAZUH_USER",         "wazuh")
-WAZUH_PASS         = os.getenv("WAZUH_PASS",         "wazuh")
-WAZUH_AGENT_NAME   = os.getenv("WAZUH_AGENT_NAME",   "target-agent")
-TARGET_URL         = os.getenv("TARGET_URL",         "http://target-agent:80")
-CONTAINMENT_TOKEN  = os.getenv("CONTAINMENT_API_TOKEN", "attense-containment-token")
+# Responder to enable
+RESPONDER_NAME = "WazuhBlockIP"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -163,32 +113,18 @@ def _req(
     method: str,
     path: str,
     body: dict | None = None,
-    token: tuple[str, str] | None = None,
+    token: str | None = None,
     login_pass: tuple[str, str] | None = None,
-) -> dict | list | str:
-    """Make an HTTP request to Cortex. Returns parsed JSON, or a bare string for text/plain responses."""
+) -> dict:
+    """Make an HTTP request to Cortex. Returns parsed JSON."""
     url = f"{CORTEX_URL}{path}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     if data is not None:
-        # Only set this when there's an actual body — Cortex's JSON body
-        # parser otherwise treats "Content-Type: application/json" plus an
-        # empty body as a parse error (e.g. on bodyless GET requests).
         req.add_header("Content-Type", "application/json")
 
     if token:
-        # Cortex's local/admin auth is cookie-based (see _get_session_token),
-        # not a Bearer token — `token` is (session_cookie, xsrf_token). Once a
-        # session cookie is present, Play's CSRF filter requires the
-        # CORTEX-XSRF-TOKEN cookie value to also be echoed back as the
-        # X-CORTEX-XSRF-TOKEN header (double-submit cookie pattern; header
-        # name confirmed from Cortex's own frontend bundle).
-        session_cookie, xsrf_token = token
-        cookie_value = f"CORTEX_SESSION={session_cookie}"
-        if xsrf_token:
-            cookie_value += f"; CORTEX-XSRF-TOKEN={xsrf_token}"
-            req.add_header("X-CORTEX-XSRF-TOKEN", xsrf_token)
-        req.add_header("Cookie", cookie_value)
+        req.add_header("Authorization", f"Bearer {token}")
     elif login_pass:
         import base64
         cred = base64.b64encode(f"{login_pass[0]}:{login_pass[1]}".encode()).decode()
@@ -196,15 +132,14 @@ def _req(
 
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode()
-            if not raw.strip():
+            raw = resp.read().decode().strip()
+            if not raw:
                 return {}
             try:
                 return json.loads(raw)
             except json.JSONDecodeError:
-                # Some endpoints (e.g. key/renew) respond with a bare
-                # text/plain value rather than JSON.
-                return raw.strip()
+                # Cortex returns some values (e.g. API keys) as plain strings
+                return {"_raw": raw, "key": raw.strip('"')}
     except urllib.error.HTTPError as e:
         err_body = e.read().decode()
         raise RuntimeError(f"HTTP {e.code} from {method} {path}: {err_body}") from e
@@ -226,88 +161,124 @@ def _wait_for_cortex(max_wait: int = 120) -> None:
     sys.exit("❌ Cortex did not become ready in time. Is `docker compose up -d` running?")
 
 
-def _fetch_xsrf_token() -> str:
+def _get_session_token(login: str, password: str) -> str:
+    """Log in, capture the CORTEX_SESSION cookie, use it to generate an API key.
+
+    Uses `requests.Session` when available (installed by cortex-init command)
+    for reliable cross-platform cookie + XSRF handling. Falls back to urllib
+    if requests is somehow not present.
     """
-    GET a public endpoint to obtain the CORTEX-XSRF-TOKEN cookie Play issues
-    on any request (auth not required — confirmed it's set even on an
-    unauthenticated request). Returns "" if not present for any reason;
-    callers degrade gracefully (no XSRF header sent) rather than failing.
-    """
-    req = urllib.request.Request(f"{CORTEX_URL}/api/status", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            cookie_header = resp.headers.get("Set-Cookie", "")
-    except urllib.error.HTTPError:
-        return ""
-    match = re.search(r"CORTEX-XSRF-TOKEN=([^;]+)", cookie_header)
-    return match.group(1) if match else ""
+    if _HAS_REQUESTS:
+        return _get_session_token_requests(login, password)
+    return _get_session_token_urllib(login, password)
 
 
-def _get_session_token(
-    login: str,
-    password: str,
-    *,
-    retry_transient: bool = False,
-    max_wait: int = 120,
-) -> tuple[str, str]:
-    """
-    Log in and return (session_cookie, xsrf_token).
+def _get_session_token_requests(login: str, password: str) -> str:
+    """requests-based implementation — handles cookies/XSRF correctly on all platforms."""
+    session = _requests.Session()
 
-    Cortex's local auth is cookie-based (Set-Cookie: CORTEX_SESSION=<jwt>) —
-    the login response body carries no token, so this talks to urllib
-    directly to read the response headers instead of going through _req().
-    The XSRF cookie isn't set on the login response itself, so a follow-up
-    request fetches it (see _fetch_xsrf_token).
-    """
-    url = f"{CORTEX_URL}/api/login"
-    deadline = time.time() + max_wait
+    # Step 1: Login — session auto-stores CORTEX_SESSION cookie
+    resp = session.post(
+        f"{CORTEX_URL}/api/login",
+        json={"user": login, "password": password},
+        timeout=15,
+    )
+    if resp.status_code == 520:
+        raise RuntimeError("HTTP 520 from POST /api/login")
+    if resp.status_code == 401:
+        raise RuntimeError("HTTP 401 from POST /api/login")
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(f"HTTP {resp.status_code} from POST /api/login: {resp.text[:200]}")
 
-    while True:
-        data = json.dumps({"user": login, "password": password}).encode()
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Content-Type", "application/json")
+    if "CORTEX_SESSION" not in session.cookies:
+        raise RuntimeError("Login succeeded but no CORTEX_SESSION cookie returned")
 
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                cookie_header = resp.headers.get("Set-Cookie", "")
+    # Step 2: GET /api/status to retrieve XSRF token cookie
+    resp2 = session.get(f"{CORTEX_URL}/api/status", timeout=10)
+    xsrf_token = None
+    for name, value in session.cookies.items():
+        if "XSRF" in name.upper():
+            xsrf_token = value
             break
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode()
-            message = f"HTTP {e.code} from POST /api/login: {err_body}"
-            transient = e.code >= 500 and (
-                "NoNodeAvailable" in err_body
-                or "ElasticSearch cluster is unreachable" in err_body
-                or "ServiceUnavailable" in err_body
-            )
-            if not retry_transient or not transient or time.time() >= deadline:
-                raise RuntimeError(message) from e
-            print("   Cortex API is up but Elasticsearch is not ready; retrying …", flush=True)
-            time.sleep(5)
-        except urllib.error.URLError as e:
-            if not retry_transient or time.time() >= deadline:
-                raise RuntimeError(f"POST /api/login failed: {e}") from e
-            print("   Cortex login endpoint is temporarily unreachable; retrying …", flush=True)
-            time.sleep(5)
+    if not xsrf_token:
+        raise RuntimeError("Could not obtain CORTEX XSRF token from /api/status")
 
-    match = re.search(r"CORTEX_SESSION=([^;]+)", cookie_header)
-    if not match:
-        raise RuntimeError(f"Login succeeded but no session cookie returned: {cookie_header!r}")
-    return match.group(1), _fetch_xsrf_token()
+    # Step 3: Renew API key — session cookie auto-sent; XSRF as query param
+    resp3 = session.post(
+        f"{CORTEX_URL}/api/user/{login}/key/renew",
+        params={"csrfToken": xsrf_token},
+        headers={"CORTEX-XSRF-TOKEN": xsrf_token},
+        data=b"",
+        timeout=15,
+    )
+    if resp3.status_code not in (200, 201):
+        raise RuntimeError(
+            f"HTTP {resp3.status_code} from POST /api/user/{login}/key/renew: {resp3.text[:200]}"
+        )
+    key = resp3.text.strip().strip('"')
+    if not key:
+        raise RuntimeError(f"API key renewal returned unusable response: {resp3.text!r}")
+    return key
+
+
+def _get_session_token_urllib(login: str, password: str) -> str:
+    """urllib fallback — used only if requests is not installed."""
+    import http.cookiejar
+    import urllib.request as _ur
+
+    url = f"{CORTEX_URL}/api/login"
+    data = json.dumps({"user": login, "password": password}).encode()
+    req = _ur.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+
+    jar = http.cookiejar.CookieJar()
+    opener = _ur.build_opener(_ur.HTTPCookieProcessor(jar))
+    try:
+        with opener.open(req, timeout=15) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} from POST /api/login") from e
+    except Exception as e:
+        raise RuntimeError(f"Login failed for {login}: {e}") from e
+
+    session_cookie = next((c.value for c in jar if c.name == "CORTEX_SESSION"), None)
+    if not session_cookie:
+        raise RuntimeError("Login succeeded but no CORTEX_SESSION cookie returned")
+
+    csrf_jar = http.cookiejar.CookieJar()
+    csrf_opener = _ur.build_opener(_ur.HTTPCookieProcessor(csrf_jar))
+    csrf_get = _ur.Request(f"{CORTEX_URL}/api/status")
+    csrf_get.add_header("Cookie", f"CORTEX_SESSION={session_cookie}")
+    with csrf_opener.open(csrf_get, timeout=10):
+        pass
+    xsrf_token = next((c.value for c in csrf_jar if "XSRF" in c.name.upper()), None)
+    if not xsrf_token:
+        raise RuntimeError("Could not obtain CORTEX XSRF token from /api/status")
+
+    key_url = f"{CORTEX_URL}/api/user/{login}/key/renew?csrfToken={xsrf_token}"
+    key_req = _ur.Request(key_url, data=b"", method="POST")
+    key_req.add_header("Cookie", f"CORTEX_SESSION={session_cookie}; CORTEX-XSRF-TOKEN={xsrf_token}")
+    try:
+        with _ur.urlopen(key_req, timeout=15) as resp:
+            raw = resp.read().decode().strip()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} from POST /api/user/{login}/key/renew: {e.read().decode()}") from e
+
+    key = raw.strip('"')
+    if not key:
+        raise RuntimeError(f"API key renewal returned unusable response: {raw!r}")
+    return key
 
 
 # ── Step 1: Bootstrap admin ───────────────────────────────────────────────────
 
-def step_bootstrap_admin() -> tuple[str, str]:
+def step_bootstrap_admin() -> str:
     """Create the first admin user if Cortex is in maintenance mode. Returns session token."""
     print("\n🔧 Step 1: Bootstrap Cortex admin user …")
 
     # Check if already bootstrapped
     try:
-        token = _get_session_token(
-            ADMIN_LOGIN,
-            ADMIN_PASSWORD,
-            retry_transient=True,
-        )
+        token = _get_session_token(ADMIN_LOGIN, ADMIN_PASSWORD)
         print(f"   ✅ Admin '{ADMIN_LOGIN}' already exists — skipping creation.")
         return token
     except RuntimeError as e:
@@ -316,20 +287,18 @@ def step_bootstrap_admin() -> tuple[str, str]:
             # Any other error is unexpected
             raise
 
-    # Cortex is in maintenance mode. The first superadmin user must belong to
-    # the special 'cortex' platform organisation — it is not auto-created by
-    # Cortex and is distinct from the 'ATTENSE' org created later — so ensure
-    # it exists before creating the admin user.
-    orgs = _req("GET", "/api/organization")
-    existing_orgs = [o.get("name") for o in (orgs if isinstance(orgs, list) else [])]
-    if "cortex" not in existing_orgs:
-        print(f"   Creating bootstrap organisation 'cortex' …")
-        _req("POST", "/api/organization", {
-            "name":        "cortex",
-            "description": "Cortex platform organisation",
-            "status":      "Active",
-        })
+    # Cortex is in maintenance mode — must call /api/maintenance/migrate first
+    # to transition out of maintenance mode before the bootstrap POST /api/user
+    # will be accepted (without this call, POST /api/user returns HTTP 520).
+    print("   Running database migration …")
+    try:
+        _req("POST", "/api/maintenance/migrate")
+        print("   ✅ Migration done.")
+    except RuntimeError as me:
+        if "HTTP 204" not in str(me):
+            print(f"   ⚠️  Migration call returned: {me} (continuing anyway)")
 
+    # Cortex is in maintenance mode — create admin
     print(f"   Creating admin user '{ADMIN_LOGIN}' …")
     _req("POST", "/api/user", {
         "login":    ADMIN_LOGIN,
@@ -344,7 +313,7 @@ def step_bootstrap_admin() -> tuple[str, str]:
 
 # ── Step 2: Create organisation ───────────────────────────────────────────────
 
-def step_create_org(admin_token: tuple[str, str]) -> str:
+def step_create_org(admin_token: str) -> str:
     """Create the ATTENSE organisation. Returns org name."""
     print(f"\n🏢 Step 2: Create organisation '{ORG_NAME}' …")
 
@@ -366,34 +335,53 @@ def step_create_org(admin_token: tuple[str, str]) -> str:
 
 # ── Step 3: Create org-level user + API key ───────────────────────────────────
 
-def step_create_api_key(admin_token: tuple[str, str]) -> str:
+def step_create_api_key(admin_token: str) -> str:
     """Create an org analyst user and generate an API key. Returns the API key."""
     print(f"\n🔑 Step 3: Create analyst user and generate API key …")
 
-    # Check if user exists already. Cortex's /api/user list responses key
-    # the login under "id" (and "_id"), not "login".
+    # Check if user exists already
     users: list = _req("GET", "/api/user", token=admin_token)
-    existing_logins = [u.get("id") for u in (users if isinstance(users, list) else [])]
+    existing_logins = [u.get("login") for u in (users if isinstance(users, list) else [])]
 
     if ORG_ADMIN_LOGIN not in existing_logins:
         print(f"   Creating user '{ORG_ADMIN_LOGIN}' in org '{ORG_NAME}' …")
-        _req("POST", "/api/user", {
-            "login":        ORG_ADMIN_LOGIN,
-            "name":         "ATTENSE Analyst",
-            "password":     ORG_ADMIN_PASS,
-            "organization": ORG_NAME,
-            "roles":        ["read", "analyze", "orgadmin"],
-        }, token=admin_token)
-        print(f"   ✅ User '{ORG_ADMIN_LOGIN}' created.")
+        try:
+            _req("POST", "/api/user", {
+                "login":        ORG_ADMIN_LOGIN,
+                "name":         "ATTENSE Analyst",
+                "password":     ORG_ADMIN_PASS,
+                "organization": ORG_NAME,
+                "roles":        ["read", "analyze", "orgadmin"],
+            }, token=admin_token)
+            print(f"   ✅ User '{ORG_ADMIN_LOGIN}' created.")
+        except RuntimeError as e:
+            if "ConflictError" in str(e) or "already exists" in str(e):
+                print(f"   ✅ User '{ORG_ADMIN_LOGIN}' already exists — skipping creation.")
+            else:
+                raise
     else:
         print(f"   ✅ User '{ORG_ADMIN_LOGIN}' already exists — skipping creation.")
 
-    # Generate (or renew) API key for that user
-    print(f"   Generating API key for '{ORG_ADMIN_LOGIN}' …")
+    # Get the existing API key if there is one — avoids invalidating a key
+    # that TheHive may already be using. Only renew if the key is absent.
+    print(f"   Fetching API key for '{ORG_ADMIN_LOGIN}' …")
+    try:
+        existing_key_resp = _req("GET", f"/api/user/{ORG_ADMIN_LOGIN}/key", token=admin_token)
+        existing_key = existing_key_resp.get("key") or existing_key_resp.get("_raw", "")
+        if isinstance(existing_key, str):
+            existing_key = existing_key.strip('"')
+    except RuntimeError:
+        existing_key = ""
+
+    if existing_key and len(existing_key) > 8:
+        print(f"   ✅ Reusing existing API key: {existing_key[:8]}…{existing_key[-4:]}")
+        return str(existing_key)
+
+    print(f"   No existing key found — generating new one …")
     resp = _req("POST", f"/api/user/{ORG_ADMIN_LOGIN}/key/renew", token=admin_token)
-    # This endpoint responds with a bare text/plain key, not JSON — but
-    # handle a dict shape too in case that ever changes.
-    api_key = resp.get("key", "") if isinstance(resp, dict) else resp
+    api_key = resp.get("key") or resp  # some versions return the key string directly
+    if isinstance(api_key, dict):
+        api_key = api_key.get("key", "")
     if not api_key:
         raise RuntimeError(f"Could not extract API key from response: {resp}")
 
@@ -401,100 +389,83 @@ def step_create_api_key(admin_token: tuple[str, str]) -> str:
     return str(api_key)
 
 
-# ── Step 4: Enable containment responders ────────────────────────────────────
+# ── Step 4: Enable WazuhBlockIP responder ────────────────────────────────────
 
-def step_enable_responders(org_token: tuple[str, str]) -> None:
-    """Enable Wazuh and target-app responders in the ATTENSE organisation."""
-    print(f"\n🔫 Step 4: Enable containment responders …")
+def step_enable_responder(org_api_key: str, admin_token: str | None = None) -> None:
+    """Enable the WazuhBlockIP responder in the ATTENSE organisation.
 
-    # List available responder definitions. This needs an org-scoped session
-    # (read/analyze/orgadmin) — the platform superadmin alone gets a 403
-    # "Insufficient rights" against /api/responderdefinition.
+    Tries the org user's API key first. If that returns 403 (key not yet
+    indexed by Elasticsearch after creation), falls back to the admin session
+    token which always has rights. Also handles the case where Cortex is still
+    scanning the responders directory on first boot.
+    """
+    print(f"\n🔫 Step 4: Enable '{RESPONDER_NAME}' responder …")
+
+    # Check if already enabled — use admin token which is always available
+    check_token = admin_token or org_api_key
     try:
-        definitions = _req("GET", "/api/responderdefinition", token=org_token)
-    except RuntimeError as e:
-        print(f"   ⚠️  Could not list responders: {e}")
-        print("       Responders will need to be enabled manually in the Cortex UI.")
-        return
+        enabled = _req("GET", "/api/responder", token=check_token)
+        if isinstance(enabled, list) and any(r.get("name") == RESPONDER_NAME for r in enabled):
+            print(f"   ✅ '{RESPONDER_NAME}' already enabled — skipping.")
+            return
+    except RuntimeError:
+        pass
+
+    # Try to list definitions. Attempt with org key first, fall back to admin.
+    definitions = None
+    for token_label, token in [("org key", org_api_key), ("admin token", admin_token)]:
+        if not token:
+            continue
+        try:
+            definitions = _req("GET", "/api/responderdefinition", token=token)
+            if isinstance(definitions, list):
+                break
+        except RuntimeError as e:
+            print(f"   ⚠️  GET /api/responderdefinition with {token_label}: {e}")
 
     if not isinstance(definitions, list):
-        print("   ⚠️  Unexpected responder list format — skipping auto-enable.")
+        # Cortex may still be scanning — give it one more chance after a wait
+        print("   Cortex may still be scanning responders — waiting 15s …")
+        time.sleep(15)
+        try:
+            definitions = _req("GET", "/api/responderdefinition", token=check_token)
+        except RuntimeError:
+            pass
+
+    if not isinstance(definitions, list) or not definitions:
+        print(f"   ⚠️  Could not list responder definitions.")
+        print("       Enable WazuhBlockIP manually in the Cortex UI → Organization → Responders.")
         return
 
-    # Already-enabled responders for this org — needed for idempotency,
-    # since re-enabling one that's already active is a version conflict.
-    enabled = _req("GET", "/api/organization/responder?range=all", token=org_token)
-    enabled_items = enabled if isinstance(enabled, list) else []
-    enabled_by_definition = {
-        e.get("workerDefinitionId"): e for e in enabled_items if e.get("workerDefinitionId")
-    }
+    target = next((d for d in definitions if d.get("name") == RESPONDER_NAME), None)
+    if not target:
+        print(f"   ⚠️  '{RESPONDER_NAME}' not found in definitions. Check /opt/cortex/responders/.")
+        return
 
-    wazuh_configuration = {
-        "wazuh_url":      WAZUH_API_URL,
-        "wazuh_username": WAZUH_USER,
-        "wazuh_password": WAZUH_PASS,
-        "agent_name":     WAZUH_AGENT_NAME,
-    }
-    target_configuration = {
-        "target_url": TARGET_URL,
-        "containment_api_token": CONTAINMENT_TOKEN,
-    }
+    definition_id = target.get("id")
+    if not definition_id:
+        print(f"   ⚠️  Found responder definition but id is missing.")
+        return
 
-    for responder_name in RESPONDERS:
-        configuration = (
-            wazuh_configuration
-            if responder_name in WAZUH_RESPONDERS
-            else target_configuration
-        )
-        target = next((d for d in definitions if d.get("name") == responder_name), None)
-        if not target:
-            print(f"   ⚠️  Responder '{responder_name}' not found yet.")
-            print("       Cortex may still be scanning the responders directory.")
-            print("       Wait 30s and re-run, or enable it manually in the Cortex UI.")
+    # Enable via org-user key first, fall back to admin token
+    for token_label, token in [("org key", org_api_key), ("admin token", admin_token)]:
+        if not token:
             continue
+        try:
+            _req("POST", f"/api/organization/responder/{definition_id}", {
+                "name":          RESPONDER_NAME,
+                "configuration": {},
+            }, token=token)
+            print(f"   ✅ '{RESPONDER_NAME}' enabled for org '{ORG_NAME}'.")
+            return
+        except RuntimeError as e:
+            if "ConflictError" in str(e) or "already exists" in str(e):
+                print(f"   ✅ '{RESPONDER_NAME}' already enabled — skipping.")
+                return
+            print(f"   ⚠️  Enable with {token_label} failed: {e}")
 
-        worker_definition_id = target.get("id")
-        if not worker_definition_id:
-            print(f"   ⚠️  Found responder '{responder_name}' but missing ID — skipping.")
-            continue
-
-        display_name = RESPONDER_DISPLAY_NAMES[responder_name]
-        existing = enabled_by_definition.get(worker_definition_id)
-        if existing:
-            if existing.get("name") != display_name:
-                _req(
-                    "PATCH",
-                    f"/api/responder/{existing['id']}",
-                    {"name": display_name},
-                    token=org_token,
-                )
-                print(f"   ✅ Renamed '{responder_name}' to '{display_name}'.")
-            else:
-                print(f"   ✅ '{display_name}' already enabled for org '{ORG_NAME}' — skipping.")
-            continue
-
-        # Note: the org is implied by the caller's own session/org
-        # membership, not a path segment — Cortex's own UI calls this same
-        # "/api/organization/responder/{id}" path with no org name in it.
-        # "name" is what TheHive shows in the responder picker. Keep it
-        # independent from Cortex's required versioned worker definition ID.
-        _req("POST", f"/api/organization/responder/{worker_definition_id}", {
-            "name":          display_name,
-            "configuration": configuration,
-            "jobCache":      10,
-        }, token=org_token)
-        print(f"   ✅ '{display_name}' responder enabled for org '{ORG_NAME}'.")
-
-    # Remove older enabled versions after the current definitions are ready.
-    current_definition_ids = {
-        d.get("id") for d in definitions if d.get("name") in RESPONDERS
-    }
-    for old in enabled_items:
-        definition_id = old.get("workerDefinitionId", "")
-        base_name = definition_id.rsplit("_", 2)[0]
-        if base_name in RESPONDERS and definition_id not in current_definition_ids:
-            _req("DELETE", f"/api/responder/{old['id']}", token=org_token)
-            print(f"   ✅ Removed obsolete responder instance '{definition_id}'.")
+    print(f"   ⚠️  Could not auto-enable '{RESPONDER_NAME}'.")
+    print("       Enable it manually in the Cortex UI → Organization → Responders.")
 
 
 # ── Step 5: Patch thehive/application.conf ────────────────────────────────────
@@ -511,7 +482,7 @@ def step_patch_thehive_conf(api_key: str) -> None:
 
     content = conf_path.read_text(encoding="utf-8")
 
-    # Match the bearer auth 'key = "..."' line inside the cortex block
+    # Match the 'key = "..."' line inside the cortex block
     pattern = re.compile(r'(cortex\s*\{[^}]*key\s*=\s*")[^"]*(")', re.DOTALL)
 
     if not pattern.search(content):
@@ -579,18 +550,34 @@ def step_restart_thehive() -> None:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def step_note_secrets_kept() -> None:
+def step_delete_secrets_file() -> None:
     """
-    Setup keeps secrets/{ORG_NAME}.env in place — it is NOT backed up or deleted
-    here. The timestamped backup + deletion happen when you CLOSE the lab via
-    scripts/close_lab.py; the next open auto-restores it from that backup.
+    Securely delete secrets/{ORG_NAME}.env after a successful setup.
+
+    The API key is now in thehive/application.conf — keeping the plaintext
+    secrets file around any longer is unnecessary and a security risk.
+    The secrets/ directory (and the file) is already gitignored, but removing
+    it from disk is the safest option for a shared or cloud-hosted machine.
     """
-    print(f"\n🗄️  Step 6: Secrets file kept in place (not deleted).")
+    print(f"\n🗑️  Step 6: Removing temporary secrets file …")
     secrets_path = _resolve_secrets_path(ORG_NAME)
-    print(f"   ℹ️  {secrets_path}")
-    print("      Closing the lab (scripts/close_lab.py) timestamp-backs-up and removes")
-    print("      this file; the next open restores it. VirusTotal/AbuseIPDB keys live")
-    print("      in secrets/enrichment.env and are kept permanently.")
+    if not secrets_path.exists():
+        print(f"   ℹ️  {secrets_path.name} not found — nothing to delete.")
+        return
+
+    # Overwrite with zeros before deletion (best-effort scrub)
+    try:
+        size = secrets_path.stat().st_size
+        secrets_path.write_bytes(b"\x00" * size)
+    except Exception:
+        pass  # scrub failed — still delete
+
+    try:
+        secrets_path.unlink()
+        print(f"   ✅  secrets/{secrets_path.name} deleted — plaintext credentials removed from disk.")
+    except Exception as exc:
+        print(f"   ⚠️  Could not delete {secrets_path}: {exc}")
+        print("      Please delete it manually.")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -599,7 +586,7 @@ def main() -> None:
     print("=" * 60)
     print(f"  ATTENSE — Cortex First-Boot Setup  [{ORG_NAME}]")
     print("=" * 60)
-    print(f"  Secrets file: secrets/{ORG_NAME}.env  (kept; backed up on success)")
+    print(f"  Secrets file: secrets/{ORG_NAME}.env  (will be deleted on success)")
     print("=" * 60)
 
     _wait_for_cortex()
@@ -607,10 +594,12 @@ def main() -> None:
     admin_token = step_bootstrap_admin()
     step_create_org(admin_token)
     api_key = step_create_api_key(admin_token)
-    org_token = _get_session_token(ORG_ADMIN_LOGIN, ORG_ADMIN_PASS)
-    step_enable_responders(org_token)
+    # Small pause: Elasticsearch needs a moment to index the new API key before
+    # it can be used to authenticate the responder-enable call.
+    time.sleep(3)
+    step_enable_responder(api_key, admin_token=admin_token)
     step_patch_thehive_conf(api_key)
-    step_note_secrets_kept()            # keeps ATTENSE.env in place (close_lab.py backs up + deletes)
+    step_delete_secrets_file()          # removes ATTENSE.env from disk
     step_restart_thehive()              # auto-restarts TheHive via Docker socket
 
     print("\n" + "=" * 60)
@@ -619,14 +608,14 @@ def main() -> None:
     print("What just happened:")
     print("  - Cortex admin user + ATTENSE org created")
     print("  - API key generated and written to thehive/application.conf")
-    print(f"  - {len(RESPONDERS)} Wazuh and target-app responders enabled")
-    print("  - Secrets file kept in place (close_lab.py backs it up + removes it on close)")
+    print("  - WazuhBlockIP responder enabled")
+    print("  - Secrets file deleted from disk")
     print("  - TheHive restarted to pick up the new key")
     print()
     print("You can now:")
     print("  - Open TheHive at http://localhost:9000")
-    print("  - On an alert, the analyst chooses the matching containment responder")
-    print("  - ATTENSE records CONTAINING/CONTAINED only after that chosen action runs")
+    print("  - On an alert → click Responders → WazuhBlockIP")
+    print("  - Incident transitions: CONTAINING → CONTAINED automatically")
     print("=" * 60)
 
 

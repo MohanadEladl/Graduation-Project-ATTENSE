@@ -1,43 +1,12 @@
 {
   "name": "WazuhBlockIP",
-  "version": "1.2",
+  "version": "1.0",
   "author": "ATTENSE",
-  "url": "https://github.com/DarineNadaa/Graduation-Project",
+  "url": "https://github.com/ATTENSE",
   "license": "MIT",
   "description": "Real responder to block an IP using Wazuh Active Response.",
-  "dataTypeList": ["thehive:case_artifact"],
+  "dataTypeList": ["ip"],
   "command": "WazuhBlockIP/wazuh_block_ip.py",
-  "baseConfig": "Wazuh",
-  "configurationItems": [
-    {
-      "name": "wazuh_url",
-      "description": "Base URL of the Wazuh manager API",
-      "type": "string",
-      "multi": false,
-      "required": true,
-      "defaultValue": "https://wazuh-manager:55000"
-    },
-    {
-      "name": "wazuh_username",
-      "description": "Wazuh API username",
-      "type": "string",
-      "multi": false,
-      "required": true
-    },
-    {
-      "name": "wazuh_password",
-      "description": "Wazuh API password",
-      "type": "string",
-      "multi": false,
-      "required": true
-    },
-    {
-      "name": "agent_name",
-      "description": "Wazuh-registered agent name to fall back to when the observable IP does not match a known agent's reporting address",
-      "type": "string",
-      "multi": false,
-      "required": false,
-      "defaultValue": "target-agent"
-    }
-  ]
+  "baseConfig": "WazuhBlockIP",
+  "configurationItems": []
 }

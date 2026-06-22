@@ -32,8 +32,8 @@ export default function HomeHero({
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       >
         <div
-          className="relative flex w-full max-w-[1200px] items-center justify-between rounded-[18px] border border-white/[0.12] px-7 py-4"
-          style={{ background: 'transparent', boxShadow: 'none' }}
+          className="flex w-full max-w-[1200px] items-center justify-between rounded-[18px] border border-white/[0.07] px-7 py-4 backdrop-blur-xl"
+          style={{ background: 'rgba(10,12,18,0.55)', boxShadow: '0 10px 40px rgba(0,0,0,0.55)' }}
         >
           <button onClick={() => go(links[0]?.to)} className="flex items-center gap-3">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ filter: 'drop-shadow(0 0 10px rgba(255,21,53,0.55))' }}>
@@ -44,8 +44,7 @@ export default function HomeHero({
             </span>
           </button>
 
-          {/* Centered nav links */}
-          <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[26px]">
+          <div className="flex items-center gap-[26px]">
             {links.map((l) => (
               <button
                 key={l.label}
@@ -56,6 +55,15 @@ export default function HomeHero({
                 {l.label}
               </button>
             ))}
+            {navCta && (
+              <button
+                onClick={() => go(navCta.to)}
+                className="ml-2 rounded-[11px] px-[18px] py-[9px] text-[12px] font-bold tracking-[0.12em] text-white transition-colors hover:opacity-90"
+                style={{ background: '#ff1535' }}
+              >
+                {navCta.label}
+              </button>
+            )}
           </div>
         </div>
       </motion.div>

@@ -1,29 +1,46 @@
+
 import json
-import logging
-import os
-import threading
 import time
-
+import os
+import logging
+import docker
+import threading
 import uvicorn
-
-from ATTENSE_app.events.event import Event
+from pathlib import Path
 from ATTENSE_app.incidents.incident import Incident
+from ATTENSE_app.events.event import Event
 from ATTENSE_app.reports.report import generate_report
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("attense-controller")
 
 DATA_PATH = os.getenv("ATTENSE_DATA_PATH", "/attense/data/mapped_events.jsonl")
 POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "1.0"))
 
-
 class AttenseController:
     def __init__(self):
         self.incidents = {}
         self.last_pos = 0
+        try:
+            self.docker_client = docker.from_env()
+            logger.info("Docker client initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Docker client: {e}. Orchestration features may be disabled.")
+            self.docker_client = None
+
+    def spin_up_container(self, image_name: str, **kwargs):
+        """Example orchestration method as shown in diagram"""
+        if self.docker_client:
+            logger.info(f"Spinning up container: {image_name}")
+            # Implementation for actually spinning up containers would go here
+            pass
+
+    def take_down_container(self, container_id: str):
+        """Example orchestration method as shown in diagram"""
+        if self.docker_client:
+            logger.info(f"Taking down container: {container_id}")
+            # Implementation for taking down containers would go here
+            pass
 
     def process_event(self, event_data: dict):
         try:
@@ -90,3 +107,7 @@ class AttenseController:
                 logger.error(f"Error reading data file: {e}")
             
             time.sleep(POLL_INTERVAL)
+
+if __name__ == "__main__":
+    controller = AttenseController()
+    controller.run()

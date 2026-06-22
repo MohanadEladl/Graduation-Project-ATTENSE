@@ -12,18 +12,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client.js'
-import {
-  Zap, Workflow, Crosshair, Server, Database, Radar, KeyRound, Code, Repeat,
-  SquareTerminal, FolderTree, Upload, Timer, Lock, ShieldCheck, Filter,
-  FolderLock, Ban, FileX, FileCheck, Braces, Check, ChevronRight, ArrowRight,
-  RotateCcw, X,
-} from 'lucide-react'
 
 // ─── Chain metadata ────────────────────────────────────────────────────────────
 const CHAIN_META = {
   full_compromise: {
     id: 'full_compromise',
-    icon: Crosshair,
+    icon: '◈',
     name: 'Full Compromise',
     tagline: 'FULL COMPROMISE',
     threat: 'APT-CLASS',
@@ -33,7 +27,7 @@ const CHAIN_META = {
     glowColor: 'rgba(255,21,53,0.18)',
     borderGlow: 'rgba(255,21,53,0.45)',
     steps: ['RECON', 'BRUTE FORCE', 'XSS', 'CSRF'],
-    stepIcons: [Radar, KeyRound, Code, Repeat],
+    stepIcons: ['⊕', '✦', '◉', '⊛'],
     description:
       'Execute a complete network takeover — map the surface, breach authentication, inject scripts, and forge cross-site requests. Every phase builds on the last.',
     objective: 'Full unauthorized access + session hijack',
@@ -41,7 +35,7 @@ const CHAIN_META = {
   },
   root_the_box: {
     id: 'root_the_box',
-    icon: Server,
+    icon: '⌬',
     name: 'Root The Box',
     tagline: 'ROOT THE BOX',
     threat: 'OS-LEVEL',
@@ -51,7 +45,7 @@ const CHAIN_META = {
     glowColor: 'rgba(139,47,255,0.18)',
     borderGlow: 'rgba(139,47,255,0.45)',
     steps: ['RECON', 'CMD INJECTION', 'DIR TRAVERSAL', 'FILE UPLOAD'],
-    stepIcons: [Radar, SquareTerminal, FolderTree, Upload],
+    stepIcons: ['⊕', '⎇', '⌘', '⇪'],
     description:
       'Escalate from zero to root. Fingerprint the target, inject OS commands, traverse the filesystem, and plant your payload via unrestricted file upload.',
     objective: 'Remote code execution + filesystem control',
@@ -59,7 +53,7 @@ const CHAIN_META = {
   },
   data_exfiltration: {
     id: 'data_exfiltration',
-    icon: Database,
+    icon: '⟁',
     name: 'Data Exfiltration',
     tagline: 'DATA EXFILTRATION',
     threat: 'INSIDER-THREAT',
@@ -69,7 +63,7 @@ const CHAIN_META = {
     glowColor: 'rgba(245,196,0,0.14)',
     borderGlow: 'rgba(245,196,0,0.4)',
     steps: ['RECON', 'BRUTE FORCE', 'DIR TRAVERSAL', 'CSRF'],
-    stepIcons: [Radar, KeyRound, FolderTree, Repeat],
+    stepIcons: ['⊕', '✦', '⌘', '⊛'],
     description:
       'Silently drain sensitive data. Enumerate attack vectors, crack credentials, walk the file system for secrets, then weaponize cross-site requests to cover your tracks.',
     objective: 'Credential theft + sensitive data disclosure',
@@ -84,7 +78,7 @@ const MUTATION_DEFS = [
     id: 'bf_delay',
     module: 'brute_force',
     moduleLabel: 'Brute Force',
-    icon: Timer,
+    icon: '⏱',
     label: 'Rate Limiter',
     color: '#ff6b00',
     glow: 'rgba(255,107,0,0.2)',
@@ -96,7 +90,7 @@ const MUTATION_DEFS = [
     id: 'bf_lockout',
     module: 'brute_force',
     moduleLabel: 'Brute Force',
-    icon: Lock,
+    icon: '🔒',
     label: 'Account Lockout',
     color: '#ff1535',
     glow: 'rgba(255,21,53,0.2)',
@@ -108,7 +102,7 @@ const MUTATION_DEFS = [
     id: 'xss_encode',
     module: 'xss',
     moduleLabel: 'XSS',
-    icon: Code,
+    icon: '⟨/⟩',
     label: 'Output Encoding',
     color: '#00c8ff',
     glow: 'rgba(0,200,255,0.2)',
@@ -120,7 +114,7 @@ const MUTATION_DEFS = [
     id: 'xss_csp',
     module: 'xss',
     moduleLabel: 'XSS',
-    icon: ShieldCheck,
+    icon: '🛡',
     label: 'CSP Header',
     color: '#2ee39a',
     glow: 'rgba(46,227,154,0.2)',
@@ -132,7 +126,7 @@ const MUTATION_DEFS = [
     id: 'ci_filter_pipe',
     module: 'cmd_injection',
     moduleLabel: 'Command Injection',
-    icon: Filter,
+    icon: '|',
     label: 'Pipe Filtered',
     color: '#8b2fff',
     glow: 'rgba(139,47,255,0.2)',
@@ -144,7 +138,7 @@ const MUTATION_DEFS = [
     id: 'ci_filter_semi',
     module: 'cmd_injection',
     moduleLabel: 'Command Injection',
-    icon: Filter,
+    icon: ';',
     label: 'Semicolon Filtered',
     color: '#f5c400',
     glow: 'rgba(245,196,0,0.2)',
@@ -156,7 +150,7 @@ const MUTATION_DEFS = [
     id: 'dt_dotdot_filtered',
     module: 'dir_traversal',
     moduleLabel: 'Dir Traversal',
-    icon: FolderLock,
+    icon: '⌘',
     label: 'Dot-Dot Filtered',
     color: '#06b6d4',
     glow: 'rgba(6,182,212,0.2)',
@@ -168,7 +162,7 @@ const MUTATION_DEFS = [
     id: 'dt_absolute_path_only',
     module: 'dir_traversal',
     moduleLabel: 'Dir Traversal',
-    icon: Ban,
+    icon: '/',
     label: 'Absolute Path Blocked',
     color: '#22d3ee',
     glow: 'rgba(34,211,238,0.2)',
@@ -180,7 +174,7 @@ const MUTATION_DEFS = [
     id: 'fu_extension_blocklist',
     module: 'file_upload',
     moduleLabel: 'File Upload',
-    icon: FileX,
+    icon: '⇪',
     label: 'Extension Blocklist',
     color: '#a855f7',
     glow: 'rgba(168,85,247,0.2)',
@@ -192,7 +186,7 @@ const MUTATION_DEFS = [
     id: 'fu_mime_check',
     module: 'file_upload',
     moduleLabel: 'File Upload',
-    icon: FileCheck,
+    icon: '⊞',
     label: 'MIME Type Check',
     color: '#c084fc',
     glow: 'rgba(192,132,252,0.2)',
@@ -204,7 +198,7 @@ const MUTATION_DEFS = [
     id: 'csrf_referer_check',
     module: 'csrf',
     moduleLabel: 'CSRF',
-    icon: ShieldCheck,
+    icon: '⊛',
     label: 'Referer Check',
     color: '#f43f5e',
     glow: 'rgba(244,63,94,0.2)',
@@ -216,7 +210,7 @@ const MUTATION_DEFS = [
     id: 'csrf_json_only',
     module: 'csrf',
     moduleLabel: 'CSRF',
-    icon: Braces,
+    icon: '{}',
     label: 'JSON-Only Update',
     color: '#fb7185',
     glow: 'rgba(251,113,133,0.2)',
@@ -297,98 +291,103 @@ const MUTATION_MODULES = [
   },
 ]
 
-// ─── AuroraFlow — exact lukebaffait.fr hero background ────────────────────────
-// Uses the real CoreRenderer (vendored to /hero/) + the original project data
-// (gradient → red/orange background.png → flow-field warp → blur). Replicated
-// 1:1 from the source site's startShader(): mount a #hero-canvas with a
-// data-cr-project-src blob, then call CoreRenderer.init().
-let _heroScriptsPromise = null
-function loadHeroScripts() {
-  if (_heroScriptsPromise) return _heroScriptsPromise
-  const addScript = (src) => new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[data-hero-src="${src}"]`)
-    if (existing) { resolve(); return }
-    const sc = document.createElement('script')
-    sc.src = src
-    sc.async = false
-    sc.dataset.heroSrc = src
-    sc.onload = () => resolve()
-    sc.onerror = () => reject(new Error(`Failed to load ${src}`))
-    document.head.appendChild(sc)
-  })
-  // hero-project.js sets window._heroProjectData; core-renderer.js exposes window.CoreRenderer
-  _heroScriptsPromise = addScript('/hero/hero-project.js').then(() => addScript('/hero/core-renderer.js'))
-  return _heroScriptsPromise
-}
+// ─── Sparkles background canvas ───────────────────────────────────────────────
+function SparklesCanvas() {
+  const canvasRef = useRef(null)
 
-// The background is a persistent singleton: created once, initialized once, and
-// never destroyed — only hidden/shown across navigation. The renderer's WebGL
-// context + ticker are global, so tearing it down on unmount and re-initialising
-// on the next visit left the canvas blank. Keeping one live instance avoids both
-// the disappear-on-revisit bug and the re-init delay.
-let _heroWrap = null
-let _heroInited = false
-
-function mountHeroBackground() {
-  // app-shell has no CSS transform, so position:fixed resolves to the real
-  // viewport (full screen, behind the transparent navbar). <main> keeps a
-  // transform from the fade-up animation, which would clip a fixed child.
-  const host = document.getElementById('app-shell') || document.body
-
-  // (Re)create if it was never built or got detached (e.g. after visiting the
-  // home page, which lives outside the app-shell and unmounts it).
-  if (!_heroWrap || !_heroWrap.isConnected) {
-    _heroWrap = document.createElement('div')
-    _heroWrap.style.cssText =
-      'position:fixed;inset:0;z-index:-1;pointer-events:none;background:#07090f;overflow:hidden'
-    const canvasHost = document.createElement('div')
-    canvasHost.id = 'hero-canvas'
-    canvasHost.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'
-    const overlay = document.createElement('div')
-    overlay.style.cssText =
-      'position:absolute;inset:0;pointer-events:none;' +
-      'background:radial-gradient(ellipse 90% 80% at 50% 42%, transparent 45%, rgba(4,6,12,0.4) 100%)'
-    _heroWrap.appendChild(canvasHost)
-    _heroWrap.appendChild(overlay)
-    _heroInited = false // fresh canvas host → needs a fresh init
-  }
-  if (_heroWrap.parentElement !== host) host.appendChild(_heroWrap)
-  _heroWrap.style.display = 'block'
-  return _heroWrap
-}
-
-function AuroraFlow() {
   useEffect(() => {
-    let cancelled = false
-    const wrap = mountHeroBackground()
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    let raf = 0
+    const t0 = performance.now()
+    let stars = []
 
-    loadHeroScripts().then(() => {
-      if (cancelled || _heroInited) return
-      const projectData = window._heroProjectData
-      if (!projectData || !window.CoreRenderer) {
-        console.error('Hero renderer/data unavailable')
-        return
+    const seedStars = (w, h) => {
+      const count = Math.floor(Math.min((w * h) / 4500, 520))
+      stars = Array.from({ length: count }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        a: Math.random() * Math.PI * 2,
+        b: Math.random() * Math.PI * 2,
+        va: 0.18 + Math.random() * 0.55,
+        vb: 0.22 + Math.random() * 0.65,
+        size: 0.6 + Math.random() * 1.7,
+        hue: Math.random() < 0.82 ? null : (Math.random() < 0.5 ? 'rgba(255,80,110,' : 'rgba(180,120,255,'),
+      }))
+    }
+
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const w = window.innerWidth
+      const h = window.innerHeight
+      canvas.width = w * dpr
+      canvas.height = h * dpr
+      canvas.style.width = w + 'px'
+      canvas.style.height = h + 'px'
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      seedStars(w, h)
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    const tick = (now) => {
+      const t = (now - t0) / 1000
+      const w = canvas.width / (window.devicePixelRatio || 1)
+      const h = canvas.height / (window.devicePixelRatio || 1)
+      ctx.clearRect(0, 0, w, h)
+
+      const wx = w * (0.45 + 0.15 * Math.sin(t * 0.05))
+      const wy = h * (0.55 + 0.15 * Math.cos(t * 0.04))
+      const grad = ctx.createRadialGradient(wx, wy, 0, wx, wy, Math.max(w, h) * 0.9)
+      grad.addColorStop(0, 'rgba(255,21,53,0.045)')
+      grad.addColorStop(0.5, 'rgba(139,47,255,0.025)')
+      grad.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, w, h)
+
+      for (const s of stars) {
+        const na = 0.5 + 0.5 * Math.sin(s.a + t * s.va)
+        const nb = 0.5 + 0.5 * Math.sin(s.b + t * s.vb * 1.13)
+        let v = na * nb
+        v = v * v * v * v * v * v
+        if (v < 0.005) continue
+        const alpha = Math.min(v * 6, 1)
+        const r = s.size * (1 + v * 2.5)
+        const base = s.hue || 'rgba(255,255,255,'
+        ctx.fillStyle = base + alpha.toFixed(3) + ')'
+        ctx.beginPath()
+        ctx.arc(s.x, s.y, r, 0, Math.PI * 2)
+        ctx.fill()
+        if (v > 0.35) {
+          ctx.fillStyle = base + (alpha * 0.18).toFixed(3) + ')'
+          ctx.beginPath()
+          ctx.arc(s.x, s.y, r * 3.5, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
-      const canvasHost = wrap.querySelector('#hero-canvas')
-      if (!canvasHost) return
-      canvasHost.removeAttribute('data-cr-initialized')
-      const blob = new Blob([JSON.stringify(projectData)], { type: 'application/json' })
-      const blobUrl = URL.createObjectURL(blob)
-      canvasHost.setAttribute('data-cr-project-src', blobUrl)
-      _heroInited = true
-      window.CoreRenderer.init()
-        .then(() => URL.revokeObjectURL(blobUrl))
-        .catch((err) => { _heroInited = false; console.error('CoreRenderer init failed:', err) })
-    }).catch((err) => console.error(err))
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
 
-    // Hide on leave — keep the instance alive so revisits are instant.
     return () => {
-      cancelled = true
-      if (_heroWrap) _heroWrap.style.display = 'none'
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', resize)
     }
   }, [])
 
-  return null
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+      background: 'radial-gradient(ellipse at 50% 30%, #0d0f1a 0%, #07090f 45%, #04060c 100%)',
+    }}>
+      <canvas ref={canvasRef} style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', mixBlendMode: 'screen' }} />
+      <div style={{
+        position: 'fixed', inset: 0, pointerEvents: 'none',
+        background: 'radial-gradient(ellipse 90% 80% at 50% 40%, transparent 30%, rgba(4,6,12,0.55) 100%)',
+      }} />
+    </div>
+  )
 }
 
 // ─── HoverButton — glassmorphic with cursor-trailing glow circles ──────────────
@@ -471,15 +470,14 @@ function HoverButton({ style = {}, onClick, children, isActive }) {
 // ─── Section navigator (Chains | Mutations) ────────────────────────────────────
 function HeroSectionNav({ active, onSelect }) {
   const sections = [
-    { id: 'chains',    icon: Workflow, label: 'ATTACK CHAINS',  sub: 'Multi-phase operations',       count: 3, countLabel: 'OPERATIONS', accent: '#ff6b85', accentSoft: 'rgba(255,107,133,0.14)' },
-    { id: 'mutations', icon: Zap,      label: 'MUTATION MODE',  sub: 'Adaptive defense challenges',  count: 13, countLabel: 'MUTATIONS',  accent: '#f5c46a', accentSoft: 'rgba(245,196,106,0.13)' },
+    { id: 'chains',    icon: '⛓', label: 'ATTACK CHAINS',  sub: 'Multi-phase operations',       count: 3, countLabel: 'OPERATIONS', accent: '#ff6b85', accentSoft: 'rgba(255,107,133,0.14)' },
+    { id: 'mutations', icon: '⚡', label: 'MUTATION MODE',  sub: 'Adaptive defense challenges',  count: 13, countLabel: 'MUTATIONS',  accent: '#f5c46a', accentSoft: 'rgba(245,196,106,0.13)' },
   ]
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22, maxWidth: 1100, margin: '0 auto 56px' }}>
       {sections.map((s, i) => {
         const isAct = active === s.id
-        const SecIcon = s.icon
         return (
           <motion.div key={s.id} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 + i * 0.1, duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
@@ -492,11 +490,11 @@ function HeroSectionNav({ active, onSelect }) {
                   border: `1.5px solid rgba(170,202,255,${isAct ? 0.4 : 0.16})`,
                   background: isAct ? `linear-gradient(135deg, ${s.accentSoft}, rgba(58,91,191,0.06))` : 'rgba(255,255,255,0.025)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: isAct ? s.accent : '#7a8aab', flexShrink: 0,
+                  fontSize: 42, color: isAct ? s.accent : '#7a8aab', flexShrink: 0,
                   transition: 'all 0.3s',
                   boxShadow: isAct ? `inset 0 0 18px ${s.accentSoft}, 0 0 22px ${s.accentSoft}` : 'none',
-                  filter: isAct ? `drop-shadow(0 0 18px ${s.accent}55)` : 'none',
-                }}><SecIcon size={38} strokeWidth={1.5} /></div>
+                  textShadow: isAct ? `0 0 18px ${s.accent}55` : 'none',
+                }}>{s.icon}</div>
                 {/* Text */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', color: isAct ? s.accent : '#4a5580', marginBottom: 8, transition: 'color 0.3s' }}>
@@ -522,7 +520,7 @@ function HeroSectionNav({ active, onSelect }) {
 }
 
 // ─── Phase timeline node ───────────────────────────────────────────────────────
-function PhaseNode({ icon: Icon, label, index, total, accentColor, active, completed }) {
+function PhaseNode({ icon, label, index, total, accentColor, active, completed }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       <motion.div
@@ -537,12 +535,13 @@ function PhaseNode({ icon: Icon, label, index, total, accentColor, active, compl
           border: `1.5px solid ${active ? accentColor : completed ? accentColor + '55' : accentColor + '22'}`,
           background: active ? `radial-gradient(circle, ${accentColor}28 0%, transparent 70%)` : completed ? accentColor + '10' : 'rgba(255,255,255,0.015)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: completed ? 22 : 20,
           color: active ? accentColor : completed ? accentColor + '90' : accentColor + '45',
-          position: 'relative',
+          fontFamily: 'monospace', position: 'relative',
           boxShadow: active ? `0 0 28px ${accentColor}40, 0 0 10px ${accentColor}25` : 'none',
           transition: 'all 0.35s ease',
         }}>
-          {completed ? <Check size={24} strokeWidth={2.5} /> : (Icon && <Icon size={22} strokeWidth={1.75} />)}
+          {completed ? '✓' : icon}
           {active && (
             <motion.div
               animate={{ scale: [1, 1.4, 1], opacity: [0.5, 0, 0.5] }}
@@ -570,7 +569,6 @@ function PhaseNode({ icon: Icon, label, index, total, accentColor, active, compl
 // ─── Chain hero card ───────────────────────────────────────────────────────────
 function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checking, chainError, onStart, onAdvance, onReset }) {
   const [hovered, setHovered] = useState(false)
-  const ChainIcon = meta.icon
   const cardRef = useRef(null)
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
@@ -618,13 +616,13 @@ function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checki
         opacity: hovered || isActive ? 1 : 0.45, transition: 'opacity 0.35s',
       }} />
 
-      {/* Giant icon watermark */}
+      {/* Giant glyph watermark */}
       <div style={{
-        position: 'absolute', right: 36, top: '50%', transform: 'translateY(-50%)',
-        color: meta.accentColor, opacity: hovered || isActive ? 0.07 : 0.03,
-        lineHeight: 1, pointerEvents: 'none',
+        position: 'absolute', right: 28, top: '50%', transform: 'translateY(-50%)',
+        fontSize: 240, color: meta.accentColor, opacity: hovered || isActive ? 0.06 : 0.025,
+        fontFamily: 'monospace', lineHeight: 1, pointerEvents: 'none',
         userSelect: 'none', transition: 'opacity 0.4s', zIndex: 0,
-      }}><ChainIcon size={210} strokeWidth={1} /></div>
+      }}>{meta.icon}</div>
 
       <div style={{ position: 'relative', zIndex: 1, padding: '38px 44px 34px' }}>
         {/* Header row */}
@@ -639,9 +637,9 @@ function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checki
                 border: `2px solid ${meta.accentColor}55`,
                 background: `linear-gradient(135deg, ${meta.accentColor}22, ${meta.accentColor}08)`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: meta.accentColor, flexShrink: 0, position: 'relative',
+                fontSize: 36, color: meta.accentColor, fontFamily: 'monospace', flexShrink: 0, position: 'relative',
               }}>
-              <ChainIcon size={34} strokeWidth={1.75} />
+              {meta.icon}
               <div style={{ position: 'absolute', inset: -5, borderRadius: 24, border: `1px solid ${meta.accentColor}18` }} />
             </motion.div>
 
@@ -702,8 +700,8 @@ function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checki
         {/* Chain error message */}
         {chainError && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 16px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.08)', fontFamily: 'monospace', fontSize: 11, color: '#f87171', letterSpacing: '0.04em' }}>
-            <X size={13} strokeWidth={2.5} /> {chainError}
+            style={{ marginBottom: 16, padding: '10px 16px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.08)', fontFamily: 'monospace', fontSize: 11, color: '#f87171', letterSpacing: '0.04em' }}>
+            ✕ {chainError}
           </motion.div>
         )}
 
@@ -720,7 +718,6 @@ function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checki
               whileHover={{ scale: 1.04, boxShadow: `0 0 56px ${meta.glowColor}, 0 8px 36px rgba(0,0,0,0.55)` }}
               whileTap={{ scale: 0.97 }}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 9,
                 fontFamily: 'monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.24em',
                 padding: '15px 42px', borderRadius: 11, border: `1px solid ${meta.accentColor}80`,
                 background: `linear-gradient(135deg, ${meta.accentColor} 0%, ${meta.accentColor}cc 100%)`,
@@ -728,17 +725,17 @@ function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checki
                 boxShadow: `0 0 32px ${meta.glowColor}, 0 4px 24px rgba(0,0,0,0.45)`,
                 position: 'relative', overflow: 'hidden',
               }}>
-              INITIATE OPERATION <ArrowRight size={15} strokeWidth={2.5} />
+              INITIATE OPERATION →
             </motion.button>
           ) : isComplete ? (
             <div style={{ display: 'flex', gap: 10 }}>
               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'monospace', fontSize: 11, color: '#2ee39a', letterSpacing: '0.2em', padding: '13px 30px', border: '1px solid rgba(46,227,154,0.4)', borderRadius: 11, background: 'rgba(46,227,154,0.08)' }}>
-                <Check size={14} strokeWidth={2.5} /> OPERATION COMPLETE
+                style={{ fontFamily: 'monospace', fontSize: 11, color: '#2ee39a', letterSpacing: '0.2em', padding: '13px 30px', border: '1px solid rgba(46,227,154,0.4)', borderRadius: 11, background: 'rgba(46,227,154,0.08)' }}>
+                ✓ OPERATION COMPLETE
               </motion.div>
               <motion.button onClick={onReset} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', padding: '13px 22px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#8b9bba', cursor: 'pointer' }}>
-                <RotateCcw size={13} strokeWidth={2.25} /> RESET
+                style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', padding: '13px 22px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#8b9bba', cursor: 'pointer' }}>
+                ↻ RESET
               </motion.button>
             </div>
           ) : (
@@ -751,7 +748,6 @@ function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checki
                 whileHover={checking ? {} : { scale: 1.04, boxShadow: `0 0 36px ${meta.glowColor}, 0 6px 24px rgba(0,0,0,0.5)` }}
                 whileTap={checking ? {} : { scale: 0.97 }}
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 9,
                   fontFamily: 'monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em',
                   padding: '13px 32px', borderRadius: 11, border: `1px solid ${meta.accentColor}70`,
                   background: checking
@@ -762,11 +758,7 @@ function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checki
                   boxShadow: checking ? 'none' : `0 0 24px ${meta.glowColor}`,
                   position: 'relative', overflow: 'hidden',
                 }}>
-                {checking
-                  ? 'CHECKING PROGRESS…'
-                  : currentPhase === meta.steps.length - 1
-                    ? <>COMPLETE OPERATION <Check size={15} strokeWidth={2.5} /></>
-                    : <>NEXT PHASE <ArrowRight size={15} strokeWidth={2.5} /></>}
+                {checking ? 'CHECKING PROGRESS…' : (currentPhase === meta.steps.length - 1 ? 'COMPLETE OPERATION ✓' : 'NEXT PHASE →')}
               </motion.button>
             </div>
           )}
@@ -850,7 +842,6 @@ function AttackChainsSection() {
 // ─── Mutation catalog card ─────────────────────────────────────────────────────
 function MutationCard({ mut, index }) {
   const [expanded, setExpanded] = useState(false)
-  const MutIcon = mut.icon
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
@@ -869,7 +860,7 @@ function MutationCard({ mut, index }) {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${mut.color}45`, background: `${mut.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: mut.color, flexShrink: 0 }}><MutIcon size={17} strokeWidth={1.75} /></div>
+          <div style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${mut.color}45`, background: `${mut.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: mut.color, fontFamily: 'monospace', flexShrink: 0 }}>{mut.icon}</div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.22em', color: '#4a5280' }}>{mut.moduleLabel.toUpperCase()}</span>
@@ -879,7 +870,7 @@ function MutationCard({ mut, index }) {
           </div>
         </div>
         <motion.div animate={{ rotate: expanded ? 90 : 0 }} transition={{ duration: 0.2 }}
-          style={{ color: mut.color, display: 'flex', opacity: 0.85 }}><ChevronRight size={16} strokeWidth={2.25} /></motion.div>
+          style={{ color: mut.color, fontSize: 14, fontFamily: 'monospace', opacity: 0.85 }}>→</motion.div>
       </div>
 
       <AnimatePresence>
@@ -899,7 +890,7 @@ function MutationCard({ mut, index }) {
   )
 }
 
-const MODULE_ICONS = { brute_force: KeyRound, xss: Code, cmd_injection: SquareTerminal, dir_traversal: FolderTree, file_upload: Upload, csrf: Repeat }
+const MODULE_ICONS = { brute_force: '✦', xss: '◉', cmd_injection: '⎇', dir_traversal: '⌘', file_upload: '⇪', csrf: '⊛' }
 const INTENSITY_CHOICES = [
   { id: 'single',     label: 'Single Shift',  desc: '1 shift · 60–180s window' },
   { id: 'escalating', label: 'Escalating',    desc: '2 shifts · pressure rises' },
@@ -943,7 +934,7 @@ function MutationLaunchCard({ op, index }) {
     }
   }
 
-  const OpIcon = MODULE_ICONS[op.module] || Radar
+  const icon = MODULE_ICONS[op.module] || '⊕'
 
   return (
     <motion.div
@@ -1001,9 +992,9 @@ function MutationLaunchCard({ op, index }) {
               border: `2px solid ${op.color}55`,
               background: `linear-gradient(135deg, ${op.color}22, ${op.color}08)`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: op.color,
+              fontSize: 28, color: op.color, fontFamily: 'monospace',
             }}>
-            <OpIcon size={28} strokeWidth={1.75} />
+            {icon}
           </motion.div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1059,13 +1050,12 @@ function MutationLaunchCard({ op, index }) {
             border: `1px solid ${op.color}80`,
             background: `linear-gradient(135deg, ${op.color} 0%, ${op.color}cc 100%)`,
             color: '#07090f', padding: '15px 24px',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 9,
             fontFamily: 'monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.22em',
             cursor: launching ? 'wait' : 'pointer',
             boxShadow: `0 0 32px ${op.glow}`,
             position: 'relative', overflow: 'hidden',
           }}>
-          {launching ? 'INITIATING...' : <>INITIATE MUTATION OP <ArrowRight size={16} strokeWidth={2.5} /></>}
+          {launching ? 'INITIATING...' : 'INITIATE MUTATION OP →'}
         </motion.button>
         {error && (
           <div style={{ marginTop: 10, fontFamily: 'monospace', fontSize: 10, color: '#ff6080' }}>{error}</div>
@@ -1251,45 +1241,12 @@ function MutationModeSection() {
 }
 
 // ─── Main Gauntlet page ────────────────────────────────────────────────────────
-// ─── GauntletTitle — per-letter roll-up reveal, staggered from center ─────────
-function GauntletTitle() {
-  const letters = 'GAUNTLET'.split('')
-  const mid = (letters.length - 1) / 2
-  return (
-    <h1 aria-label="GAUNTLET" style={{
-      display: 'flex', justifyContent: 'center', flexWrap: 'nowrap',
-      fontFamily: "'Rajdhani', sans-serif", fontSize: 'clamp(64px, 10vw, 112px)',
-      fontWeight: 700, letterSpacing: '0.12em', lineHeight: 1, margin: '0 0 22px',
-      filter: 'drop-shadow(0 0 60px rgba(255,255,255,0.12)) drop-shadow(0 0 40px rgba(255,21,53,0.18))',
-    }}>
-      {letters.map((ch, i) => (
-        <span key={i} aria-hidden="true" style={{
-          display: 'inline-block', overflow: 'hidden',
-          padding: '0.14em 0', margin: '-0.14em 0',
-        }}>
-          <motion.span
-            initial={{ y: '120%' }}
-            animate={{ y: '0%' }}
-            transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1], delay: 0.2 + Math.abs(i - mid) * 0.05 }}
-            style={{
-              display: 'inline-block',
-              background: 'linear-gradient(180deg, #ffffff 0%, #d4dcf0 42%, #8190b0 100%)',
-              WebkitBackgroundClip: 'text', backgroundClip: 'text',
-              WebkitTextFillColor: 'transparent', color: 'transparent',
-            }}
-          >{ch}</motion.span>
-        </span>
-      ))}
-    </h1>
-  )
-}
-
 export default function Gauntlet() {
   const [section, setSection] = useState('chains')
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh', width: '100%', color: '#fff' }}>
-      <AuroraFlow />
+      <SparklesCanvas />
 
       <div style={{ position: 'relative', zIndex: 1, padding: '0 24px 80px' }}>
 
@@ -1300,12 +1257,15 @@ export default function Gauntlet() {
           {/* Pill badge */}
           <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.15 }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '8px 18px', borderRadius: 24, border: '1px solid rgba(255,21,53,0.35)', background: 'rgba(255,21,53,0.08)', marginBottom: 28, backdropFilter: 'blur(8px)' }}>
-            <span style={{ display: 'flex', color: '#ff4060', filter: 'drop-shadow(0 0 6px rgba(255,64,96,0.55))' }}><Zap size={14} strokeWidth={2.25} /></span>
+            <span style={{ fontSize: 14, color: '#ff4060', filter: 'drop-shadow(0 0 6px rgba(255,64,96,0.55))' }}>⚡</span>
             <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.3em', color: '#ff6080', fontWeight: 700 }}>ADVANCED OPERATIONS CENTER</span>
           </motion.div>
 
-          {/* Title — letters roll up from a clipped baseline, staggered from center */}
-          <GauntletTitle />
+          {/* Title */}
+          <motion.h1 initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
+            style={{ fontFamily: "'Rajdhani', sans-serif", fontSize: 'clamp(64px, 10vw, 112px)', fontWeight: 700, letterSpacing: '0.12em', lineHeight: 1, margin: '0 0 22px', background: 'linear-gradient(135deg, #ffffff 0%, #c8d0e8 35%, #7a8aab 65%, #4a5a7a 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', filter: 'drop-shadow(0 0 60px rgba(255,255,255,0.12))' }}>
+            GAUNTLET
+          </motion.h1>
 
           {/* Subtitle */}
           <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}

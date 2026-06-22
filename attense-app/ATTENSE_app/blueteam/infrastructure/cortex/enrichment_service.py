@@ -62,44 +62,6 @@ class EnrichmentReport:
     enrichment_note: str = ""
     errors: list[str] = field(default_factory=list)
 
-    def describe(self, value: str, ioc_type: str) -> tuple[str, list[str]]:
-        """
-        One-line message + TheHive tags summarizing reputation for a single
-        IOC value, so the analyst sees real evidence on the observable itself
-        instead of a generic "Attacker IP" placeholder.
-        """
-        parts: list[str] = []
-        tags: list[str] = []
-        vt_result = None
-
-        if ioc_type == "ip":
-            abuse = next((r for r in self.ip_reputation if r.ip == value), None)
-            if abuse and abuse.found and not abuse.error:
-                parts.append(
-                    f"AbuseIPDB {abuse.abuse_confidence_score}% confidence "
-                    f"({abuse.total_reports} reports, {abuse.country_code or '?'})"
-                )
-                tags.append(f"abuseipdb:{abuse.abuse_confidence_score}%")
-            vt_result = next((r for r in self.vt_ip_results if r.ioc == value), None)
-        elif ioc_type == "url":
-            vt_result = next((r for r in self.vt_url_results if r.ioc == value), None)
-        elif ioc_type == "hash":
-            vt_result = next((r for r in self.vt_hash_results if r.ioc == value), None)
-
-        if vt_result and vt_result.found:
-            parts.append(f"VirusTotal {vt_result.detection_ratio} engines flagged malicious")
-            tags.append(f"vt:{vt_result.detection_ratio}")
-
-        if not parts:
-            default_message = {
-                "ip": "Attacker IP",
-                "url": "Malicious URL",
-                "hash": "Malicious File Hash",
-            }.get(ioc_type, "Indicator")
-            return f"{default_message} — no threat-intel match found", tags
-
-        return " | ".join(parts), tags
-
     def to_dict(self) -> dict:
         """Serialise to a plain dict for embedding in ActionResponse."""
         return {

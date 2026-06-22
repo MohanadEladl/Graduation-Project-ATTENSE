@@ -1,16 +1,15 @@
 """
-response_coordinator.py - Blue Team Response Coordinator
-========================================================
-Orchestrates the non-containment Blue Team incident response lifecycle.
+response_coordinator.py — Blue Team Response Coordinator
+==========================================================
+Orchestrates the complete Blue Team incident response lifecycle.
 
-Acts as a high-level coordinator that sequences triage steps:
-    raise_alert -> investigate_alert -> [deny | confirm]
+Acts as a high-level coordinator that sequences the steps:
+    raise_alert → investigate_alert → [deny | confirm → initiate → complete]
 
-Containment is intentionally excluded from automation. ATTENSE measures the
-analyst's selected response action, so blocking/isolation actions must be
-chosen and triggered by the analyst through the UI/API/TheHive responder flow.
+Used for automated / scripted scenarios where the full flow runs without
+interactive analyst input (e.g. AI-driven responses, integration tests).
 
-For interactive human flows, each step is triggered individually via router.py.
+For interactive (human) flows, each step is triggered individually via router.py.
 """
 
 from __future__ import annotations
@@ -27,8 +26,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ContainmentPlan:
-    """Describes a possible containment option for a specific target."""
-
+    """Describes how to contain a specific attack on a specific target."""
     analyst_id: str
     target_id: str
     target_type: str
@@ -38,16 +36,16 @@ class ContainmentPlan:
 
 class ResponseCoordinator:
     """
-    Coordinates the non-containment incident response lifecycle.
+    Coordinates the full incident response lifecycle.
 
     Attributes
     ----------
     emitter : EventEmitter
-        Shared event store wrapper; all events are published here.
+        Shared event store wrapper — all events are published here.
     hive    : HiveClient
         Hive integration for case management updates.
     sandbox : TargetConnector
-        Sandbox connector retained for interactive containment endpoints.
+        Sandbox connector for executing containment actions.
     """
 
     def __init__(
@@ -70,64 +68,72 @@ class ResponseCoordinator:
         severity: str = "high",
     ) -> dict:
         """
-        Execute only the automated triage sequence.
+        Execute a full automated incident response sequence.
 
         Steps:
-            1. Investigate alert.
-            2. Confirm incident.
-            3. Stop and wait for analyst-selected containment.
+            1. Investigate alert
+            2. Confirm incident
+            3. Initiate containment
+            4. Complete containment
 
-        This method does not initiate or complete containment. Measuring
-        containment is only meaningful when the analyst chooses the action.
-        Returns a summary dict with event IDs and current incident status.
+        Returns a summary dict with all event IDs and final incident status.
         """
-        from core.services.alert_service import investigate_alert
+        from core.services.alert_service import investigate_alert, deny_alert
         from core.services.incident_service import confirm_incident
+        from core.services.containment_service import initiate_containment, complete_containment
         from schemas.requests.alert_requests import InvestigateAlertRequest
         from schemas.requests.incident_requests import ConfirmIncidentRequest
+        from schemas.requests.containment_requests import (
+            InitiateContainmentRequest,
+            CompleteContainmentRequest,
+        )
 
         logger.info(
-            "[ResponseCoordinator] Starting automated triage for incident '%s'.",
+            "[ResponseCoordinator] Starting automated response for incident '%s'.",
             incident_id,
         )
 
         r1 = investigate_alert(
             body=InvestigateAlertRequest(
-                incident_id=incident_id,
-                scenario_id=scenario_id,
-                analyst_id=analyst_id,
-                alert_id=alert_id,
+                incident_id=incident_id, scenario_id=scenario_id,
+                analyst_id=analyst_id, alert_id=alert_id,
             ),
             emitter=self.emitter,
         )
         r2 = confirm_incident(
             body=ConfirmIncidentRequest(
-                incident_id=incident_id,
-                scenario_id=scenario_id,
-                analyst_id=analyst_id,
-                alert_id=alert_id,
-                severity=severity,
+                incident_id=incident_id, scenario_id=scenario_id,
+                analyst_id=analyst_id, alert_id=alert_id, severity=severity,
             ),
             emitter=self.emitter,
             hive=self.hive,
         )
+        r3 = initiate_containment(
+            body=InitiateContainmentRequest(
+                incident_id=incident_id, scenario_id=scenario_id,
+                analyst_id=plan.analyst_id, target_id=plan.target_id,
+                target_type=plan.target_type, strategy=plan.strategy,
+            ),
+            emitter=self.emitter,
+            sandbox=self.sandbox,
+        )
+        r4 = complete_containment(
+            body=CompleteContainmentRequest(
+                incident_id=incident_id, scenario_id=scenario_id,
+                analyst_id=plan.analyst_id, target_id=plan.target_id,
+                target_type=plan.target_type, notes=plan.notes,
+            ),
+            emitter=self.emitter,
+        )
 
         logger.info(
-            "[ResponseCoordinator] Automated triage complete for incident '%s'. "
-            "Awaiting analyst containment choice. Current status: %s",
-            incident_id,
-            r2.incident_status,
+            "[ResponseCoordinator] Automated response complete for incident '%s'. "
+            "Final status: %s",
+            incident_id, r4.incident_status,
         )
 
         return {
             "incident_id": incident_id,
-            "current_status": r2.incident_status,
-            "awaiting": "analyst_containment_choice",
-            "containment_plan": {
-                "target_id": plan.target_id,
-                "target_type": plan.target_type,
-                "strategy": plan.strategy,
-                "notes": plan.notes,
-            },
-            "events": [r1.event_id, r2.event_id],
+            "final_status": r4.incident_status,
+            "events": [r1.event_id, r2.event_id, r3.event_id, r4.event_id],
         }

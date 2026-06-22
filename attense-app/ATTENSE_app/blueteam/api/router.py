@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from .dependencies import get_event_emitter, get_hive_client, get_sandbox_connector, get_enrichment_service, get_settings
+from .dependencies import get_event_emitter, get_hive_client, get_sandbox_connector, get_enrichment_service
 from core.services.alert_service import raise_alert, investigate_alert, deny_alert
 from core.services.incident_service import confirm_incident
 from core.services.containment_service import initiate_containment, complete_containment
@@ -75,7 +75,6 @@ def api_raise_alert(
     emitter: EventEmitter = Depends(get_event_emitter),
     hive: HiveClient = Depends(get_hive_client),
     enrichment_svc: EnrichmentService = Depends(get_enrichment_service),
-    settings = Depends(get_settings),
 ) -> ActionResponse:
     """
     Simulates the SIEM detecting an anomaly and raising an alert.
@@ -100,7 +99,6 @@ def api_raise_alert(
             emitter=emitter,
             hive=hive,
             enrichment_report=enrichment_report,
-            auto_create_case=settings.auto_create_case,
         )
         response.enrichment = enrichment_report.to_dict()
         return response

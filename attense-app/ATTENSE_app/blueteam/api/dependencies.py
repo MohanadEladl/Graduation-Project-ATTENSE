@@ -23,9 +23,7 @@ from functools import lru_cache
 from infrastructure.eventstore.event_emitter import EventEmitter
 from infrastructure.thehive.hive_client import HiveClient
 from infrastructure.sandbox.target_connector import TargetConnector
-from infrastructure.sandbox.lab_evidence_connector import LabEvidenceConnector
 from infrastructure.cortex.enrichment_service import EnrichmentService
-from core.blueactions.attacker_log_attacher import AttackerLogAttacher
 from config.settings import Settings
 
 
@@ -62,25 +60,6 @@ def get_sandbox_connector() -> TargetConnector:
     """Provide a TargetConnector for sandbox / host isolation."""
     settings = get_settings()
     return TargetConnector(base_url=settings.sandbox_url)
-
-
-def get_lab_evidence_connector() -> LabEvidenceConnector:
-    """Provide a read-only LabEvidenceConnector for attacker evidence."""
-    settings = get_settings()
-    return LabEvidenceConnector(base_url=settings.sandbox_url)
-
-
-# Single shared attacher — its in-memory "attach-once" guard must survive
-# across webhook calls, so it is created once at module load (not per request).
-_attacker_log_attacher = AttackerLogAttacher(
-    hive=get_hive_client(),
-    lab_connector=get_lab_evidence_connector(),
-)
-
-
-def get_attacker_log_attacher() -> AttackerLogAttacher:
-    """Provide the shared AttackerLogAttacher used by the Hive webhook."""
-    return _attacker_log_attacher
 
 
 def get_enrichment_service() -> EnrichmentService:

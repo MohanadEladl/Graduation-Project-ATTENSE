@@ -6,7 +6,7 @@ req = urllib.request.Request(
     'http://thehive:9000/api/v1/query',
     data=json.dumps({'query': [{'_name': 'listNotifier'}]}).encode(),
     headers={
-        'Authorization': 'Bearer REDACTED-THEHIVE-API-KEY',
+        'Authorization': 'Bearer REVOKED-HIVE-API-KEY',
         'Content-Type': 'application/json'
     }
 )

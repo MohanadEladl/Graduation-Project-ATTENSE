@@ -1,12 +1,4 @@
-import os
-
 import httpx
-
-# The webhook endpoint authenticates callers with TheHive's shared bearer
-# secret, so this simulator must present it too. Matches attense-app's
-# WEBHOOK_SECRET (defaults to the dev value).
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "changeme-webhook")
-AUTH_HEADERS = {"Authorization": f"Bearer {WEBHOOK_SECRET}"}
 
 payloads = [
     {
@@ -71,7 +63,7 @@ payloads = [
 for p in payloads:
     print(f"--- Testing: {p['name']} ---")
     try:
-        response = httpx.post("http://localhost:8010/internal/webhook/hive", json=p["payload"], headers=AUTH_HEADERS)
+        response = httpx.post("http://localhost:8010/internal/webhook/hive", json=p["payload"])
         print("RESPONSE:", response.text)
     except Exception as e:
         print("ERROR:", e)
