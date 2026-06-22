@@ -11,7 +11,10 @@ the /blueteam/analyst-action scoring store.
 
 from __future__ import annotations
 
-import re
+from ATTENSE_app.blueteam.core.blueactions.hive_keywords import (
+    DISMISSAL_APPROVED_RE as _DISMISSAL_APPROVED_RE,
+    LESSONS_LEARNED_RE   as _LESSONS_LEARNED_RE,
+)
 
 # Maps (objectType, operation, optional_status) → AnalystEventType
 # object_type and operation are matched in lowercase (normalised on entry).
@@ -76,6 +79,20 @@ def extract_analyst_action(
             continue
         event_type = mapped
         break
+
+    # Keyword-based fallback for v2.0.0 events that cannot be matched by
+    # (object_type, operation, status) alone — they're identified by message content.
+    if not event_type:
+        if object_type in ("case_task_log", "tasklog") and operation == "create":
+            message = obj.get("message", "") or obj.get("description", "") or ""
+            if _DISMISSAL_APPROVED_RE.search(message):
+                event_type = "dismissal_approved"
+            elif _LESSONS_LEARNED_RE.search(message):
+                event_type = "lessons_learned_recorded"
+        elif object_type in ("case_task", "task") and operation == "update":
+            title = obj.get("title", "") or obj.get("description", "") or ""
+            if (obj.get("status") or "").lower() == "completed" and _LESSONS_LEARNED_RE.search(title):
+                event_type = "lessons_learned_recorded"
 
     if not event_type:
         return None

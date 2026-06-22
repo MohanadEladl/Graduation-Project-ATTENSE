@@ -28,6 +28,12 @@ EVENT_CONTAINMENT_INITIATED        = "containment_initiated"
 EVENT_CONTAINMENT_SUCCEEDED        = "containment_succeeded"
 EVENT_CONTAINMENT_FAILED           = "containment_failed"
 EVENT_INCIDENT_ENDED               = "incident_ended"
+# v2.0.0 — post-containment lifecycle events
+EVENT_EVIDENCE_PRESERVED           = "evidence_preserved"
+EVENT_ERADICATION_COMPLETED        = "eradication_completed"
+EVENT_RECOVERY_VALIDATED           = "recovery_validated"
+EVENT_DISMISSAL_APPROVED           = "dismissal_approved"
+EVENT_LESSONS_LEARNED_RECORDED     = "lessons_learned_recorded"
 
 ALLOWED_EVENT_TYPES = {
     EVENT_MALICIOUS_ACTION_EXECUTED,
@@ -39,6 +45,11 @@ ALLOWED_EVENT_TYPES = {
     EVENT_CONTAINMENT_SUCCEEDED,
     EVENT_CONTAINMENT_FAILED,
     EVENT_INCIDENT_ENDED,
+    EVENT_EVIDENCE_PRESERVED,
+    EVENT_ERADICATION_COMPLETED,
+    EVENT_RECOVERY_VALIDATED,
+    EVENT_DISMISSAL_APPROVED,
+    EVENT_LESSONS_LEARNED_RECORDED,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -111,12 +111,18 @@ _actions: defaultdict[str, List[dict]] = _load_from_disk()
 # ── Enums / Models ────────────────────────────────────────────────────────────
 
 class AnalystEventType(str, Enum):
-    investigation_started   = "investigation_started"
-    incident_confirmed      = "incident_confirmed"
-    containment_initiated   = "containment_initiated"
-    containment_succeeded   = "containment_succeeded"
-    incident_ended          = "incident_ended"
-    alert_denied            = "alert_denied"
+    investigation_started    = "investigation_started"
+    incident_confirmed       = "incident_confirmed"
+    containment_initiated    = "containment_initiated"
+    containment_succeeded    = "containment_succeeded"
+    incident_ended           = "incident_ended"
+    alert_denied             = "alert_denied"
+    # v2.0.0 — post-containment events (3 from watcher, 2 from TheHive webhook)
+    evidence_preserved       = "evidence_preserved"
+    eradication_completed    = "eradication_completed"
+    recovery_validated       = "recovery_validated"
+    dismissal_approved       = "dismissal_approved"
+    lessons_learned_recorded = "lessons_learned_recorded"
 
 
 class AnalystActionRequest(BaseModel):
@@ -189,6 +195,13 @@ def store_analyst_action(action: dict) -> dict:
     """
     Store an analyst action dict produced by analyst_action_extractor.py
     (Hive webhook → analyst action).
+
+    CALLER CONTRACT — self-approval guard:
+    If action["event_type"] == "dismissal_approved", the caller (webhook_router)
+    MUST call _check_dismissal_approval() against the EventStore BEFORE calling
+    this function. This function has no access to the event store and cannot
+    enforce the second-actor requirement itself. Bypassing the guard here
+    re-opens the self-approval loophole via the extractor path.
     """
     body = AnalystActionRequest(**action)
     return _persist(body)

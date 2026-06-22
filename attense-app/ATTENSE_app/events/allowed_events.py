@@ -8,6 +8,12 @@ ALLOWED_EVENT_TYPES = {
     "containment_succeeded",
     "containment_failed",
     "incident_ended",
+    # v2.0.0 — post-containment lifecycle events
+    "evidence_preserved",
+    "eradication_completed",
+    "recovery_validated",
+    "dismissal_approved",
+    "lessons_learned_recorded",
 }
 ALLOWED_ACTOR_TYPES = {
     "red_team",

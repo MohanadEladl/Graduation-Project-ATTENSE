@@ -59,6 +59,10 @@ _VALID_EVENT_TYPES = {
     "containment_initiated",
     "containment_succeeded",
     "alert_denied",
+    # v2.0.0 — terminal-inferable post-containment actions
+    "evidence_preserved",       # copy/hash/archive artifacts to evidence store
+    "eradication_completed",    # remove malicious files/processes/services/accounts
+    "recovery_validated",       # health-check / service-status probes confirm normal operation
 }
 
 
@@ -151,9 +155,16 @@ def _classify_with_ollama(
         f"Commands with timestamps:\n{numbered}\n\n"
         "Classify any significant SOC response actions. Return only JSON:\n"
         '{"events": [{"event_type": "<type>", "t_offset_sec": <int>, "detail": "<one sentence>"}]}\n'
-        "Valid types: investigation_started, incident_confirmed, containment_initiated, "
-        "containment_succeeded, alert_denied\n"
-        'If no SOC action: {"events": []}'
+        "Valid types and their meaning:\n"
+        "  investigation_started   — analyst opened/examined an alert or log file\n"
+        "  incident_confirmed      — analyst confirmed a true-positive attack\n"
+        "  containment_initiated   — analyst started blocking/isolating the threat (iptables, WAF rule, kill process)\n"
+        "  containment_succeeded   — analyst verified containment is active\n"
+        "  alert_denied            — analyst dismissed an alert as a false positive\n"
+        "  evidence_preserved      — analyst copied/archived logs or artifacts, hashed files for integrity (cp, tar, sha256sum, tcpdump -w)\n"
+        "  eradication_completed   — analyst removed malicious files/processes/services/accounts (rm, pkill, userdel, apt remove, systemctl disable)\n"
+        "  recovery_validated      — analyst ran health checks or probes to confirm service restored (curl, ping, systemctl status, wget, nc)\n"
+        'If no SOC action is present: {"events": []}'
     )
 
     try:
