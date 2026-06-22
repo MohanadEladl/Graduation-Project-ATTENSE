@@ -22,12 +22,11 @@ import { api } from '../api/client.js'
 import { SeverityBadge, CATEGORY_ICON } from '../components/SeverityBadge.jsx'
 import {
   briefingFor, targetUrlFor, targetPathFor,
-  tutorialStepsFor, requiredToolsFor, labObjectiveFor,
+  requiredToolsFor, labObjectiveFor, tutorialStepsFor,
 } from '../data/missionBriefings.js'
 import ModeSwitcher from '../components/ModeSwitcher.jsx'
 import LabToolsStrip from '../components/LabToolsStrip.jsx'
 import LabPanel from '../components/LabPanel.jsx'
-import { VariantPicker } from '../components/VariantPicker.jsx'
 import MutationBanner from '../components/MutationBanner.jsx'
 import ShapeshiftOverlay from '../components/ShapeshiftOverlay.jsx'
 
@@ -45,47 +44,85 @@ const SEV_COLOR = {
   critical: { fg: '#f87171', bg: 'rgba(248,113,113,0.08)', bd: 'rgba(248,113,113,0.35)' },
 }
 
+// ── Collapsible (minimizable) card used in the operator-mode sidebar ─────────
+function CollapsibleCard({ label, color, defaultOpen = false, badge, children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="rounded-xl overflow-hidden"
+      style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.09)' }}>
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left">
+        <span className="font-mono text-[11px] tracking-[0.18em]" style={{ color }}>{label}</span>
+        {badge && <span className="font-mono text-[10px] text-attense-dim">{badge}</span>}
+        <span className="ml-auto text-attense-dim text-xs transition-transform" style={{ transform: open ? 'rotate(180deg)' : '' }}>▾</span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
+            <div className="px-3.5 pb-3.5 pt-0.5">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 // ── Lab mode sidebar panel ───────────────────────────────────────────────────
-function LabModePanel({ moduleId }) {
+// Operator mode's single panel: Objective, Tools, Free Exploration and Hints,
+// each minimizable so the workspace stays clean.
+function LabModePanel({ moduleId, briefing }) {
   const objective = labObjectiveFor(moduleId)
   const tools = requiredToolsFor(moduleId)
+  const [hintsRevealed, setHintsRevealed] = useState(0)
+  const hints = useMemo(() => {
+    const h = []
+    if (briefing?.tip) h.push(briefing.tip)
+    if (briefing?.watchFor) briefing.watchFor.forEach(w => h.push(w))
+    return h
+  }, [briefing])
+
   return (
-    <div className="space-y-3">
-      <div className="rounded-xl p-4"
-        style={{ background: 'rgba(125,211,252,0.04)', border: '1px solid rgba(125,211,252,0.22)' }}>
-        <div className="font-mono text-[9px] tracking-[0.28em] mb-2" style={{ color: '#7dd3fc' }}>
-          LAB OBJECTIVE
-        </div>
-        <div className="text-[11.5px] text-attense-text leading-relaxed">
-          {objective}
-        </div>
-      </div>
+    <div className="space-y-2.5">
+      <CollapsibleCard label="LAB OBJECTIVE" color="#7dd3fc" defaultOpen>
+        <div className="text-[13px] text-attense-text leading-relaxed">{objective}</div>
+      </CollapsibleCard>
+
       {tools.length > 0 && (
-        <div className="rounded-xl p-4"
-          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="font-mono text-[9px] tracking-[0.28em] text-attense-dim mb-2">
-            AVAILABLE TOOLS
-          </div>
+        <CollapsibleCard label="TOOLS" color="#9ae4ff">
           <div className="flex flex-wrap gap-1.5">
             {tools.map(t => (
-              <span key={t} className="font-mono text-[10px] px-2 py-1 rounded"
+              <span key={t} className="font-mono text-[11px] px-2 py-1 rounded"
                 style={{ background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.22)', color: '#9ae4ff' }}>
                 {t}
               </span>
             ))}
           </div>
-        </div>
+        </CollapsibleCard>
       )}
-      <div className="rounded-xl p-4"
-        style={{ background: 'rgba(46,227,154,0.04)', border: '1px solid rgba(46,227,154,0.18)' }}>
-        <div className="font-mono text-[9px] tracking-[0.28em] mb-2" style={{ color: '#2ee39a' }}>
-          FREE EXPLORATION
-        </div>
-        <div className="text-[11px] text-attense-dim leading-relaxed">
+
+      <CollapsibleCard label="FREE EXPLORATION" color="#2ee39a">
+        <div className="text-[12.5px] text-attense-dim leading-relaxed">
           No step-by-step guidance. Use the Terminal and ZAP panels below to explore the target at your own pace.
           When you're done, visit Reports to see a full analysis of what you found and how you could improve.
         </div>
-      </div>
+      </CollapsibleCard>
+
+      {hints.length > 0 && (
+        <CollapsibleCard label="HINTS" color="#fbbf24" badge={`${hintsRevealed}/${hints.length}`}>
+          {hints.slice(0, hintsRevealed).map((h, i) => (
+            <div key={i} className="text-[12.5px] text-attense-text leading-relaxed mb-2 flex gap-2">
+              <span style={{ color: '#fbbf24' }} className="shrink-0">💡</span>
+              <span>{h}</span>
+            </div>
+          ))}
+          {hintsRevealed < hints.length && (
+            <button onClick={() => setHintsRevealed(v => v + 1)}
+              className="w-full font-mono text-[11px] tracking-wider py-2 rounded mt-1 transition-colors"
+              style={{ background: 'rgba(250,204,21,0.06)', border: '1px solid rgba(250,204,21,0.2)', color: '#fbbf24' }}
+            >REVEAL HINT</button>
+          )}
+        </CollapsibleCard>
+      )}
     </div>
   )
 }
@@ -95,7 +132,7 @@ function MissionSidebar({
   snapshot, module, briefing,
   elapsed, timerRunning, isDone,
   progress, mode = 'tutorial',
-  variantId, onVariantChange,
+  variantId,
   collapsed, onToggle,
 }) {
   const tasks = progress?.tasks || []
@@ -103,7 +140,6 @@ function MissionSidebar({
   const totalTasks     = tasks.length || 3
   const pct = totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0
   const isLab = mode === 'lab'
-  const tutorialSteps = tutorialStepsFor(snapshot?.module_id)
 
   return (
     <motion.aside
@@ -219,139 +255,70 @@ function MissionSidebar({
           </div>
         </div>
 
-        {/* Variant picker — choose attack flavour */}
-        {snapshot?.module_id && (
+        {isLab && (
           <div
             className="rounded-xl p-4 mb-4"
             style={{
-              background: 'rgba(125,211,252,0.02)',
-              border: '1px solid rgba(125,211,252,0.1)',
+              background: 'rgba(125,211,252,0.035)',
+              border: '1px solid rgba(125,211,252,0.18)',
             }}
           >
-            <VariantPicker
-              moduleId={snapshot.module_id}
-              value={variantId}
-              onChange={onVariantChange}
-            />
+            <div className="font-mono text-[9px] tracking-[0.28em] mb-2" style={{ color: '#7dd3fc' }}>
+              TARGET SCOPE
+            </div>
+            <code
+              className="block font-mono text-[10.5px] leading-relaxed break-all"
+              style={{ color: '#d7f3ff' }}
+            >
+              {targetUrlFor(snapshot?.module_id, mode)}
+            </code>
+            <div className="mt-2 text-[10.5px] leading-relaxed text-attense-dim">
+              Operator tools are pinned to the in-lab target-agent service. External targets stay blocked.
+            </div>
+          </div>
+        )}
+
+        {/* Chosen attack variant — read-only. Picked on the Mission page. */}
+        {(progress?.variant_name || variantId) && (
+          <div
+            className="rounded-xl p-3 mb-4 flex items-center gap-2"
+            style={{
+              background: 'rgba(125,211,252,0.03)',
+              border: '1px solid rgba(125,211,252,0.16)',
+            }}
+          >
+            <span className="font-mono text-[8.5px] tracking-[0.22em]" style={{ color: '#7dd3fc' }}>
+              VARIANT
+            </span>
+            <span className="text-[12px] font-semibold text-attense-text truncate">
+              {progress?.variant_name || variantId}
+            </span>
+            {progress?.variant_difficulty && (
+              <span className="ml-auto font-mono text-[8.5px] font-bold tracking-[0.14em] px-1.5 py-0.5 rounded uppercase"
+                style={{ color: '#9ae4ff', background: 'rgba(125,211,252,0.08)', border: '1px solid rgba(125,211,252,0.25)' }}>
+                {progress.variant_difficulty}
+              </span>
+            )}
           </div>
         )}
 
         {isLab ? (
-          <LabModePanel moduleId={snapshot?.module_id} />
+          <LabModePanel moduleId={snapshot?.module_id} briefing={briefing} />
         ) : (
           <div
             className="rounded-xl p-4"
             style={{
-              background: 'rgba(255,255,255,0.02)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(46,227,154,0.04)',
+              border: '1px solid rgba(46,227,154,0.18)',
             }}
           >
-            <div className="font-mono text-[9px] tracking-[0.32em] text-attense-dim mb-3">
-              TUTORIAL STEPS
+            <div className="font-mono text-[9px] tracking-[0.28em] mb-2" style={{ color: '#2ee39a' }}>
+              GUIDED WALKTHROUGH
             </div>
-            <div className="space-y-3">
-              {tutorialSteps.length > 0 ? tutorialSteps.map((s, i) => {
-                if (typeof s === 'string') {
-                  return (
-                    <div key={i} className="flex gap-2 text-[11.5px] text-attense-dim leading-relaxed">
-                      <span className="shrink-0 text-attense-dim font-mono">{i + 1}.</span>
-                      <span>{s}</span>
-                    </div>
-                  )
-                }
-                return (
-                  <div
-                    key={i}
-                    className="rounded-lg p-3"
-                    style={{
-                      background: 'rgba(255,255,255,0.025)',
-                      border: '1px solid rgba(255,21,53,0.16)',
-                    }}
-                  >
-                    <div className="flex items-start gap-2 mb-2">
-                      <span
-                        className="shrink-0 rounded flex items-center justify-center font-mono text-[10px] font-bold"
-                        style={{
-                          width: 22, height: 22,
-                          background: 'rgba(255,21,53,0.10)',
-                          color: '#ff6b81',
-                          border: '1px solid rgba(255,21,53,0.32)',
-                        }}
-                      >
-                        {i + 1}
-                      </span>
-                      <div className="text-[12px] font-semibold leading-snug" style={{ color: '#e6e8ee' }}>
-                        {s.title || `Step ${i + 1}`}
-                      </div>
-                    </div>
-
-                    {s.concept && (
-                      <div className="mb-2">
-                        <div className="font-mono text-[8.5px] tracking-[0.18em] mb-0.5" style={{ color: '#ff6b81' }}>
-                          CONCEPT
-                        </div>
-                        <div className="text-[10.5px] leading-relaxed" style={{ color: '#c0c5db' }}>
-                          {s.concept}
-                        </div>
-                      </div>
-                    )}
-
-                    {s.why && (
-                      <div className="mb-2">
-                        <div className="font-mono text-[8.5px] tracking-[0.18em] mb-0.5" style={{ color: '#fbbf24' }}>
-                          WHY IT MATTERS
-                        </div>
-                        <div className="text-[10.5px] leading-relaxed" style={{ color: '#9aa0c0' }}>
-                          {s.why}
-                        </div>
-                      </div>
-                    )}
-
-                    {s.tryIt && (
-                      <div
-                        className="text-[10.5px] p-2 rounded leading-relaxed mb-2"
-                        style={{
-                          background: 'rgba(125,211,252,0.05)',
-                          border: '1px solid rgba(125,211,252,0.16)',
-                          color: '#cfe7fb',
-                        }}
-                      >
-                        <span className="font-mono text-[8.5px] tracking-[0.16em]" style={{ color: '#7dd3fc' }}>
-                          TRY IT
-                        </span>
-                        <div className="mt-1">{s.tryIt}</div>
-                      </div>
-                    )}
-
-                    {Array.isArray(s.lookFor) && s.lookFor.length > 0 && (
-                      <div className="mb-2">
-                        <div className="font-mono text-[8.5px] tracking-[0.18em] mb-1" style={{ color: '#9be8c5' }}>
-                          LOOK FOR
-                        </div>
-                        <ul className="space-y-1">
-                          {s.lookFor.map((item, k) => (
-                            <li key={k} className="flex gap-1.5 text-[10.5px] leading-relaxed" style={{ color: '#a8b0cc' }}>
-                              <span className="shrink-0" style={{ color: '#2ee39a' }}>-</span>
-                              <span>{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {s.observe && (
-                      <div className="text-[10px] leading-relaxed" style={{ color: '#7a8194' }}>
-                        <span className="font-mono tracking-[0.14em]" style={{ color: '#8b9bba' }}>OBSERVE:</span>{' '}
-                        {s.observe}
-                      </div>
-                    )}
-                  </div>
-                )
-              }) : (
-                <div className="text-[11.5px] text-attense-dim leading-relaxed">
-                  Click START, then explore the lab page.
-                </div>
-              )}
+            <div className="text-[11px] text-attense-dim leading-relaxed">
+              Follow the numbered steps in the panel on the right →. Each step explains
+              what the technique is and how to perform it. As you act on the target,
+              steps tick off automatically.
             </div>
           </div>
         )}
@@ -752,6 +719,210 @@ const RECON_LINKS = [
   { label: 'security.txt', path: '/.well-known/security.txt' },
 ]
 
+// ── Walkthrough section block (WHAT / HOW / LOOK FOR) ───────────────────────
+function sectionText(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join('\n')
+  return value == null ? '' : String(value)
+}
+
+function WSection({ label, color, mono, children }) {
+  const text = sectionText(children)
+  if (!text.trim()) return null
+  return (
+    <div className="mb-4">
+      <div className="font-mono text-[11px] tracking-[0.16em] mb-1.5" style={{ color }}>
+        {label}
+      </div>
+      {mono ? (
+        <div
+          className="text-[14px] leading-relaxed font-mono rounded-lg px-3.5 py-3 whitespace-pre-wrap break-words"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#e8eef7' }}
+        >
+          {text}
+        </div>
+      ) : (
+        <div className="text-[15px] leading-relaxed whitespace-pre-line" style={{ color: '#d6ddee' }}>
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── A single TryHackMe-style walkthrough task ───────────────────────────────
+function WalkthroughTask({ index, task, isOpen, onToggle, missionStarted }) {
+  const complete = !!task.complete
+  const matchCount = task.match_count ?? 0
+  const minCount   = task.min_count ?? 1
+  return (
+    <div
+      className="rounded-xl overflow-hidden mb-2 transition-colors"
+      style={{
+        border: `1px solid ${complete ? 'rgba(46,227,154,0.32)' : isOpen ? 'rgba(255,21,53,0.32)' : 'rgba(255,255,255,0.08)'}`,
+        background: complete ? 'rgba(46,227,154,0.045)' : isOpen ? 'rgba(255,21,53,0.03)' : 'rgba(255,255,255,0.02)',
+      }}
+    >
+      <button onClick={onToggle} className="w-full flex items-center gap-3 px-3.5 py-3 text-left">
+        <span
+          className="shrink-0 grid place-items-center rounded-full transition-all"
+          style={{
+            width: 22, height: 22,
+            border: `2px solid ${complete ? '#2ee39a' : 'rgba(255,255,255,0.2)'}`,
+            background: complete ? '#2ee39a' : 'transparent',
+          }}
+        >
+          {complete ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04130c" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+          ) : (
+            <span className="font-mono text-[10px]" style={{ color: '#8b93ad' }}>{index + 1}</span>
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-[8px] tracking-[0.22em] mb-0.5" style={{ color: complete ? '#2ee39a' : '#7a8194' }}>
+            TASK {index + 1}{complete ? ' · COMPLETE' : ''}
+          </div>
+          <div className="text-[12.5px] font-semibold leading-snug text-attense-text">
+            {task.title}
+          </div>
+        </div>
+        <span className="text-attense-dim text-sm transition-transform shrink-0" style={{ transform: isOpen ? 'rotate(180deg)' : '' }}>
+          ▾
+        </span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="px-3.5 pb-3.5 pt-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <WSection label="WHAT IS THIS" color="#7dd3fc">{task.what}</WSection>
+              <WSection label="HOW IT'S DONE" color="#ff6b81" mono>{task.how}</WSection>
+              <WSection label="WHAT TO LOOK FOR" color="#9be8c5">{task.look_for}</WSection>
+
+              {/* live auto-tracking status */}
+              <div
+                className="mt-1 flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-mono text-[9.5px]"
+                style={{
+                  background: complete ? 'rgba(46,227,154,0.07)' : 'rgba(255,255,255,0.025)',
+                  border: `1px solid ${complete ? 'rgba(46,227,154,0.25)' : 'rgba(255,255,255,0.07)'}`,
+                }}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: complete ? '#2ee39a' : missionStarted ? '#fbbf24' : '#4a5280' }}
+                />
+                <span style={{ color: complete ? '#2ee39a' : '#9aa0c0' }}>
+                  {complete
+                    ? 'Detected — step complete'
+                    : missionStarted
+                      ? `Auto-tracking… ${matchCount}/${minCount} detected`
+                      : 'Press START, then act on the target'}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ── Guided walkthrough (overview + progress + task sections) ─────────────────
+function GuidedWalkthrough({ progress, missionStarted, briefing }) {
+  const tasks = progress?.tasks || []
+  const completedCount = (progress?.completed_tasks || []).length
+  const total = tasks.length
+  const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0
+  const overview = progress?.variant_overview
+    || briefing?.objective || briefing?.background || ''
+
+  // Auto-open the first incomplete task; collapse all when finished.
+  const firstIncomplete = tasks.findIndex(t => !t.complete)
+  const [openTask, setOpenTask] = useState(0)
+  const [userTouched, setUserTouched] = useState(false)
+  useEffect(() => {
+    if (!userTouched) setOpenTask(firstIncomplete)
+  }, [firstIncomplete, userTouched])
+
+  return (
+    <div className="mb-4">
+      {/* Overview — what this attack is */}
+      {overview && (
+        <div
+          className="rounded-xl p-4 mb-3"
+          style={{
+            background: 'linear-gradient(135deg, rgba(255,21,53,0.05) 0%, rgba(139,47,255,0.03) 100%)',
+            border: '1px solid rgba(255,21,53,0.18)',
+          }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <div className="font-mono text-[9px] tracking-[0.26em]" style={{ color: '#ff6b81' }}>
+              {progress?.variant_name ? progress.variant_name.toUpperCase() : 'OVERVIEW'}
+            </div>
+            {progress?.variant_difficulty && (
+              <span className="ml-auto font-mono text-[8px] font-bold tracking-[0.14em] px-1.5 py-0.5 rounded uppercase"
+                style={{ color: '#ff9aab', background: 'rgba(255,21,53,0.08)', border: '1px solid rgba(255,21,53,0.25)' }}>
+                {progress.variant_difficulty}
+              </span>
+            )}
+          </div>
+          <div className="text-[11.5px] text-attense-text leading-relaxed">{overview}</div>
+        </div>
+      )}
+
+      {/* Progress bar — TryHackMe room completion */}
+      {total > 0 && (
+        <div className="rounded-xl p-3.5 mb-3" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-[9px] tracking-[0.28em] text-attense-dim">WALKTHROUGH</span>
+            <span className="font-mono text-[10px] tabular-nums" style={{ color: pct === 100 ? '#2ee39a' : '#cfd6e8' }}>
+              {completedCount}/{total} · {pct}%
+            </span>
+          </div>
+          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+            <motion.div
+              className="h-full rounded-full"
+              animate={{ width: pct + '%' }}
+              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+              style={{
+                background: pct === 100 ? '#2ee39a' : 'linear-gradient(90deg,#ff1535,#ff6b00)',
+                boxShadow: pct > 0 && pct < 100 ? '0 0 6px rgba(255,21,53,0.5)' : 'none',
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Task sections */}
+      {total > 0 ? (
+        tasks.map((t, i) => (
+          <WalkthroughTask
+            key={i}
+            index={i}
+            task={t}
+            isOpen={openTask === i}
+            onToggle={() => { setUserTouched(true); setOpenTask(openTask === i ? -1 : i) }}
+            missionStarted={missionStarted}
+          />
+        ))
+      ) : (
+        <div className="rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)' }}>
+          <div className="font-mono text-[10px] text-attense-dim leading-relaxed">
+            {missionStarted ? 'Loading walkthrough…' : 'Press START to load the guided walkthrough.'}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── LearningPanel (right column) ────────────────────────────────────────────
 function LearningPanel({
   briefing, snapshot, progress,
@@ -834,7 +1005,17 @@ function LearningPanel({
           />
         )}
 
-        {/* Objective */}
+        {/* Guided walkthrough — TryHackMe-style task sections (tutorial mode) */}
+        {!isLab && !activeMutation && (
+          <GuidedWalkthrough
+            progress={progress}
+            missionStarted={missionStarted}
+            briefing={briefing}
+          />
+        )}
+
+        {/* Objective — Lab mode and Mutation runs keep the classic objective card */}
+        {(isLab || activeMutation) && (
         <motion.div
           key={`objective-${mutationFlipKey}-${activeMutation?.id || 'base'}`}
           initial={activeMutation ? { rotateX: -72, opacity: 0 } : false}
@@ -873,6 +1054,7 @@ function LearningPanel({
             </div>
           )}
         </motion.div>
+        )}
 
         {/* Required tools — Lab Mode only */}
         {isLab && requiredTools.length > 0 && (
@@ -1114,6 +1296,473 @@ function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
   )
 }
 
+// ── MITRE technique string parser ───────────────────────────────────────────
+// "T1110.003 · Brute Force: Password Spraying" → {id, name, url}
+const FALLBACK_DATABASE_REFS = {
+  brute_force: [
+    { kind: 'OWASP', label: 'OWASP Brute Force', url: 'https://owasp.org/www-community/attacks/Brute_force_attack' },
+    { kind: 'CWE', label: 'CWE-307 Excessive Authentication Attempts', url: 'https://cwe.mitre.org/data/definitions/307.html' },
+  ],
+  xss: [
+    { kind: 'OWASP', label: 'OWASP XSS', url: 'https://owasp.org/www-community/attacks/xss/' },
+    { kind: 'CWE', label: 'CWE-79 Cross-site Scripting', url: 'https://cwe.mitre.org/data/definitions/79.html' },
+  ],
+  cmd_injection: [
+    { kind: 'OWASP', label: 'OWASP Command Injection', url: 'https://owasp.org/www-community/attacks/Command_Injection' },
+    { kind: 'CWE', label: 'CWE-78 OS Command Injection', url: 'https://cwe.mitre.org/data/definitions/78.html' },
+  ],
+  dir_traversal: [
+    { kind: 'OWASP', label: 'OWASP Path Traversal', url: 'https://owasp.org/www-community/attacks/Path_Traversal' },
+    { kind: 'CWE', label: 'CWE-22 Path Traversal', url: 'https://cwe.mitre.org/data/definitions/22.html' },
+  ],
+  file_upload: [
+    { kind: 'OWASP', label: 'OWASP File Upload', url: 'https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload' },
+    { kind: 'CWE', label: 'CWE-434 Unrestricted Upload', url: 'https://cwe.mitre.org/data/definitions/434.html' },
+  ],
+  csrf: [
+    { kind: 'OWASP', label: 'OWASP CSRF', url: 'https://owasp.org/www-community/attacks/csrf' },
+    { kind: 'CWE', label: 'CWE-352 CSRF', url: 'https://cwe.mitre.org/data/definitions/352.html' },
+  ],
+  recon: [
+    { kind: 'OWASP', label: 'OWASP WSTG Information Gathering', url: 'https://owasp.org/www-project-web-security-testing-guide/' },
+    { kind: 'MITRE', label: 'ATT&CK Reconnaissance', url: 'https://attack.mitre.org/tactics/TA0043/' },
+  ],
+}
+
+const FALLBACK_PHASES = {
+  recon: ['Reconnaissance', 'Discovery', 'Enumeration', 'Hidden clue'],
+  brute_force: ['Credential access', 'Account discovery', 'Password guessing', 'Valid accounts'],
+  xss: ['Input discovery', 'Context testing', 'Script execution', 'Defense mapping'],
+  cmd_injection: ['Input discovery', 'Shell syntax', 'Execution proof', 'Defense mapping'],
+  dir_traversal: ['Input discovery', 'Path escape', 'Sensitive collection', 'Bypass testing'],
+  file_upload: ['Upload baseline', 'Filename policy', 'Payload delivery', 'Storage exposure'],
+  csrf: ['Session setup', 'Token inspection', 'Forged request', 'Impact proof'],
+}
+
+function fallbackPhase(moduleId, index) {
+  const phases = FALLBACK_PHASES[moduleId] || ['Attack path']
+  return phases[index] || phases[phases.length - 1]
+}
+
+function buildFallbackWalkthrough(moduleId, snapshot, variantId) {
+  const briefing = briefingFor(moduleId)
+  const steps = tutorialStepsFor(moduleId)
+  const refs = FALLBACK_DATABASE_REFS[moduleId] || []
+  return {
+    module_id: moduleId,
+    variant_id: variantId || null,
+    variant_name: null,
+    difficulty: null,
+    overview: briefing?.objective || briefing?.background || snapshot?.module_name || 'Guided lesson content.',
+    reference: refs[0] || null,
+    database_refs: refs,
+    defensive_insight: briefing?.defenseBreakdown?.summary || briefing?.realWorldImpact || null,
+    sections: steps.map((step, index) => ({
+      title: step.title || `Section ${index + 1}`,
+      phase: fallbackPhase(moduleId, index),
+      what: step.concept || step.what,
+      how: [step.why, step.tryIt, step.observe].filter(Boolean).join('\n\n'),
+      look_for: step.lookFor || step.look_for,
+      checkpoint: step.observe || step.tryIt,
+      mitre: null,
+      database_refs: refs,
+    })),
+  }
+}
+
+function externalArrow() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+    </svg>
+  )
+}
+
+function SourceLink({ source }) {
+  if (!source?.url) return null
+  return (
+    <a
+      href={source.url}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 transition-colors"
+      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#dfe5f2' }}
+    >
+      <span className="min-w-0">
+        <span className="block font-mono text-[10px] tracking-[0.16em]" style={{ color: '#7dd3fc' }}>{source.kind || 'REF'}</span>
+        <span className="block text-[13px] leading-snug truncate">{source.label || source.url}</span>
+      </span>
+      <span className="shrink-0" style={{ color: '#7dd3fc' }}>{externalArrow()}</span>
+    </a>
+  )
+}
+
+function parseMitre(str) {
+  if (!str) return null
+  const raw = String(str).trim()
+  const robustMatch = raw.match(/^(T\d{4}(?:\.\d{3})?)\s*(?:\W+)?\s*(.*)$/)
+  if (robustMatch) {
+    return {
+      id: robustMatch[1],
+      name: (robustMatch[2] || '').trim(),
+      url: `https://attack.mitre.org/techniques/${robustMatch[1].replace('.', '/')}/`,
+    }
+  }
+  const match = raw.match(/^(T\d{4}(?:\.\d{3})?)\s*(?:[·آ\-–—:]+)?\s*(.*)$/)
+  if (match) {
+    return {
+      id: match[1],
+      name: (match[2] || '').trim(),
+      url: `https://attack.mitre.org/techniques/${match[1].replace('.', '/')}/`,
+    }
+  }
+  const parts = String(str).split('·')
+  const id = (parts[0] || '').trim()
+  const name = parts.slice(1).join('·').trim()
+  if (!id) return null
+  return { id, name, url: `https://attack.mitre.org/techniques/${id.replace('.', '/')}/` }
+}
+
+// ── A single Guided-Room task section (TryHackMe-style) ─────────────────────
+function GuidedSection({ index, section, isOpen, onToggle, done, onToggleDone }) {
+  const m = parseMitre(section.mitre)
+  const refs = Array.isArray(section.database_refs) ? section.database_refs : []
+  return (
+    <div
+      className="rounded-xl overflow-hidden mb-3 transition-colors"
+      style={{
+        border: `1px solid ${done ? 'rgba(46,227,154,0.32)' : isOpen ? 'rgba(255,21,53,0.3)' : 'rgba(255,255,255,0.12)'}`,
+        background: done ? 'rgba(46,227,154,0.05)' : isOpen ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.045)',
+      }}
+    >
+      <button onClick={onToggle} className="w-full flex items-center gap-3.5 px-5 py-4 text-left">
+        <span
+          className="shrink-0 grid place-items-center rounded-full transition-all"
+          style={{
+            width: 26, height: 26,
+            border: `2px solid ${done ? '#2ee39a' : 'rgba(255,255,255,0.2)'}`,
+            background: done ? '#2ee39a' : 'transparent',
+          }}
+        >
+          {done ? (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#04130c" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+          ) : (
+            <span className="font-mono text-[11px]" style={{ color: '#8b93ad' }}>{index + 1}</span>
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-[10px] tracking-[0.22em] mb-1" style={{ color: done ? '#2ee39a' : '#8b93ad' }}>
+            TASK {index + 1}{done ? ' · COMPLETE' : ''}
+          </div>
+          <div className="text-[18px] font-semibold leading-snug text-attense-text">{section.title}</div>
+          {section.phase && (
+            <div className="mt-1 font-mono text-[11px] tracking-[0.16em]" style={{ color: '#7dd3fc' }}>
+              {section.phase}
+            </div>
+          )}
+        </div>
+        {m && (
+          <span className="hidden md:inline-flex shrink-0 font-mono text-[9px] font-semibold px-2 py-1 rounded"
+            style={{ background: 'rgba(255,21,53,0.06)', border: '1px solid rgba(255,21,53,0.28)', color: '#ff6b81' }}>
+            {m.id}
+          </span>
+        )}
+        <span className="text-attense-dim text-sm transition-transform shrink-0" style={{ transform: isOpen ? 'rotate(180deg)' : '' }}>▾</span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              {m && (
+                <a href={m.url} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 mb-3.5 transition-colors"
+                  style={{ background: 'rgba(255,21,53,0.05)', border: '1px solid rgba(255,21,53,0.25)' }}
+                  title="Open this technique on attack.mitre.org">
+                  <span className="font-mono text-[11px] tracking-[0.16em]" style={{ color: '#ff9aab' }}>MITRE ATT&CK</span>
+                  <span className="font-mono text-[13px] font-bold" style={{ color: '#ff6b81' }}>{m.id}</span>
+                  <span className="text-[13px]" style={{ color: '#d6ddee' }}>{m.name}</span>
+                  <span className="text-[12px]" style={{ color: '#ff6b81' }}>↗</span>
+                </a>
+              )}
+              <WSection label="WHAT IS THIS" color="#7dd3fc">{section.what}</WSection>
+              <WSection label="HOW IT'S DONE" color="#ff6b81" mono>{section.how}</WSection>
+              <WSection label="WHAT TO LOOK FOR" color="#9be8c5">{section.look_for}</WSection>
+              <WSection label="CHECKPOINT" color="#fbbf24">{section.checkpoint}</WSection>
+
+              {(m || refs.length > 0) && (
+                <div
+                  className="rounded-xl p-3.5 mb-3"
+                  style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.1)' }}
+                >
+                  <div className="font-mono text-[11px] tracking-[0.2em] text-attense-muted mb-2.5">
+                    SOURCES AND DATABASES
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {m && (
+                      <SourceLink
+                        source={{
+                          kind: 'MITRE',
+                          label: `${m.id}${m.name ? ` ${m.name}` : ''}`,
+                          url: m.url,
+                        }}
+                      />
+                    )}
+                    {refs.map((source, i) => <SourceLink key={`${source.url || source.label}-${i}`} source={source} />)}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={onToggleDone}
+                className="mt-1 w-full font-mono text-[12px] font-bold tracking-[0.18em] py-3 rounded-lg transition-all"
+                style={{
+                  background: done ? 'rgba(46,227,154,0.08)' : 'linear-gradient(135deg,#2ee39a,#0fb877)',
+                  color: done ? '#2ee39a' : '#04130c',
+                  border: done ? '1px solid rgba(46,227,154,0.3)' : '1px solid transparent',
+                }}
+              >
+                {done ? '✓ COMPLETED · UNDO' : 'MARK COMPLETE ✓'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ── Guided Room — full-width TryHackMe-style learning room ───────────────────
+// No left/right panels, no target iframe, no START. Just the attack explained
+// section by section, grounded in MITRE ATT&CK and OWASP references.
+function GuidedRoom({ snapshot, variantId }) {
+  const moduleId = snapshot?.module_id
+  const vId = variantId || snapshot?.variant_id || null
+
+  const [wt, setWt] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [openIdx, setOpenIdx] = useState(0)
+  const [doneSet, setDoneSet] = useState(() => new Set())
+
+  const storeKey = `attense_guided_done_${moduleId}_${vId || 'default'}`
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api.walkthrough(moduleId, vId)
+      .then(r => {
+        if (!cancelled) {
+          setWt(r?.sections?.length ? r : buildFallbackWalkthrough(moduleId, snapshot, vId))
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWt(buildFallbackWalkthrough(moduleId, snapshot, vId))
+          setLoading(false)
+        }
+      })
+    return () => { cancelled = true }
+  }, [moduleId, vId, snapshot?.module_name])
+
+  useEffect(() => {
+    try { setDoneSet(new Set(JSON.parse(localStorage.getItem(storeKey) || '[]'))) }
+    catch { setDoneSet(new Set()) }
+  }, [storeKey])
+
+  const toggleDone = (i) => setDoneSet(prev => {
+    const n = new Set(prev)
+    n.has(i) ? n.delete(i) : n.add(i)
+    try { localStorage.setItem(storeKey, JSON.stringify([...n])) } catch { /* ignore */ }
+    // auto-advance to the next section when completing one
+    if (!prev.has(i)) setOpenIdx(i + 1)
+    return n
+  })
+
+  const sections = wt?.sections || []
+  const total = sections.length
+  const doneCount = sections.reduce((acc, _s, i) => acc + (doneSet.has(i) ? 1 : 0), 0)
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0
+
+  // unique MITRE technique chips for the header
+  const headerTechs = []
+  const seen = new Set()
+  sections.forEach(s => {
+    const m = parseMitre(s.mitre)
+    if (m && !seen.has(m.id)) { seen.add(m.id); headerTechs.push(m) }
+  })
+
+  const icon = CATEGORY_ICON?.[snapshot?.category] || CATEGORY_ICON?.[snapshot?.module_category] || '▪'
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        {loading ? (
+          <div className="py-16 text-center font-mono text-[11px] tracking-widest text-attense-dim">
+            LOADING WALKTHROUGH…
+          </div>
+        ) : (
+          <>
+            {/* Room header */}
+            <section className="relative rounded-2xl border border-attense-border overflow-hidden mb-6"
+              style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <div className="absolute inset-0 pointer-events-none opacity-[0.07] bg-grid bg-[length:30px_30px]" />
+              <div className="absolute top-0 right-0 w-56 h-56 rounded-full bg-attense-red/5 blur-3xl pointer-events-none" />
+              <div className="relative p-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-14 h-14 rounded-xl border grid place-items-center text-2xl shrink-0"
+                    style={{ borderColor: 'rgba(255,21,53,0.45)', background: 'rgba(255,21,53,0.06)', color: '#ff4060' }}>
+                    {icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-mono text-[9px] tracking-[0.26em] text-attense-dim">
+                        {snapshot?.scenario_id || '—'}
+                      </span>
+                      {wt?.variant_name && (
+                        <>
+                          <span className="text-attense-dim">·</span>
+                          <span className="font-mono text-[9px] tracking-[0.18em]" style={{ color: '#7dd3fc' }}>
+                            {wt.variant_name.toUpperCase()}
+                          </span>
+                        </>
+                      )}
+                      {wt?.difficulty && (
+                        <span className="font-mono text-[8px] font-bold tracking-[0.14em] px-1.5 py-0.5 rounded uppercase"
+                          style={{ color: '#ff9aab', background: 'rgba(255,21,53,0.08)', border: '1px solid rgba(255,21,53,0.25)' }}>
+                          {wt.difficulty}
+                        </span>
+                      )}
+                    </div>
+                    <h1 className="text-[22px] font-bold tracking-tight text-attense-text mb-2">
+                      {snapshot?.module_name}
+                    </h1>
+                    {wt?.overview && (
+                      <p className="text-[15px] text-attense-muted leading-relaxed">{wt.overview}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* MITRE technique chips */}
+                {headerTechs.length > 0 && (
+                  <div className="mt-4">
+                    <div className="font-mono text-[8.5px] tracking-[0.26em] text-attense-dim mb-2">MITRE ATT&CK TECHNIQUES</div>
+                    <div className="flex flex-wrap gap-2">
+                      {headerTechs.map(m => (
+                        <a key={m.id} href={m.url} target="_blank" rel="noreferrer" title={m.name}
+                          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[10px] transition-colors"
+                          style={{ background: 'rgba(255,21,53,0.05)', border: '1px solid rgba(255,21,53,0.28)', color: '#e6e8ee' }}>
+                          <span className="font-bold" style={{ color: '#ff6b81' }}>{m.id}</span>
+                          <span className="text-attense-muted truncate max-w-[180px]">{m.name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {Array.isArray(wt?.database_refs) && wt.database_refs.length > 0 && (
+                  <div className="mt-4">
+                    <div className="font-mono text-[8.5px] tracking-[0.26em] text-attense-dim mb-2">ONLINE REFERENCES</div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      {wt.database_refs.slice(0, 3).map((ref, i) => (
+                        <SourceLink key={`${ref.url || ref.label}-${i}`} source={ref} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reading progress */}
+                {total > 0 && (
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-mono text-[8.5px] tracking-[0.26em] text-attense-dim">WALKTHROUGH PROGRESS</span>
+                      <span className="font-mono text-[10px] tabular-nums" style={{ color: pct === 100 ? '#2ee39a' : '#cfd6e8' }}>
+                        {doneCount}/{total} · {pct}%
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                      <motion.div className="h-full rounded-full" animate={{ width: pct + '%' }}
+                        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                        style={{ background: pct === 100 ? '#2ee39a' : 'linear-gradient(90deg,#ff1535,#ff6b00)' }} />
+                    </div>
+                  </div>
+                )}
+
+                {wt?.reference && (
+                  <a href={wt.reference.url} target="_blank" rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-4 font-mono text-[10px] transition-colors"
+                    style={{ color: '#7dd3fc' }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+                    </svg>
+                    {wt.reference.label} ↗
+                  </a>
+                )}
+              </div>
+            </section>
+
+            {/* Section list */}
+            <div className="flex items-end justify-between mb-3">
+              <div className="font-mono text-[11px] tracking-[0.3em] text-attense-muted">ATTACK WALKTHROUGH</div>
+              <div className="font-mono text-[11px] text-attense-muted">{total} SECTION{total === 1 ? '' : 'S'}</div>
+            </div>
+
+            {total > 0 ? (
+              sections.map((s, i) => (
+                <GuidedSection
+                  key={i}
+                  index={i}
+                  section={s}
+                  isOpen={openIdx === i}
+                  onToggle={() => setOpenIdx(openIdx === i ? -1 : i)}
+                  done={doneSet.has(i)}
+                  onToggleDone={() => toggleDone(i)}
+                />
+              ))
+            ) : (
+              <div className="rounded-xl p-6 text-center font-mono text-[11px] text-attense-dim"
+                style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)' }}>
+                No walkthrough content available for this variant.
+              </div>
+            )}
+
+            {/* Defensive insight */}
+            {wt?.defensive_insight && (
+              <div className="rounded-xl p-5 mt-4"
+                style={{ background: 'rgba(125,211,252,0.04)', border: '1px solid rgba(125,211,252,0.22)' }}>
+                <div className="font-mono text-[9px] tracking-[0.26em] mb-2" style={{ color: '#7dd3fc' }}>
+                  HOW TO DEFEND
+                </div>
+                <div className="text-[12px] text-attense-text leading-relaxed">{wt.defensive_insight}</div>
+              </div>
+            )}
+
+            {/* Hand-off to operator mode */}
+            <div className="rounded-xl p-5 mt-4 text-center"
+              style={{ background: 'rgba(255,21,53,0.03)', border: '1px solid rgba(255,21,53,0.16)' }}>
+              <div className="text-[12.5px] font-semibold text-attense-text mb-1">Ready to try it for real?</div>
+              <div className="text-[11.5px] text-attense-muted leading-relaxed">
+                Switch to <span style={{ color: '#7dd3fc' }} className="font-semibold">OPERATOR MODE</span> above to
+                launch the live target and perform this attack hands-on — your actions are tracked automatically.
+              </div>
+            </div>
+
+            <div className="h-10" />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Workspace ──────────────────────────────────────────────────────────
 export default function Workspace() {
   const { sid }  = useParams()
@@ -1239,18 +1888,6 @@ export default function Workspace() {
       localStorage.setItem('attense_mutation_sound', next ? '1' : '0')
       return next
     })
-  }
-
-  // When learner picks a different variant: persist + immediately re-fetch progress
-  const handleVariantChange = async (v) => {
-    setVariantId(v)
-    if (sid) {
-      try { await api.sessions.setVariant(sid, v) } catch {}
-      try {
-        const p = await api.sessions.checkProgress(sid, mode)
-        setProgress(p)
-      } catch {}
-    }
   }
 
   // Timer
@@ -1460,6 +2097,9 @@ export default function Workspace() {
 
   const state  = snapshot.state
   const isDone = progress?.success || state === 'completed'
+  // Guided Mode = a full-width TryHackMe-style learning room (no target, no
+  // panels, no START). Operator Mode (and mutation runs) = the hands-on lab.
+  const guided = mode === 'tutorial' && !isMutationRun
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -1545,14 +2185,14 @@ export default function Workspace() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Action buttons */}
-        {!replay && !missionStarted && (
+        {/* Action buttons — Operator mode only (Guided is a reading room) */}
+        {!replay && !guided && !missionStarted && (
           <button onClick={handleStart}
             className="font-mono text-[10.5px] font-bold tracking-[0.14em] px-5 py-2 rounded-lg transition-all duration-150 shrink-0"
             style={{ background: 'linear-gradient(135deg,#ff1535,#cc0020)', color: 'white', boxShadow: '0 0 14px rgba(255,21,53,0.35)' }}
           >START ▸</button>
         )}
-        {!replay && missionStarted && !isDone && (
+        {!replay && !guided && missionStarted && !isDone && (
           <button onClick={handleCheckProgress} disabled={isCheckingProgress}
             className="font-mono text-[10.5px] font-bold tracking-[0.14em] px-4 py-2 rounded-lg transition-all duration-150 shrink-0"
             style={{ background: 'linear-gradient(135deg,#7dd3fc,#0ea5e9)', color: '#0c0f16', cursor: isCheckingProgress ? 'wait' : 'pointer' }}
@@ -1564,13 +2204,17 @@ export default function Workspace() {
         >{replay ? 'CLOSE' : 'EXIT'}</button>
       </div>
 
-      {/* 3-column body */}
+      {/* Body: Guided Mode = full-width room · Operator Mode = 3-column lab */}
+      {guided ? (
+        <GuidedRoom snapshot={snapshot} variantId={variantId} />
+      ) : (
+      <>
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <MissionSidebar
           snapshot={snapshot} module={module} briefing={briefing}
           elapsed={elapsed} timerRunning={missionStarted && !isDone}
           isDone={isDone} progress={progress} mode={mode}
-          variantId={variantId} onVariantChange={handleVariantChange}
+          variantId={variantId}
           collapsed={leftCollapsed} onToggle={() => setLeftCollapsed(v => !v)}
         />
         {/* ── Drag handle on left edge of browser panel ── */}
@@ -1642,17 +2286,21 @@ export default function Workspace() {
             </motion.div>
           )}
         </div>
-        <LearningPanel
-          briefing={briefing} snapshot={snapshot} progress={progress}
-          missionStarted={missionStarted} isCheckingProgress={isCheckingProgress}
-          onCheckProgress={handleCheckProgress} isDone={isDone} elapsed={elapsed}
-          showAdvanced={showAdvanced} onToggleAdvanced={() => setShowAdvanced(v => !v)}
-          onNavigateTo={handleNavigateTo} onRestart={handleRestart}
-          mode={mode}
-          activeMutation={activeMutation}
-          mutationFlipKey={mutationFlipKey}
-          collapsed={rightCollapsed} onToggle={() => setRightCollapsed(v => !v)}
-        />
+        {/* Right panel kept only for mutation runs (live MUTATION OBJECTIVE flip card).
+            Plain operator mode uses the single left panel above. */}
+        {isMutationRun && (
+          <LearningPanel
+            briefing={briefing} snapshot={snapshot} progress={progress}
+            missionStarted={missionStarted} isCheckingProgress={isCheckingProgress}
+            onCheckProgress={handleCheckProgress} isDone={isDone} elapsed={elapsed}
+            showAdvanced={showAdvanced} onToggleAdvanced={() => setShowAdvanced(v => !v)}
+            onNavigateTo={handleNavigateTo} onRestart={handleRestart}
+            mode={mode}
+            activeMutation={activeMutation}
+            mutationFlipKey={mutationFlipKey}
+            collapsed={rightCollapsed} onToggle={() => setRightCollapsed(v => !v)}
+          />
+        )}
       </div>
 
       <AdvancedTools
@@ -1711,6 +2359,8 @@ export default function Workspace() {
           </motion.div>
         )}
       </AnimatePresence>
+      </>
+      )}
     </div>
   )
 }
