@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "ActorType": {
+      "description": "Who performed the action. Matches allowed_events.ALLOWED_ACTOR_TYPES.",
+      "enum": [
+        "red_team",
+        "blue_team",
+        "system"
+      ],
+      "title": "ActorType",
+      "type": "string"
+    },
+    "EventSource": {
+      "description": "The producing system/service for an event (report Phase 2: `source`).\n\nDistinct from `actor_type`: `actor_type` is who acted in the exercise,\n`source` is which ATTENSE component emitted the event record.",
+      "enum": [
+        "red-team",
+        "signal-store",
+        "blue-team",
+        "control-api",
+        "test",
+        "unknown"
+      ],
+      "title": "EventSource",
+      "type": "string"
+    },
+    "EventType": {
+      "description": "Lifecycle event types. Values match allowed_events.ALLOWED_EVENT_TYPES.",
+      "enum": [
+        "malicious_action_executed",
+        "alert_raised",
+        "alert_investigation_started",
+        "incident_confirmed",
+        "alert_denied",
+        "containment_initiated",
+        "containment_failed",
+        "containment_succeeded",
+        "incident_ended",
+        "evidence_preserved",
+        "eradication_completed",
+        "recovery_validated",
+        "dismissal_approved",
+        "lessons_learned_recorded"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "Outcome": {
+      "description": "Result of the event. Matches allowed_events.ALLOWED_OUTCOMES.",
+      "enum": [
+        "success",
+        "failure",
+        "partial",
+        "detected",
+        "blocked",
+        "allowed",
+        "unknown",
+        "false_positive"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "TargetType": {
+      "description": "What was acted upon. Matches allowed_events.ALLOWED_TARGET_TYPES.",
+      "enum": [
+        "host",
+        "service",
+        "account",
+        "alert"
+      ],
+      "title": "TargetType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One validated ATTENSE event. See module docstring.",
+  "properties": {
+    "actor_id": {
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "actor_type": {
+      "$ref": "#/$defs/ActorType"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "$ref": "#/$defs/EventType"
+    },
+    "incident_id": {
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Outcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "room_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Room Id"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "scenario_id": {
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/EventSource",
+      "default": "unknown"
+    },
+    "source_event_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Event Id"
+    },
+    "target_id": {
+      "title": "Target Id",
+      "type": "string"
+    },
+    "target_type": {
+      "$ref": "#/$defs/TargetType"
+    }
+  },
+  "required": [
+    "event_id",
+    "incident_id",
+    "scenario_id",
+    "actor_id",
+    "actor_type",
+    "target_id",
+    "target_type",
+    "event_type",
+    "occurred_at"
+  ],
+  "title": "StandardEvent",
+  "type": "object"
+}

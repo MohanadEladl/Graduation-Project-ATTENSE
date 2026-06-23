@@ -1,0 +1,42 @@
+# =============================================================================
+# ATTENSE Cyber Range — infra/compose.ai.yml
+# =============================================================================
+# Local LLM inference (Ollama), used by the red-team backend's freestyle/
+# analysis features. compose.base.yml's `red-team-backend` depends on this
+# service being started, so run together with compose.base.yml.
+# =============================================================================
+
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Ollama: Local LLM inference ─────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama
+    container_name: attense_ollama
+    mem_limit: 4g
+    hostname: ollama
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - attense_net
+
+networks:
+  attense_net:
+    name: attense_net
+    driver: bridge
+
+volumes:
+  ollama_data:

@@ -1,0 +1,21 @@
+# =============================================================================
+# ATTENSE Cyber Range — infra/compose.dev.yml
+# =============================================================================
+# Development overrides: live source mounts for hot reload. Applied on top of
+# compose.base.yml (same service names merge as overrides, not new services):
+#
+#   docker compose -f infra/compose.base.yml -f infra/compose.security.yml \
+#                   -f infra/compose.ai.yml -f infra/compose.dev.yml up
+#
+# Kept minimal: the root docker-compose.dev.yml predating this split carried no
+# other content at the time of this restructure. Add further dev-only
+# overrides (debug ports, additional hot-reload mounts) here as needed.
+# =============================================================================
+
+services:
+
+  attense-react:
+    volumes:
+      - ../frontends/portal/src:/app/src
+      - ../frontends/portal/public:/app/public
+      - ../frontends/portal/index.html:/app/index.html

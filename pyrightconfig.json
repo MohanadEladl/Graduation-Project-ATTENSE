@@ -8,12 +8,16 @@
     "reportMissingTypeStubs": false,
     "pythonVersion": "3.14",
     "extraPaths": [
-        "./blueteam",
-        "./signal-store"
+        "./apps/blue-team-api",
+        "./apps/blue-team-api/blueteam",
+        "./apps/control-api",
+        "./apps/signal-mapper",
+        "./apps/red-team-api",
+        "./packages/attense-core"
     ],
     "executionEnvironments": [
         {
-            "root": "blueteam"
+            "root": "apps/blue-team-api/blueteam"
         }
     ]
 }

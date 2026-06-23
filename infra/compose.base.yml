@@ -1,0 +1,297 @@
+# =============================================================================
+# ATTENSE Cyber Range — infra/compose.base.yml
+# =============================================================================
+# Core application services: the vulnerable target, the red-team/blue-team
+# exercise path, and the detection pipeline. Always run together with
+# compose.security.yml (TheHive/Cortex/Wazuh) and compose.ai.yml (Ollama) —
+# this file alone hard-depends on services defined there (the base/security/ai
+# `depends_on` edges are not yet decoupled; see MIGRATION.md).
+#
+#   docker compose -f infra/compose.base.yml -f infra/compose.security.yml \
+#                   -f infra/compose.ai.yml [-f infra/compose.dev.yml] up
+# =============================================================================
+
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Target: Nginx + Flask vulnerable app + Wazuh agent ──────────────────────
+  target-agent:
+    build:
+      context: ../apps/target-lab
+    container_name: attense_target_agent
+    hostname: target-agent
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
+    depends_on:
+      wazuh-manager:
+        condition: service_healthy
+    # Wazuh's firewall-drop active-response runs iptables on this agent —
+    # iptables needs NET_ADMIN, which containers don't have by default.
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - target_nginx_logs:/var/log/nginx
+      - target_flask_logs:/app/logs
+      - target_ossec:/var/ossec
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 12 http://localhost:80/ >/dev/null"]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+    networks:
+      - attense_net
+
+  # ── Signal Store ────────────────────────────────────────────────────────────
+  signal-store:
+    build:
+      context: ../apps/signal-mapper
+    container_name: attense_signal_store
+    hostname: signal-store
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      wazuh-manager:
+        condition: service_healthy
+    environment:
+      WAZUH_ALERTS_PATH: /wazuh/alerts/alerts.json
+      OUTPUT_MODE: both
+      OUTPUT_PATH: /attense/data/mapped_events.jsonl
+      EVENT_STORE_URL: "http://attense-app:8010/blueteam/raise-alert"
+      INCIDENT_ID: "phase3-incident-001"
+      MODE: wazuh
+    volumes:
+      - wazuh_alerts:/wazuh/alerts:ro
+      - attense_ssd_volume:/attense/data
+      - ../apps/control-api:/attense_app:ro
+      # ATTENSE_app's compatibility shims (in /attense_app) import attense_core.*
+      # (see packages/attense-core, MIGRATION.md); mounted under /app so the
+      # existing PYTHONPATH=/app:/attense_app in the Dockerfile already covers it.
+      - ../packages/attense-core/attense_core:/app/attense_core:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - attense_net
+
+  # ── Attense App ──────────────────────────────────────────────────────────────
+  # Build-only prerequisite for dynamically created Blue Team room containers.
+  blueteam-image:
+    build:
+      # Context is the repo root: the Dockerfile needs to COPY apps/blue-team-api,
+      # apps/control-api/ATTENSE_app, and packages/attense-core together.
+      context: ..
+      dockerfile: apps/blue-team-api/Dockerfile
+    image: attense-app-blueteam
+    command: ["true"]
+    restart: "no"
+
+  attense-app:
+    build:
+      # Context is the repo root for the same reason as blueteam-image above.
+      context: ..
+      dockerfile: apps/control-api/Dockerfile
+    container_name: attense_app
+    hostname: attense-app
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      blueteam-image:
+        condition: service_completed_successfully
+      signal-store:
+        condition: service_started
+      thehive:
+        condition: service_healthy
+      check-secrets:
+        condition: service_completed_successfully
+    environment:
+      ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
+      # TheHive integration
+      HIVE_URL: "http://thehive:9000"
+      VIRUSTOTAL_API_KEY: "${VIRUSTOTAL_API_KEY}"
+      ABUSEIPDB_API_KEY: "${ABUSEIPDB_API_KEY}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET}"
+      # Gate for POST /api/incidents/events (red-team engine -> controller);
+      # port 8020 is published to the host so this can't rely on network trust alone.
+      RED_TEAM_EVENTS_SECRET: "${RED_TEAM_EVENTS_SECRET}"
+      # Sandbox / Target Agent
+      SANDBOX_URL: "http://target-agent:80"
+      # Remaining per-organisation runtime secrets are injected below.
+      # API/enrichment keys and WEBHOOK_SECRET come from root .env above.
+    env_file:
+      - ../secrets/ATTENSE.env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - attense_ssd_volume:/attense/data:ro
+      - attense_temp:/attense/temp
+    ports:
+      - "8020:8020"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8020/health >/dev/null && curl -fsS http://localhost:8010/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - attense_net
+
+  # ── AttackBox: Lightweight local pen-test tools ─────────────────────────────
+  attackbox:
+    build:
+      context: ../attackbox
+    container_name: attense-attackbox
+    hostname: attackbox
+    restart: unless-stopped
+    logging: *default-logging
+    command: sleep infinity
+    depends_on:
+      - target-agent
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - attense_net
+
+  # ── OWASP ZAP: Local proxy ─────────────────────────────────────────────────
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: attense_zap
+    hostname: zap
+    restart: unless-stopped
+    logging: *default-logging
+    # -silent skips the on-boot add-on auto-update (which otherwise downloads
+    # ~13 addons and pushes API readiness from ~30s to ~4min, leaving the
+    # frontend ZAP panel stuck on "offline").
+    command: >
+      zap.sh -daemon -silent -host 0.0.0.0 -port 8080
+      -config api.key=${ZAP_API_KEY}
+      -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
+      -config connection.timeoutInSecs=20
+    depends_on:
+      - target-agent
+    networks:
+      - attense_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:8080/JSON/core/view/version/?apikey=${ZAP_API_KEY}' >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  # ── Red Team Backend: FastAPI ───────────────────────────────────────────────
+  red-team-backend:
+    build:
+      context: ../apps/red-team-api
+    container_name: attense_red_team_backend
+    hostname: red-team-backend
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      target-agent:
+        condition: service_started
+      attackbox:
+        condition: service_started
+      ollama:
+        condition: service_started
+      check-secrets:
+        condition: service_completed_successfully
+    environment:
+      TARGET_HOST: target-agent
+      TARGET_PORT: "80"
+      LOG_DIR: /red-team/logs
+      ATTACKBOX_CONTAINER: attense-attackbox
+      ZAP_API_URL: "http://zap:8080"
+      ZAP_API_KEY: "${ZAP_API_KEY}"
+      OLLAMA_URL: "http://ollama:11434"
+      # Where core/engine.py posts malicious_action_executed after a module runs.
+      ATTENSE_APP_URL: "http://attense-app:8020"
+      RED_TEAM_EVENTS_SECRET: "${RED_TEAM_EVENTS_SECRET}"
+      # Fallback only: sessions whose operator has joined a room use that
+      # room's own incident_id instead (see attense-app's GET /api/auth/me
+      # and core/engine.py's incident_id param). This env var only applies
+      # when no room is joined. Matches signal-store's INCIDENT_ID below for
+      # that no-room case so both sides still agree on one incident.
+      INCIDENT_ID: "phase3-incident-001"
+    volumes:
+      - red_team_logs:/red-team/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - attense_net
+
+  # ── Red Team Frontend: React + Vite ─────────────────────────────────────────
+  red-team-frontend:
+    build:
+      context: ../frontends/red-team
+    container_name: attense_red_team_frontend
+    hostname: red-team-frontend
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - red-team-backend
+    ports:
+      - "3000:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - attense_net
+
+  # Blue Team endpoints provided by `attense-app` (embedded; no separate service)
+
+  # ── Attense React (portal frontend) ─────────────────────────────────────────
+  attense-react:
+    build:
+      context: ../frontends/portal
+    container_name: attense_react
+    hostname: attense-react
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - attense_net
+
+networks:
+  attense_net:
+    name: attense_net
+    driver: bridge
+
+volumes:
+  target_nginx_logs:
+  target_flask_logs:
+  target_ossec:
+  attense_ssd_volume:
+  attense_temp:
+  attense_backup:
+  red_team_logs:
+  # Declared here so wazuh-manager (compose.security.yml) and signal-store
+  # (this file, read-only) can share it regardless of -f file order.
+  wazuh_alerts:

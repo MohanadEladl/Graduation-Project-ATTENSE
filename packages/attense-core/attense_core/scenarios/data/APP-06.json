@@ -1,0 +1,31 @@
+{
+  "spec_version": "1.0",
+  "attack_id": "APP-06",
+  "module_id": "brute_force",
+  "name": "Broken Authentication",
+  "description": "Exploitation of weak authentication and session management mechanisms.",
+  "target_path": "/auth/login",
+  "owasp": "A07:2021",
+  "severity": "high",
+  "attack_steps": [
+    "Perform credential stuffing or brute-force attacks",
+    "Exploit weak session token handling",
+    "Gain unauthorized access to user accounts"
+  ],
+  "impact": [
+    "Account takeover",
+    "Sensitive data exposure",
+    "Lateral movement within the application"
+  ],
+  "defense_checkpoints": [
+    "Login anomaly detection",
+    "Authentication failure rate analysis",
+    "Session invalidation and access revocation time"
+  ],
+  "required_tools": [
+    "Terminal",
+    "ZAP",
+    "Hydra",
+    "Wordlists"
+  ]
+}
