@@ -37,7 +37,9 @@ _FETCH_COUNT = 200
 _OPEN_LAB_MODULE_ID = "open_lab"
 
 ZAP_API_URL = os.getenv("ZAP_API_URL", "http://zap:8080")
-ZAP_API_KEY = os.getenv("ZAP_API_KEY", "attense-lab-key")
+# No baked-in default key (check-secrets requires ZAP_API_KEY and rejects the
+# stock "attense-lab-key"); empty fails loudly rather than using a known key.
+ZAP_API_KEY = os.getenv("ZAP_API_KEY", "")
 
 
 def _outcome_for_alert(risk: str) -> str:

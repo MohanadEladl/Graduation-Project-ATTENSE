@@ -34,7 +34,9 @@ import docker as docker_sdk
 # ── Configuration ────────────────────────────────────────────────────────────
 ATTACKBOX_CONTAINER = os.getenv("ATTACKBOX_CONTAINER", "attense_attackbox")
 ZAP_API_URL = os.getenv("ZAP_API_URL", "http://zap:8080")
-ZAP_API_KEY = os.getenv("ZAP_API_KEY", "attense-lab-key")
+# No baked-in default key (check-secrets requires ZAP_API_KEY and rejects the
+# stock "attense-lab-key"); empty fails loudly rather than using a known key.
+ZAP_API_KEY = os.getenv("ZAP_API_KEY", "")
 
 # Approved local lab targets
 ALLOWED_TARGETS = {"target-agent", "http://target-agent", "http://target-agent:80"}

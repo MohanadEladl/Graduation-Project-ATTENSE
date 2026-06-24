@@ -149,7 +149,7 @@ services:
     volumes:
       - ../integrations/thehive/application.conf:/etc/thehive/application.conf
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"  # loopback only — TheHive UI not exposed to the LAN
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9000/api/status >/dev/null"]
       interval: 10s

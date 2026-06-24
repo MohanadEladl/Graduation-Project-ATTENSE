@@ -141,7 +141,9 @@ services:
       - attense_ssd_volume:/attense/data:ro
       - attense_temp:/attense/temp
     ports:
-      - "8020:8020"
+      # Bound to loopback only: reachable from the host (browser/tools) but not
+      # from the LAN. Use an SSH tunnel / reverse proxy for remote access.
+      - "127.0.0.1:8020:8020"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8020/health >/dev/null && curl -fsS http://localhost:8010/health >/dev/null"]
       interval: 15s
@@ -235,7 +237,7 @@ services:
       - red_team_logs:/red-team/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # loopback only — not exposed to the LAN
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
       interval: 15s
@@ -256,7 +258,7 @@ services:
     depends_on:
       - red-team-backend
     ports:
-      - "3000:8080"
+      - "127.0.0.1:3000:8080"  # loopback only — not exposed to the LAN
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s

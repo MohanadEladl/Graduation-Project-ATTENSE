@@ -14,7 +14,12 @@ logger = logging.getLogger("attense.hive_provisioner")
 
 HIVE_URL = os.getenv("HIVE_URL", "http://thehive:9000").rstrip("/")
 ADMIN_LOGIN = os.getenv("THEHIVE_ADMIN_LOGIN", "admin@thehive.local")
-ADMIN_PASSWORD = os.getenv("THEHIVE_ADMIN_PASSWORD", "secret")
+# No baked-in default: "secret" is TheHive's stock admin password, so a fallback
+# here would be a working credential in source. The check-secrets boot gate
+# (scripts/bootstrap/check_secrets.py) already requires this to be set and
+# rotated off the stock default; empty here fails loudly instead of silently
+# authenticating with a known password if ever run outside that gate.
+ADMIN_PASSWORD = os.getenv("THEHIVE_ADMIN_PASSWORD", "")
 
 
 def _admin_client() -> httpx.Client:
