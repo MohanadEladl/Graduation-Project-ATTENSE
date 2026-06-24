@@ -67,6 +67,12 @@ from ATTENSE_app.AI.live_thresholds import compute_live_thresholds
 # ── Paths ─────────────────────────────────────────────────────────────────────
 ACTIONS_DIR   = os.environ.get("ACTIONS_LOG_DIR",  "/attense/actions")
 MAPPED_EVENTS = os.environ.get("ATTENSE_DATA_PATH", "/attense/data/mapped_events.jsonl")
+# Phase 3 durable store. Holds every event that passed through
+# controller.process_event() -- the Wazuh file-tail AND the red-team's
+# HTTP-ingested malicious_action_executed events (which never reach
+# mapped_events.jsonl). Unset -> the store is skipped and scoring falls back to
+# the Wazuh-only behaviour.
+EVENT_STORE_DIR = os.environ.get("ATTENSE_EVENT_STORE_DIR")
 
 _RULE_DATA_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ATTENSE_app", "AI", "Data")
@@ -272,6 +278,34 @@ def _load_wazuh_events(incident_id: str) -> list[Event]:
     return events
 
 
+def _load_durable_events(incident_id: str) -> list[Event]:
+    """Events for the incident from the Phase 3 durable store -- crucially the
+    red-team `malicious_action_executed` events, which arrive via HTTP ingest
+    (controller.process_event) and never touch mapped_events.jsonl, so they
+    anchor the incident's true start_time. Returns [] when the store is
+    unconfigured/empty (preserving the original Wazuh-only behaviour).
+
+    Reuses EventRepository (read + dedup + ordering) and
+    StandardEvent.to_legacy_event() (the same adapter the controller ingests
+    with) instead of re-parsing the on-disk format.
+    """
+    if not EVENT_STORE_DIR or not os.path.exists(
+        os.path.join(EVENT_STORE_DIR, "events.jsonl")
+    ):
+        return []
+    from attense_core.repositories.events import EventRepository
+
+    events: list[Event] = []
+    for se in EventRepository(EVENT_STORE_DIR).get_events(incident_id):
+        ev = se.to_legacy_event()
+        # The store is tz-aware UTC; the bridge works in naive UTC (see
+        # _to_datetime). Normalise so the merged timeline sorts/subtracts cleanly.
+        if isinstance(ev.timestamp, datetime) and ev.timestamp.tzinfo is not None:
+            ev.timestamp = ev.timestamp.replace(tzinfo=None)
+        events.append(ev)
+    return events
+
+
 def _load_analyst_events(incident_id: str) -> list[Event]:
     events: list[Event] = []
     pattern = os.path.join(ACTIONS_DIR, "analyst-*.jsonl")
@@ -330,8 +364,17 @@ def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
       verdict  — from scoring_engine.py (quality of the response)
     """
     wazuh   = _load_wazuh_events(incident_id)
+    durable = _load_durable_events(incident_id)
     analyst = _load_analyst_events(incident_id)
-    all_events = sorted(wazuh + analyst, key=lambda e: e.timestamp)
+
+    # Merge all three sources, deduping by event_id. The durable store also
+    # contains the Wazuh alert_raised events (they pass through process_event),
+    # so the file-tail copy wins on overlap and the store contributes only the
+    # attacker-side events (malicious_action_executed) unique to it.
+    by_id: dict[str, Event] = {}
+    for ev in wazuh + durable + analyst:
+        by_id.setdefault(ev.event_id, ev)
+    all_events = sorted(by_id.values(), key=lambda e: e.timestamp)
 
     if not all_events:
         raise ValueError(f"No events found for incident '{incident_id}'")

@@ -116,6 +116,12 @@ services:
         condition: service_completed_successfully
     environment:
       ATTENSE_DATA_PATH: /attense/data/mapped_events.jsonl
+      # Phase 3 durable event store. On /attense/temp (read-write, chmod 777),
+      # NOT /attense/data (read-only here). Captures every event through
+      # process_event -- the Wazuh file-tail AND the red-team's HTTP-ingested
+      # malicious_action_executed events -- so the scoring pipeline (bridge.py)
+      # sees the attacker timeline and anchors start_time / TTD correctly.
+      ATTENSE_EVENT_STORE_DIR: /attense/temp/event_store
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
       VIRUSTOTAL_API_KEY: "${VIRUSTOTAL_API_KEY}"

@@ -16,7 +16,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 _PKG_ROOT = os.path.join(_REPO_ROOT, "apps", "control-api")
@@ -70,12 +70,15 @@ class ScoredReportWiringTests(unittest.TestCase):
         # at the fixture dir instead of the container's /attense paths.
         self._orig_mapped = bridge.MAPPED_EVENTS
         self._orig_actions = bridge.ACTIONS_DIR
+        self._orig_store = bridge.EVENT_STORE_DIR
         bridge.MAPPED_EVENTS = os.path.join(self.tmp, "mapped_events.jsonl")
         bridge.ACTIONS_DIR = self.actions
+        bridge.EVENT_STORE_DIR = None  # off by default; the merge test opts in
 
     def tearDown(self):
         bridge.MAPPED_EVENTS = self._orig_mapped
         bridge.ACTIONS_DIR = self._orig_actions
+        bridge.EVENT_STORE_DIR = self._orig_store
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -132,6 +135,75 @@ class ScoredReportWiringTests(unittest.TestCase):
         self.assertIsNone(
             build_and_write_report("no-such-incident", actions_dir=self.actions)
         )
+
+    def test_durable_redteam_events_anchor_start_time(self):
+        # The core data-flow fix: red-team malicious_action_executed events live
+        # ONLY in the durable store (they never reach mapped_events.jsonl, which
+        # the signal-mapper fills with alert_raised only). run_bridge must merge
+        # the store so start_time anchors on the ATTACK, not the alert — making
+        # TTD a real interval instead of the degenerate ~0 it was before.
+        from attense_core.models.standard_event import StandardEvent
+        from attense_core.repositories.events import EventRepository
+
+        store_dir = os.path.join(self.tmp, "event_store")
+        bridge.EVENT_STORE_DIR = store_dir
+
+        t0 = datetime(2026, 6, 24, 12, 0, 0, tzinfo=timezone.utc)  # attack start
+        EventRepository(store_dir).append(StandardEvent(
+            event_id="rt-1", incident_id=INCIDENT, scenario_id="APP-01",
+            actor_id="redteam-operator", target_id="http://target-agent",
+            event_type="malicious_action_executed", actor_type="red_team",
+            target_type="service", occurred_at=t0, outcome="success",
+        ))
+        # Wazuh alert 120s later — the only thing in mapped_events.jsonl.
+        alert_ts = (t0 + timedelta(seconds=120)).strftime("%Y-%m-%dT%H:%M:%S")
+        with open(bridge.MAPPED_EVENTS, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "event_id": "wz-1", "incident_id": INCIDENT, "scenario_id": "APP-01",
+                "actor_id": "wazuh", "target_id": "sandbox-target",
+                "event_type": "alert_raised", "actor_type": "system",
+                "target_type": "alert", "timestamp": alert_ts, "outcome": "detected",
+                "metadata": {"severity": "high"},
+            }) + "\n")
+
+        report, events = run_bridge(INCIDENT)
+
+        ids = {e.event_id for e in events}
+        self.assertIn("rt-1", ids)   # the red-team attack event was merged in
+        self.assertIn("wz-1", ids)
+        # start_time = attack (t0); detection = alert (t0+120s) => real TTD.
+        self.assertEqual(report["ttd"], timedelta(seconds=120))
+
+    def test_durable_store_dedups_overlapping_event_ids(self):
+        # The store also contains the Wazuh alert_raised (it passes through
+        # process_event), so the same event_id appears in both sources. The
+        # merge must dedup, not double-count.
+        from attense_core.models.standard_event import StandardEvent
+        from attense_core.repositories.events import EventRepository
+
+        store_dir = os.path.join(self.tmp, "event_store")
+        bridge.EVENT_STORE_DIR = store_dir
+
+        t0 = datetime(2026, 6, 24, 12, 0, 0, tzinfo=timezone.utc)
+        EventRepository(store_dir).append(StandardEvent(
+            event_id="wz-1", incident_id=INCIDENT, scenario_id="APP-01",
+            actor_id="wazuh", target_id="sandbox-target",
+            event_type="alert_raised", actor_type="system",
+            target_type="alert", occurred_at=t0, outcome="detected",
+            metadata={"severity": "high"},
+        ))
+        with open(bridge.MAPPED_EVENTS, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "event_id": "wz-1", "incident_id": INCIDENT, "scenario_id": "APP-01",
+                "actor_id": "wazuh", "target_id": "sandbox-target",
+                "event_type": "alert_raised", "actor_type": "system",
+                "target_type": "alert",
+                "timestamp": t0.strftime("%Y-%m-%dT%H:%M:%S"), "outcome": "detected",
+                "metadata": {"severity": "high"},
+            }) + "\n")
+
+        _report, events = run_bridge(INCIDENT)
+        self.assertEqual([e.event_id for e in events], ["wz-1"])  # not duplicated
 
 
 if __name__ == "__main__":
