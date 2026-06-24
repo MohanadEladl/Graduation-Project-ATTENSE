@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ATTENSE_app.events.standard_event import StandardEvent
@@ -5,7 +7,33 @@ from ATTENSE_app.reports.report import generate_report
 from dependencies.auth import require_events_secret, require_session
 
 
+logger = logging.getLogger("attense-controller")
+
 router = APIRouter(prefix="/api/incidents")
+
+
+def _scored_report(incident_id: str, incident) -> dict:
+    """Full incident report: the evaluation pipeline (run_bridge) merges the
+    durable Wazuh + analyst-action timelines and runs the scoring engine
+    (per-rule penalties, TTC decay, difficulty bonus, verdict band) on top of
+    the basic ttd/ttc/outcome report.
+
+    Falls back to the plain timestamp report (generate_report) only when the
+    pipeline has nothing to score — run_bridge raises ValueError when no durable
+    events exist for the incident yet, or its scenario has no rule file. Any
+    other error is a real bug and is allowed to surface as a 500.
+    """
+    from pipeline.bridge import run_bridge
+
+    try:
+        report, _events = run_bridge(incident_id)
+        return report
+    except ValueError as exc:
+        logger.warning(
+            "Scored report unavailable for %s (%s); returning basic report.",
+            incident_id, exc,
+        )
+        return generate_report(incident)
 
 
 @router.post("/events", status_code=202)
@@ -60,4 +88,4 @@ def get_incident_report(
     incident = controller.incidents.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
-    return generate_report(incident)
+    return _scored_report(incident_id, incident)
