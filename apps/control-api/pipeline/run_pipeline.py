@@ -16,6 +16,7 @@ Steps:
 
 import os
 import sys
+from typing import Optional
 
 # Ensure both /app (ATTENSE_app) and /app/pipeline are importable
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +30,45 @@ from pipeline.report_generator import generate
 
 ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
 SEP = "=" * 65
+
+
+def build_and_write_report(
+    incident_id: str, actions_dir: Optional[str] = None
+) -> Optional[dict]:
+    """Run the evaluation pipeline for one incident, write its markdown report
+    to ``<actions_dir>/<incident_id>_report.md``, and return a result dict — or
+    None if there are no events to score (run_bridge raises ValueError).
+
+    Shared by the CLI (main, below) and the auto-on-exercise-end hook
+    (core.room_manager.spin_down_room). No VERTEX env is required: the report
+    generator falls back to plain text when Gemini is unavailable.
+    """
+    try:
+        report, events = run_bridge(incident_id)
+    except ValueError:
+        return None
+
+    markdown = generate(report, events)
+    out_dir = actions_dir or ACTIONS_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{incident_id}_report.md")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(markdown)
+
+    return {
+        "incident_id":  incident_id,
+        "final_score":  report.get("final_score"),
+        "verdict":      report.get("verdict"),
+        "outcome":      report.get("outcome"),
+        "status":       report.get("status"),
+        "report_path":  out_path,
+        "markdown":     markdown,
+        "event_counts": {
+            "total":   len(events),
+            "wazuh":   sum(1 for e in events if e.actor_type == "system"),
+            "analyst": sum(1 for e in events if e.actor_type == "blue_team"),
+        },
+    }
 
 _ENV_HINT = "export $(cat attense-app/pipeline/.env | xargs)"
 
@@ -65,32 +105,24 @@ def main(incident_id: str) -> None:
     print(f"  ATTENSE EVALUATION PIPELINE  |  {incident_id}")
     print(f"{SEP}\n")
 
-    print("  [1/3] Loading events and building incident model...")
-    try:
-        report, events = run_bridge(incident_id)
-    except ValueError as exc:
-        print(f"  ERROR: {exc}")
+    print("  [1/3] Loading events, scoring, and generating the report...")
+    result = build_and_write_report(incident_id)
+    if result is None:
+        print(f"  ERROR: No events found for incident '{incident_id}'")
         sys.exit(1)
 
-    wazuh_n   = sum(1 for e in events if e.actor_type == "system")
-    analyst_n = sum(1 for e in events if e.actor_type == "blue_team")
-    print(f"        {len(events)} events loaded  "
-          f"({wazuh_n} Wazuh / {analyst_n} analyst)")
-    print(f"        Outcome: {report['outcome']}  |  Status: {report['status']}")
+    ec = result["event_counts"]
+    print(f"        {ec['total']} events loaded  "
+          f"({ec['wazuh']} Wazuh / {ec['analyst']} analyst)")
+    print(f"        Outcome: {result['outcome']}  |  Status: {result['status']}")
+    print(f"        Score:   {result['final_score']}  |  Verdict: {result['verdict']}")
 
-    print("\n  [2/3] Generating markdown report via Gemini...")
-    markdown = generate(report, events)
-
-    out_path = os.path.join(ACTIONS_DIR, f"{incident_id}_report.md")
-    print(f"\n  [3/3] Writing report → {out_path}")
-    os.makedirs(ACTIONS_DIR, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(markdown)
+    print(f"\n  [2/3] Wrote report → {result['report_path']}")
 
     print(f"\n{SEP}")
     print(f"  REPORT")
     print(f"{SEP}\n")
-    print(markdown)
+    print(result["markdown"])
     print(f"\n{SEP}\n")
 
 

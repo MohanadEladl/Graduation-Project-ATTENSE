@@ -105,6 +105,34 @@ class ScoredReportWiringTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_bridge("incident-with-no-durable-events")
 
+    def test_build_and_write_report_persists_markdown_and_summary(self):
+        # The exercise-end hook (room_manager._generate_final_reports) and the
+        # CLI both go through this. It must score, write the markdown file, and
+        # return a summary — without any VERTEX env (plain-text fallback).
+        from pipeline.run_pipeline import build_and_write_report
+
+        _write_alert(bridge.MAPPED_EVENTS)
+        _write_analyst_actions(self.actions)
+
+        result = build_and_write_report(INCIDENT, actions_dir=self.actions)
+        self.assertIsNotNone(result)
+        self.assertIn(result["verdict"], {"excellent", "acceptable", "needs_review", "failed"})
+        self.assertIsNotNone(result["final_score"])
+        # the markdown report file was actually written and is non-trivial
+        self.assertTrue(os.path.isfile(result["report_path"]))
+        with open(result["report_path"], encoding="utf-8") as fh:
+            markdown = fh.read()
+        self.assertIn("Incident Report", markdown)
+
+    def test_build_and_write_report_none_when_no_events(self):
+        # The hook skips (doesn't store / doesn't crash) when an incident has
+        # nothing to score.
+        from pipeline.run_pipeline import build_and_write_report
+
+        self.assertIsNone(
+            build_and_write_report("no-such-incident", actions_dir=self.actions)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

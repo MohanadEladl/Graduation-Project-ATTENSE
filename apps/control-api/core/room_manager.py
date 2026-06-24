@@ -168,8 +168,43 @@ def spin_down_room(room_id: str) -> dict:
     if room.get("port") is not None:  # Legacy rooms created before ports were internal-only.
         port_pool.release(room["port"])
     room["status"] = "closed"
+    _generate_final_reports(room)
     _save_room(room)
     return room
+
+
+def _generate_final_reports(room: dict) -> None:
+    """On exercise end, run the evaluation pipeline for each of the room's
+    incidents, write each markdown report (to /attense/actions/), and store a
+    compact scored summary under room["final_reports"] (this is the ERD's
+    "Room --generates--> AI report").
+
+    Best-effort by design: wrapped per incident so a scoring/IO failure (or an
+    incident with no events to score) is logged and skipped rather than
+    blocking room teardown. The room is already stopped/closed at this point.
+    """
+    reports = []
+    for incident_id in (room.get("incidents") or []):
+        try:
+            from pipeline.run_pipeline import build_and_write_report
+
+            result = build_and_write_report(incident_id)
+        except Exception:
+            logger.exception(
+                "Final report generation failed for incident %s", incident_id
+            )
+            continue
+        if result is None:
+            continue
+        reports.append({
+            "incident_id": result["incident_id"],
+            "final_score": result["final_score"],
+            "verdict":     result["verdict"],
+            "outcome":     result["outcome"],
+            "report_path": result["report_path"],
+        })
+    if reports:
+        room["final_reports"] = reports
 
 
 def add_incident(room_id: str, incident_id: str) -> dict:
