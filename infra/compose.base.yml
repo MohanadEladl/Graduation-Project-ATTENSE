@@ -270,6 +270,42 @@ services:
 
   # Blue Team endpoints provided by `attense-app` (embedded; no separate service)
 
+  # ── Watcher Agent: SOC analyst terminal monitor ──────────────────────────────
+  # Tails the host audit log, classifies analyst commands via Ollama, and posts
+  # classified SOC actions to attense-app:8010/blueteam/analyst-action.
+  # The red-team operator creates a session via POST /session/watcher on
+  # red-team-backend, then shares the 6-char SESSION_CODE with the analyst.
+  watcher:
+    build:
+      context: ../apps/watcher
+    container_name: attense_watcher
+    hostname: watcher
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      red-team-backend:
+        condition: service_healthy
+      attense-app:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      ANALYST_ID: "${ANALYST_ID:-analyst-1}"
+      SESSION_CODE: "${SESSION_CODE:-}"
+      COORDINATOR_URL: "http://red-team-backend:8000"
+      BLUETEAM_URL: "http://attense-app:8010"
+      OLLAMA_URL: "http://ollama:11434"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
+      BATCH_INTERVAL: "${WATCHER_BATCH_INTERVAL:-30}"
+      AUDIT_LOG: "/var/log/audit/audit.log"
+    # auditd needs elevated privileges to read the audit subsystem.
+    # On the host, run setup_auditd.sh once to configure EXECVE rules.
+    privileged: true
+    volumes:
+      - /var/log/audit:/var/log/audit:ro
+    networks:
+      - attense_net
+
   # ── Attense React (portal frontend) ─────────────────────────────────────────
   attense-react:
     build:

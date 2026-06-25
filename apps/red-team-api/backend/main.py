@@ -26,6 +26,10 @@ Endpoints:
   GET    /api/operator/zap/history           – ZAP proxy history
   POST   /api/operator/zap/repeater/send     – send request through ZAP        [auth required]
 
+  Watcher Agent (SOC analyst terminal monitor):
+  POST   /session/watcher                    – create session, returns 6-char code
+  GET    /session/watcher/{code}             – poll session status (pending → active)
+
 [auth required] = caller must send X-Session-Token (from /api/auth/login),
 validated against attense-app's session store on every such request; see
 require_operator_session(). Other state-mutating session routes (variant,
@@ -48,6 +52,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 import json as _json
+import random
+import string
+import time as _time_mod
 
 # Make sibling folders (core/, modules/, engine/) importable
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -66,6 +73,19 @@ from backend import identity                        # noqa: E402
 
 DEFAULT_HOST = os.getenv("TARGET_HOST", "target-agent")
 DEFAULT_PORT = int(os.getenv("TARGET_PORT", "80"))
+
+# ── Watcher Agent: session coordination store ─────────────────────────────────
+_WATCHER_SESSIONS: dict[str, dict] = {}
+
+
+def _generate_watcher_code() -> str:
+    """Return a random 6-character uppercase alphanumeric code."""
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        code = "".join(random.choices(alphabet, k=6))
+        if code not in _WATCHER_SESSIONS:
+            return code
+
 
 app = FastAPI(
     title="ATTENSE Cyber Lab API",
@@ -1453,3 +1473,35 @@ async def schedule_mutation(
         max_delay=float(max_delay) if max_delay is not None else None,
     )
     return {"ok": True, "scheduled": True, "event": event}
+
+
+# ── Watcher Agent: session coordination ──────────────────────────────────────
+
+class WatcherSessionBody(BaseModel):
+    scenario_id: str
+    incident_id: str
+
+
+@app.post("/session/watcher")
+def create_watcher_session(body: WatcherSessionBody) -> dict:
+    """Create a watcher session. Returns a 6-char code the analyst types into
+    the Watcher Agent CLI to bind their terminal to this incident."""
+    code = _generate_watcher_code()
+    session = {
+        "code":            code,
+        "scenario_id":     body.scenario_id,
+        "incident_id":     body.incident_id,
+        "status":          "active",
+        "started_at_unix": _time_mod.time(),
+    }
+    _WATCHER_SESSIONS[code] = session
+    return session
+
+
+@app.get("/session/watcher/{code}")
+def get_watcher_session(code: str) -> dict:
+    """Return watcher session for *code*, or {status: pending} if not yet created."""
+    session = _WATCHER_SESSIONS.get(code.upper())
+    if session is None:
+        return {"status": "pending"}
+    return session
