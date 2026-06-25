@@ -3,6 +3,14 @@ Test fixtures for the Zero-Day Detection Agent.
 Demo logs and offline analysis results extracted from the original demo.py.
 """
 
+import sys
+import os
+
+_zd_root = os.path.join(os.path.dirname(__file__), "..", "..", "apps", "zeroday-agent")
+sys.path.insert(0, os.path.normpath(_zd_root))
+for _key in [k for k in sys.modules if k == "app" or k.startswith("app.")]:
+    del sys.modules[_key]
+
 import pytest
 
 

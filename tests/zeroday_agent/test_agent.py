@@ -1,9 +1,13 @@
 """Tests for the zero-day agent core functions."""
 
+import importlib
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "apps", "zeroday-agent"))
+_zd_root = os.path.join(os.path.dirname(__file__), "..", "..", "apps", "zeroday-agent")
+sys.path.insert(0, os.path.normpath(_zd_root))
+for key in [k for k in sys.modules if k == "app" or k.startswith("app.")]:
+    del sys.modules[key]
 
 from app.agent import (
     _empty_analysis,
