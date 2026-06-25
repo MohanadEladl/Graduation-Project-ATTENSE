@@ -10,7 +10,6 @@ Raises ValueError with a descriptive message on any violation.
 from __future__ import annotations
 
 from ATTENSE_app.incidents.incident import Incident
-from ...infrastructure.eventstore.event_emitter import EventEmitter
 
 
 def validate_raise_alert(incident: Incident, store) -> None:

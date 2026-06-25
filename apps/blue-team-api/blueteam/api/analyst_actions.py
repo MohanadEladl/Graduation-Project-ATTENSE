@@ -33,7 +33,7 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)

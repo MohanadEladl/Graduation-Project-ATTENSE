@@ -1,5 +1,4 @@
 from attense_core.models.incident import Incident
-from attense_core.models.event import Event
 
 def classify_outcome(incident: Incident) -> str:
   if is_false_positive(incident):

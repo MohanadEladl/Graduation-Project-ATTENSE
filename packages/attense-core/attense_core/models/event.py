@@ -1,6 +1,11 @@
 from __future__ import annotations
 from datetime import datetime
-from attense_core.models.allowed_events import *
+from attense_core.models.allowed_events import (
+    ALLOWED_EVENT_TYPES,
+    ALLOWED_ACTOR_TYPES,
+    ALLOWED_TARGET_TYPES,
+    ALLOWED_OUTCOMES,
+)
 
 class Event:
     def __init__(self, event_id: str, incident_id: str, scenario_id: str, actor_id: str, target_id: str, event_type: str, actor_type: str, target_type: str, timestamp=None, outcome=None, metadata=None):
