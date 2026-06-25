@@ -1,0 +1,31 @@
+{
+  "spec_version": "1.0",
+  "attack_id": "APP-01",
+  "module_id": "xss",
+  "name": "Cross-Site Scripting (XSS)",
+  "description": "Injection of malicious client-side scripts into vulnerable web application inputs.",
+  "target_path": "/search",
+  "owasp": "A03:2021",
+  "severity": "high",
+  "attack_steps": [
+    "Inject malicious JavaScript payload into a user input field",
+    "Application reflects or stores the payload without proper sanitization",
+    "Script executes in the victim's browser when the page is loaded"
+  ],
+  "impact": [
+    "Session hijacking",
+    "Credential theft",
+    "Unauthorized user actions"
+  ],
+  "defense_checkpoints": [
+    "Abnormal script execution detection",
+    "WAF alert generation",
+    "Time to detect (TTD)",
+    "Time to contain (TTC)"
+  ],
+  "required_tools": [
+    "ZAP",
+    "Repeater",
+    "curl"
+  ]
+}

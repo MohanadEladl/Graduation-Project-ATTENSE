@@ -1,0 +1,30 @@
+{
+  "spec_version": "1.0",
+  "attack_id": "APP-05",
+  "module_id": "csrf",
+  "name": "Cross-Site Request Forgery (CSRF)",
+  "description": "Forcing authenticated users to perform unintended actions without their consent.",
+  "target_path": "/profile/",
+  "owasp": "A01:2021",
+  "severity": "medium",
+  "attack_steps": [
+    "Victim authenticates to the application",
+    "Victim visits attacker-controlled page",
+    "Browser submits forged request using valid session"
+  ],
+  "impact": [
+    "Unauthorized account changes",
+    "Privilege abuse",
+    "Data manipulation"
+  ],
+  "defense_checkpoints": [
+    "Detection of anomalous authenticated requests",
+    "CSRF token validation effectiveness",
+    "Incident acknowledgment time"
+  ],
+  "required_tools": [
+    "ZAP",
+    "Request Inspector",
+    "Repeater"
+  ]
+}

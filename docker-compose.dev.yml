@@ -1,6 +1,0 @@
-services:
-  attense-app:
-    volumes:
-      # Development-only source mount. The base Compose file runs the immutable
-      # application copied into the image.
-      - ./attense-app:/app

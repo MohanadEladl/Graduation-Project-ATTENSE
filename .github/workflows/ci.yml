@@ -1,0 +1,109 @@
+# ATTENSE CI — Phase 9 (acceptance gates) of the refactoring report.
+#
+# The report's acceptance checklist maps onto the test suites built in Phases
+# 1-8, so this pipeline mostly *runs those suites* (now centralized under
+# tests/, see MIGRATION.md for the apps//packages/ folder restructure):
+#
+#   - one incident = attack+alert+investigation+containment+end  -> test_persistence (LIFECYCLE), test_characterization_domain
+#   - event IDs are idempotent                                    -> test_persistence (duplicate ignored)
+#   - state survives restarts                                     -> test_persistence (restart/rebuild)
+#   - TTD uses attack start, not completion                       -> test_correlation (red-team-api + control-api)
+#   - TTC uses the accepted containment action                    -> test_characterization_domain (metrics)
+#   - two rooms remain isolated                                   -> tests/integration/blue-team-api
+#   - scenario metadata has one source of truth                   -> test_scenarios_spec (catalogue parity)
+#   - no active secrets in source                                 -> secret-hygiene job
+#   - docker compose config validates                             -> compose-config job
+#
+# Not yet wired (need image builds / a live stack to be meaningful, per the
+# report): container vulnerability scan, and the end-to-end smoke test that
+# boots the stack. Add them once the Phase 5/7 topology cutover lands.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-hygiene:
+    # Report Phase 0/9: fail if secrets, .env, bytecode, or caches are tracked.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No secret / generated files tracked in git
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -E '(^|/)\.env$|(^|/)\.env\.|secrets/.*\.env$|\.pyc$|(^|/)__pycache__/' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Tracked secret/generated files found:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "OK: no tracked .env / secrets / .pyc / __pycache__"
+
+  python-tests:
+    # The acceptance gates: the unit/integration suites from Phases 1-8.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: pip install "pydantic==2.10.6" "pydantic-settings==2.7.1" fastapi httpx requests tenacity pytest uvicorn
+      - name: Unit tests (pure domain logic)
+        run: python -m unittest discover -s tests/unit -p "test_*.py" -v
+      - name: Integration — control-api (persistence, correlation, scenarios API)
+        run: python -m unittest discover -s tests/integration/control-api -p "test_*.py" -v
+      - name: Integration — blue-team-api (cross-room isolation)
+        run: python -m unittest discover -s tests/integration/blue-team-api -p "test_*.py" -v
+      - name: Integration — signal-mapper (Wazuh correlation)
+        run: python -m unittest discover -s tests/integration/signal-mapper -p "test_signalmapper_correlation.py" -v
+      - name: Integration — red-team-api (TTD anchor + event contract)
+        run: python -m unittest discover -s tests/integration/red-team-api -p "test_*.py" -v
+      - name: Zero-day agent (pytest — agent helpers + MITRE scanner + signal-mapper suitability)
+        run: python -m pytest tests/zeroday_agent/ tests/integration/signal-mapper/test_mapper_suitability.py -v
+
+  compose-config:
+    # Report Phase 7/9: the compose file must merge + validate.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create stub secrets file (gitignored; required by compose env_file)
+        run: mkdir -p secrets && touch secrets/ATTENSE.env
+      - name: Validate docker-compose.yml (includes infra/compose.*.yml)
+        run: docker compose config -q
+
+  lint:
+    # Report Phase 9: Python lint. Non-blocking to start (the codebase is not
+    # fully lint-clean yet); tighten to a hard gate as modules are cleaned up.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - name: Ruff (canonical modules)
+        run: ruff check packages/attense-core/attense_core apps/control-api/ATTENSE_app apps/blue-team-api/blueteam
+
+  frontend-build:
+    # Report Phase 9: frontend lint/build.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontends/red-team/package-lock.json
+      - name: Build red-team frontend
+        working-directory: frontends/red-team
+        run: |
+          npm ci
+          npm run build

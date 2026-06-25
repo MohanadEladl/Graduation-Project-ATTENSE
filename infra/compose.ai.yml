@@ -1,0 +1,90 @@
+# =============================================================================
+# ATTENSE Cyber Range — infra/compose.ai.yml
+# =============================================================================
+# AI services: Ollama (local LLM inference, used by the red-team backend's
+# freestyle/analysis features) and the Zero-Day Detection Agent (Gemini-
+# powered MITRE ATT&CK analysis of container logs).
+#
+# compose.base.yml's `red-team-backend` depends on Ollama being started,
+# so run together with compose.base.yml.
+# =============================================================================
+
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Ollama: Local LLM inference ─────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama
+    container_name: attense_ollama
+    mem_limit: 4g
+    hostname: ollama
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - attense_net
+
+  # ── Zero-Day Detection Agent: Gemini AI + MITRE ATT&CK ────────────────────
+  zeroday-agent:
+    build:
+      context: ../apps/zeroday-agent
+    container_name: attense_zeroday_agent
+    hostname: zeroday-agent
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      attense-app:
+        condition: service_healthy
+    environment:
+      # Analyst dashboard (blue-team raise-alert) + scoring pipeline (control-api
+      # event ingest). Both live on attense-app: 8010 = blue-team, 8020 = control.
+      BLUETEAM_URL: "http://attense-app:8010"
+      ROOM_ID: "${ROOM_ID:-default}"
+      ATTENSE_APP_URL: "http://attense-app:8020"
+      RED_TEAM_EVENTS_SECRET: "${RED_TEAM_EVENTS_SECRET}"
+      # Correlate detections to the shared exercise incident (report Phase 4) —
+      # must match signal-store / red-team INCIDENT_ID for one-exercise-one-incident.
+      INCIDENT_ID: "${INCIDENT_ID:-phase3-incident-001}"
+      SCENARIO_ID: "${SCENARIO_ID:-ZERO-DAY-01}"
+      VERTEX_PROJECT_ID: "${VERTEX_PROJECT_ID:-}"
+      VERTEX_LOCATION: "${VERTEX_LOCATION:-us-central1}"
+      VERTEX_MODEL: "${VERTEX_MODEL:-gemini-2.5-flash}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+    # The agent runs non-root (see Dockerfile) but reads container logs via the
+    # mounted Docker socket. Grant the host's docker group gid so the socket is
+    # readable without running as root. Override DOCKER_GID if `getent group
+    # docker` on the host shows a different gid (999 is the common default).
+    group_add:
+      - "${DOCKER_GID:-999}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - zeroday_reports:/app/reports
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'print(\"ok\")'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - attense_net
+
+networks:
+  attense_net:
+    name: attense_net
+    driver: bridge
+
+volumes:
+  ollama_data:
+  zeroday_reports:
