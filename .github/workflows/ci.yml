@@ -73,6 +73,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Create stub secrets file (gitignored; required by compose env_file)
+        run: mkdir -p secrets && touch secrets/ATTENSE.env
       - name: Validate docker-compose.yml (includes infra/compose.*.yml)
         run: docker compose config -q
 
