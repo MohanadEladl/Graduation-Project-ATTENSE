@@ -588,6 +588,26 @@ services:
     networks:
       - attense_net
 
+  # ── Zero-Day Detection Agent + MITRE ATT&CK ─────────────────────────────────
+  zeroday-agent:
+    build:
+      context: ./zeroday-agent
+    container_name: attense_zeroday_agent
+    hostname: zeroday-agent
+    restart: unless-stopped
+    depends_on:
+      attense-app:
+        condition: service_healthy
+      wazuh-manager:
+        condition: service_healthy
+    environment:
+      BLUETEAM_URL: "http://attense-app:8010"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - zeroday_reports:/app/reports
+    networks:
+      - attense_net
+
 networks:
   attense_net:
     name: attense_net
@@ -605,6 +625,7 @@ volumes:
   attense_backup:
   red_team_logs:
   ollama_data:
+  zeroday_reports:
   # BlueTeam internal storage — Cassandra and Elasticsearch run inside the blueteam container
   blueteam_cassandra_data:
   blueteam_elasticsearch_data:
