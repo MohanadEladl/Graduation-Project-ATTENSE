@@ -56,7 +56,7 @@ def get_analyst_log_path(analyst_id: str) -> str:
 def cleanup_old_logs(retention_days: int = 7) -> None:
     """Delete analyst log files older than retention_days."""
     cutoff  = datetime.now(timezone.utc) - timedelta(days=retention_days)
-    pattern = os.path.join(ACTIONS_DIR, "analyst-*.jsonl")
+    pattern = os.path.join(ACTIONS_DIR, "*.jsonl")
     for path in glob.glob(pattern):
         try:
             mtime = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc)
@@ -86,7 +86,7 @@ def _load_from_disk() -> defaultdict[str, List[dict]]:
     """
     store: defaultdict[str, List[dict]] = defaultdict(list)
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    pattern  = os.path.join(ACTIONS_DIR, f"analyst-*_{date_str}.jsonl")
+    pattern  = os.path.join(ACTIONS_DIR, f"*_{date_str}.jsonl")
     total    = 0
     for path in glob.glob(pattern):
         try:

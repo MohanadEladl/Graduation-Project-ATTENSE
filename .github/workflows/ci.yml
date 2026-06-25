@@ -62,11 +62,11 @@ jobs:
       - name: Integration — blue-team-api (cross-room isolation)
         run: python -m unittest discover -s tests/integration/blue-team-api -p "test_*.py" -v
       - name: Integration — signal-mapper (Wazuh correlation)
-        run: python -m unittest discover -s tests/integration/signal-mapper -p "test_correlation.py" -v
+        run: python -m unittest discover -s tests/integration/signal-mapper -p "test_signalmapper_correlation.py" -v
       - name: Integration — red-team-api (TTD anchor + event contract)
         run: python -m unittest discover -s tests/integration/red-team-api -p "test_*.py" -v
-      - name: Zero-day agent (MITRE match, JSON parsing, report generation)
-        run: python -m pytest tests/zeroday_agent -q
+      - name: Zero-day agent (pytest — agent helpers + MITRE scanner + signal-mapper suitability)
+        run: python -m pytest tests/zeroday_agent/ tests/integration/signal-mapper/test_mapper_suitability.py -v
 
   compose-config:
     # Report Phase 7/9: the compose file must merge + validate.

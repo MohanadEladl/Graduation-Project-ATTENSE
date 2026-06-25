@@ -308,7 +308,7 @@ def _load_durable_events(incident_id: str) -> list[Event]:
 
 def _load_analyst_events(incident_id: str) -> list[Event]:
     events: list[Event] = []
-    pattern = os.path.join(ACTIONS_DIR, "analyst-*.jsonl")
+    pattern = os.path.join(ACTIONS_DIR, "*.jsonl")
     for path in sorted(glob.glob(pattern)):
         with open(path, "r", encoding="utf-8") as f:
             for idx, line in enumerate(f):

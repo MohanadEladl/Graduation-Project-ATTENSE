@@ -511,11 +511,97 @@ def _call_gemini(client, model: str, system_prompt: str, messages: list) -> str 
     return None
 
 
+def _build_offline_analysis(mitre_matches: dict) -> dict:
+    """
+    Build a best-effort analysis from the MITRE keyword pre-scan alone,
+    used when Gemini credentials are absent.
+    """
+    all_matches = [
+        (container, m)
+        for container, matches in mitre_matches.items()
+        for m in matches
+    ]
+
+    if not all_matches:
+        return _empty_analysis(
+            classification="NORMAL",
+            confidence="HIGH",
+            reasoning="MITRE pre-scan found no known technique keywords in any container logs.",
+            recommendation="No immediate action required. Continue monitoring.",
+        )
+
+    affected = sorted({c for c, _ in all_matches})
+    best_match = max(all_matches, key=lambda cm: len(cm[1].get("matched_keywords", [])))[1]
+
+    _TACTIC_SEVERITY = {
+        "exfiltration": "HIGH", "impact": "HIGH",
+        "command-and-control": "HIGH", "privilege-escalation": "HIGH",
+        "lateral-movement": "HIGH", "initial-access": "MEDIUM",
+        "execution": "MEDIUM", "persistence": "MEDIUM",
+        "credential-access": "MEDIUM", "discovery": "LOW",
+        "reconnaissance": "LOW",
+    }
+    tactic_key = best_match.get("tactic", "").lower().replace(" ", "-")
+    severity = _TACTIC_SEVERITY.get(tactic_key, "MEDIUM")
+
+    anomalies = [
+        {
+            "container": container,
+            "observation": f"Matched keywords: {', '.join(m.get('matched_keywords', []))}",
+            "mitre_technique": m.get("technique_id", "UNKNOWN"),
+            "mitre_tactic": m.get("tactic", "Unknown"),
+            "is_known_technique": True,
+            "zero_day_indicator": "N/A — matches known technique",
+            "timestamp": datetime.now().isoformat(),
+        }
+        for container, m in all_matches
+    ]
+
+    techniques_summary = ", ".join(
+        f"{m['technique_id']} ({m.get('tactic', '?')})"
+        for _, m in all_matches
+    )
+
+    return {
+        "zero_day_detected": False,
+        "confidence": "MEDIUM",
+        "severity": severity,
+        "classification": "KNOWN_ATTACK",
+        "kill_chain_stage": best_match.get("tactic", "Unknown").replace("-", " ").title(),
+        "closest_mitre_technique": {
+            "id":          best_match.get("technique_id", "UNKNOWN"),
+            "name":        best_match.get("technique_name", "Unknown"),
+            "tactic":      best_match.get("tactic", "Unknown"),
+            "url":         best_match.get("url", ""),
+            "match_level": "FULL",
+            "why_zero_day": "N/A — behavior matches a known technique; no zero-day indicators.",
+        },
+        "anomalies": anomalies,
+        "attack_vector": f"Keyword-matched techniques in: {', '.join(affected)}",
+        "affected_containers": affected,
+        "kill_chain_analysis": (
+            f"Offline MITRE keyword scan identified {len(all_matches)} technique match(es): "
+            f"{techniques_summary}. "
+            f"Full kill-chain reasoning requires Gemini credentials."
+        ),
+        "reasoning": (
+            f"Offline analysis — no Gemini credentials available. "
+            f"MITRE pre-scan matched {len(all_matches)} known technique(s) across "
+            f"{len(affected)} container(s): {techniques_summary}."
+        ),
+        "recommendation": (
+            "Review the matched containers and techniques above. "
+            "Set VERTEX_PROJECT_ID and run 'gcloud auth application-default login' "
+            "for full Gemini-powered zero-day analysis via Vertex AI."
+        ),
+    }
+
+
 def analyze_with_gemini(all_logs: list[dict], mitre_matches: dict) -> dict:
     client = _get_client()
     if client is None:
-        logger.warning("No valid Gemini credentials — returning empty analysis")
-        return _empty_analysis(reasoning="No API credentials configured")
+        logger.warning("No Gemini credentials — falling back to offline MITRE analysis")
+        return _build_offline_analysis(mitre_matches)
 
     logger.info("Starting Gemini AI + MITRE ATT&CK analysis...")
 
@@ -719,11 +805,13 @@ def run_agent():
         if result.get("skipped"):
             logger.info("Agent run complete. Zero-day already reported (no new alert/report).")
             return analysis, None
+
+    if total > 0 or analysis.get("zero_day_detected"):
         report_path = generate_report(analysis, all_logs, mitre_matches)
         logger.info("Agent run complete. Report: %s", report_path)
         return analysis, report_path
 
-    logger.info("Agent run complete. No report generated (no zero-day detected).")
+    logger.info("Agent run complete. No report generated (no matches, no zero-day).")
     return analysis, None
 
 
