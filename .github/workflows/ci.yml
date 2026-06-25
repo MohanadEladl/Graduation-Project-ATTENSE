@@ -54,7 +54,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test dependencies
-        run: pip install "pydantic==2.10.6" "pydantic-settings==2.7.1" fastapi httpx requests tenacity pytest
+        run: pip install "pydantic==2.10.6" "pydantic-settings==2.7.1" fastapi httpx requests tenacity pytest uvicorn
       - name: Unit tests (pure domain logic)
         run: python -m unittest discover -s tests/unit -p "test_*.py" -v
       - name: Integration — control-api (persistence, correlation, scenarios API)
