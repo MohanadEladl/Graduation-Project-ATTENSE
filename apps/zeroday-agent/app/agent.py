@@ -2,6 +2,7 @@
 Zero-Day Detection Agent — with MITRE ATT&CK Integration
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -9,11 +10,19 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 
 import httpx
+from tenacity import (
+    RetryError,
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -92,6 +101,17 @@ CONTAINERS = {
 }
 
 BLUETEAM_URL = os.environ.get("BLUETEAM_URL", "http://attense-app:8010")
+ROOM_ID = os.environ.get("ROOM_ID", "default")
+# Scoring pipeline (control-api event ingest) — same endpoint the red-team
+# engine posts malicious_action_executed to (see red-team-api/core/event_sink.py).
+ATTENSE_APP_URL = os.environ.get("ATTENSE_APP_URL", "http://attense-app:8020")
+EVENTS_SECRET = os.environ.get("RED_TEAM_EVENTS_SECRET", "")
+# Correlation (report Phase 4: one exercise = one incident). The shared exercise
+# incident_id/scenario_id are provided via env, so a zero-day detection attaches
+# to the SAME incident the exercise is scoring instead of minting its own ticket
+# (mirrors signal-mapper/app/mapper.py:_resolve_incident_id).
+INCIDENT_ID = os.environ.get("INCIDENT_ID", "")
+SCENARIO_ID = os.environ.get("SCENARIO_ID", "ZERO-DAY-01")
 LOG_TAIL_LINES = 150
 LOG_MAX_CHARS = 3000
 MAX_API_TURNS = 3
@@ -202,9 +222,29 @@ def _format_mitre_context(mitre_matches: dict) -> str:
     return "\n".join(parts)
 
 
-# ─── Blue Team API (httpx + retry, aligned with signal-mapper/output.py) ─────
+# ─── Alert dispatch — both planes, correlated + deduplicated ─────────────────
+#
+# A confirmed zero-day is sent to BOTH consumers:
+#   1. the blue-team analyst dashboard  → POST :8010/blueteam/raise-alert
+#      (RaiseAlertRequest + X-Room-Id; mirrors signal-mapper/app/output.py)
+#   2. the control-api scoring pipeline → POST :8020/api/incidents/events
+#      (canonical StandardEvent; mirrors red-team-api/core/event_sink.py)
+#
+# Both carry the SHARED exercise incident_id (INCIDENT_ID env) so the detection
+# joins the one-exercise-one-incident timeline instead of minting its own ticket
+# (report Phase 4). The watcher re-scans every cycle, so dispatch is deduplicated
+# by a detection fingerprint — a persistent attack is reported once, not every
+# interval. Transport uses tenacity retry, the same library signal-mapper and
+# control-api use.
+
+HTTP_RETRY_ATTEMPTS = 3
+HTTP_RETRY_MIN_WAIT = 2
+HTTP_RETRY_MAX_WAIT = 10
+
+_SEVERITY_MAP = {"CRITICAL": "critical", "HIGH": "high", "MEDIUM": "medium", "LOW": "low"}
 
 _http_client: httpx.Client | None = None
+_last_posted_fingerprint: str | None = None
 
 
 def _get_http_client() -> httpx.Client:
@@ -214,19 +254,37 @@ def _get_http_client() -> httpx.Client:
     return _http_client
 
 
-def post_to_attense(analysis: dict) -> bool:
+def _resolve_incident_id() -> str:
+    """The shared exercise incident_id (INCIDENT_ID env), or a generated id in
+    standalone mode. Mirrors signal-mapper/app/mapper.py:_resolve_incident_id —
+    correlate to the exercise instead of splitting it into a separate incident."""
+    return INCIDENT_ID or f"zeroday-{uuid.uuid4()}"
+
+
+def _detection_fingerprint(analysis: dict) -> str:
+    """Stable id for a *distinct* detection — drives both dedup and an
+    idempotent StandardEvent event_id (so a replay is ignored by the store)."""
+    mitre = analysis.get("closest_mitre_technique", {})
+    basis = "|".join([
+        analysis.get("classification", "UNKNOWN"),
+        str(mitre.get("id", "?")),
+        ",".join(sorted(analysis.get("affected_containers", []))),
+    ])
+    return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:12]
+
+
+def _to_raise_alert_request(analysis: dict, incident_id: str) -> dict:
+    """Reshape a zero-day analysis into the blue-team RaiseAlertRequest body."""
     mitre = analysis.get("closest_mitre_technique", {})
     classification = analysis.get("classification", "UNKNOWN")
-    severity_map = {"CRITICAL": "critical", "HIGH": "high", "MEDIUM": "medium", "LOW": "low"}
-
-    payload = {
-        "incident_id": f"zeroday-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
-        "scenario_id": "ZERO-DAY-01",
+    return {
+        "incident_id": incident_id,
+        "scenario_id": SCENARIO_ID,
         "siem_id": "zeroday-agent",
         "target_id": "target-agent",
         "target_type": "host",
         "rule_name": f"zero_day_{classification.lower()}",
-        "severity": severity_map.get(analysis.get("severity", "HIGH"), "high"),
+        "severity": _SEVERITY_MAP.get(analysis.get("severity"), "high"),
         "raw_log": "\n".join([
             f"[ZERO-DAY AGENT] Classification: {classification}",
             f"Closest MITRE: {mitre.get('id', '?')} - {mitre.get('name', '?')} (match: {mitre.get('match_level', '?')})",
@@ -236,36 +294,101 @@ def post_to_attense(analysis: dict) -> bool:
         ]),
     }
 
-    url = f"{BLUETEAM_URL}/blueteam/raise-alert"
-    max_attempts = 3
-    for attempt in range(1, max_attempts + 1):
-        try:
-            resp = _get_http_client().post(
-                url,
-                content=json.dumps(payload),
-                headers={"Content-Type": "application/json"},
-            )
-            resp.raise_for_status()
-            result = resp.json()
-            logger.info("Alert posted to Blue Team API: %s -> %s", url, resp.status_code)
-            logger.debug("Response: %s", json.dumps(result, indent=2)[:300])
-            return True
-        except httpx.HTTPStatusError as exc:
-            logger.error("Blue Team API HTTP %s: %s", exc.response.status_code, exc)
-            return False
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            logger.warning(
-                "Blue Team API attempt %d/%d failed: %s",
-                attempt, max_attempts, exc,
-            )
-            if attempt < max_attempts:
-                time.sleep(2 ** attempt)
-        except Exception as exc:
-            logger.error("Failed to post alert: %s", exc)
-            return False
 
-    logger.error("All %d attempts to reach Blue Team API failed", max_attempts)
-    return False
+def _to_standard_event(analysis: dict, incident_id: str, fingerprint: str) -> dict:
+    """Build the canonical StandardEvent the scoring pipeline ingests (report
+    Phase 2). Mirrors red-team-api/core/event_sink.py — same contract, but a
+    separate container so it can't import attense_core. Emitted as an
+    `alert_raised` detection by the `system` actor; the fingerprint-derived
+    event_id makes a replay idempotent in the durable store."""
+    mitre = analysis.get("closest_mitre_technique", {})
+    return {
+        "schema_version": "1.0",
+        "event_id": f"zeroday-{fingerprint}",
+        "incident_id": incident_id,
+        "source_event_id": fingerprint,
+        "scenario_id": SCENARIO_ID,
+        "actor_id": "zeroday-agent",
+        "actor_type": "system",
+        "target_id": "target-agent",
+        "target_type": "host",
+        "event_type": "alert_raised",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "outcome": "detected",
+        "metadata": {
+            "source_component": "zeroday-agent",
+            "classification": analysis.get("classification", "UNKNOWN"),
+            "severity": analysis.get("severity", "UNKNOWN"),
+            "confidence": analysis.get("confidence", "UNKNOWN"),
+            "kill_chain_stage": analysis.get("kill_chain_stage", "Unknown"),
+            "closest_mitre_id": mitre.get("id", "?"),
+            "closest_mitre_name": mitre.get("name", "?"),
+            "match_level": mitre.get("match_level", "?"),
+            "attack_vector": analysis.get("attack_vector", "Unknown"),
+            "affected_containers": analysis.get("affected_containers", []),
+        },
+    }
+
+
+@retry(
+    wait=wait_exponential(min=HTTP_RETRY_MIN_WAIT, max=HTTP_RETRY_MAX_WAIT),
+    stop=stop_after_attempt(HTTP_RETRY_ATTEMPTS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+def _post_json(url: str, payload: dict, headers: dict) -> httpx.Response:
+    resp = _get_http_client().post(
+        url,
+        content=json.dumps(payload),
+        headers={"Content-Type": "application/json", **headers},
+    )
+    resp.raise_for_status()
+    return resp
+
+
+def _send(label: str, url: str, payload: dict, headers: dict) -> bool:
+    """POST one payload with retry; never raises (a dead consumer must not stop
+    the other dispatch or the watcher loop)."""
+    try:
+        resp = _post_json(url, payload, headers)
+        logger.info("%s posted: %s -> %s", label, url, resp.status_code)
+        return True
+    except httpx.HTTPStatusError as exc:
+        logger.error("%s rejected: HTTP %s: %s", label, exc.response.status_code, exc)
+        return False
+    except (RetryError, httpx.HTTPError, Exception) as exc:
+        logger.error("%s failed after %d attempts: %s", label, HTTP_RETRY_ATTEMPTS, exc)
+        return False
+
+
+def dispatch_alert(analysis: dict) -> dict:
+    """Send a confirmed zero-day to both the analyst dashboard and the scoring
+    pipeline, correlated to the shared exercise incident and deduplicated across
+    watcher cycles. Returns a result dict (``skipped`` when already reported)."""
+    global _last_posted_fingerprint
+    fingerprint = _detection_fingerprint(analysis)
+    if fingerprint == _last_posted_fingerprint:
+        logger.info("Same zero-day as last report (fp=%s) — skipping duplicate dispatch", fingerprint)
+        return {"skipped": True, "fingerprint": fingerprint}
+
+    incident_id = _resolve_incident_id()
+    dashboard_ok = _send(
+        "Blue Team alert", f"{BLUETEAM_URL}/blueteam/raise-alert",
+        _to_raise_alert_request(analysis, incident_id), {"X-Room-Id": ROOM_ID},
+    )
+    scoring_ok = _send(
+        "Scoring event", f"{ATTENSE_APP_URL}/api/incidents/events",
+        _to_standard_event(analysis, incident_id, fingerprint),
+        {"Authorization": f"Bearer {EVENTS_SECRET}"},
+    )
+    # Only remember the detection once it has landed somewhere, so a transient
+    # outage retries on the next cycle instead of being silently swallowed.
+    if dashboard_ok or scoring_ok:
+        _last_posted_fingerprint = fingerprint
+    return {
+        "skipped": False, "fingerprint": fingerprint, "incident_id": incident_id,
+        "dashboard": dashboard_ok, "scoring": scoring_ok,
+    }
 
 
 # ─── Gemini AI Analysis ─────────────────────────────────────────────────────
@@ -453,11 +576,11 @@ def generate_report(analysis: dict, all_logs: list[dict], mitre_matches: dict) -
     buf = StringIO()
     w = buf.write
 
-    w(f"# Zero-Day Detection Report -- MITRE ATT&CK Mapped\n\n")
+    w("# Zero-Day Detection Report -- MITRE ATT&CK Mapped\n\n")
     w(f"**Report ID:** ZD-{report_id}\n")
     w(f"**Generated:** {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
     w(f"**Classification:** {_BADGE_MAP.get(classification, 'UNKNOWN')}\n")
-    w(f"**Platform:** ATTENSE Cyber Range\n\n---\n\n")
+    w("**Platform:** ATTENSE Cyber Range\n\n---\n\n")
 
     w("## Executive Summary\n\n| Field | Value |\n|-------|-------|\n")
     w(f"| Zero-Day Detected | {'YES' if analysis.get('zero_day_detected') else 'NO'} |\n")
@@ -579,7 +702,7 @@ def run_agent():
     total = sum(len(v) for v in mitre_matches.values())
     logger.info("  Found %d technique matches across containers", total)
 
-    valid_logs = [l for l in all_logs if not l.get("error") and l.get("logs", "").strip()]
+    valid_logs = [log for log in all_logs if not log.get("error") and log.get("logs", "").strip()]
     if valid_logs:
         analysis = analyze_with_gemini(valid_logs, mitre_matches)
     else:
@@ -592,7 +715,10 @@ def run_agent():
     send_alert(analysis)
 
     if analysis.get("zero_day_detected"):
-        post_to_attense(analysis)
+        result = dispatch_alert(analysis)
+        if result.get("skipped"):
+            logger.info("Agent run complete. Zero-day already reported (no new alert/report).")
+            return analysis, None
         report_path = generate_report(analysis, all_logs, mitre_matches)
         logger.info("Agent run complete. Report: %s", report_path)
         return analysis, report_path
