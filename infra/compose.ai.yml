@@ -1,9 +1,12 @@
 # =============================================================================
 # ATTENSE Cyber Range — infra/compose.ai.yml
 # =============================================================================
-# Local LLM inference (Ollama), used by the red-team backend's freestyle/
-# analysis features. compose.base.yml's `red-team-backend` depends on this
-# service being started, so run together with compose.base.yml.
+# AI services: Ollama (local LLM inference, used by the red-team backend's
+# freestyle/analysis features) and the Zero-Day Detection Agent (Gemini-
+# powered MITRE ATT&CK analysis of container logs).
+#
+# compose.base.yml's `red-team-backend` depends on Ollama being started,
+# so run together with compose.base.yml.
 # =============================================================================
 
 x-default-logging: &default-logging
@@ -33,6 +36,35 @@ services:
     networks:
       - attense_net
 
+  # ── Zero-Day Detection Agent: Gemini AI + MITRE ATT&CK ────────────────────
+  zeroday-agent:
+    build:
+      context: ../apps/zeroday-agent
+    container_name: attense_zeroday_agent
+    hostname: zeroday-agent
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      attense-app:
+        condition: service_healthy
+    environment:
+      BLUETEAM_URL: "http://attense-app:8010"
+      VERTEX_PROJECT_ID: "${VERTEX_PROJECT_ID:-}"
+      VERTEX_LOCATION: "${VERTEX_LOCATION:-us-central1}"
+      VERTEX_MODEL: "${VERTEX_MODEL:-gemini-2.5-flash}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - zeroday_reports:/app/reports
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'print(\"ok\")'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - attense_net
+
 networks:
   attense_net:
     name: attense_net
@@ -40,3 +72,4 @@ networks:
 
 volumes:
   ollama_data:
+  zeroday_reports:
