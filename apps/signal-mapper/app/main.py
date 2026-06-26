@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import json
 import asyncio
+import hmac
 import logging
 import threading
 import time
@@ -23,7 +24,8 @@ from collections import deque
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
 from app.config import settings
@@ -57,11 +59,32 @@ _ring_lock = threading.Lock()
 _events: list[dict[str, Any]] = []
 worker_task = None
 
+# One Wazuh manager and one signal-store process serve the active exercise.
+# This value is changed by the control API when a room starts/stops, rather
+# than relying on the immutable INCIDENT_ID process environment variable.
+_active_incident_id: str | None = None
+_incident_lock = threading.Lock()
+
+
+class ActiveIncidentRequest(BaseModel):
+    incident_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+def _get_active_incident_id() -> str | None:
+    with _incident_lock:
+        return _active_incident_id
+
+
+def _set_active_incident_id(incident_id: str | None) -> None:
+    global _active_incident_id
+    with _incident_lock:
+        _active_incident_id = incident_id
+
 
 # ── Processing logic ──────────────────────────────────────────────────────────
 
 def _process_alert(raw: dict) -> None:
-    event = map_alert(raw)
+    event = map_alert(raw, incident_id_override=_get_active_incident_id())
     if event is None:
         return
 
@@ -149,8 +172,33 @@ async def health() -> JSONResponse:
             "events_buffered": len(_ring),
             "worker_running": alive,
             "events_in_store": len(_events),
+            "active_incident_id": _get_active_incident_id(),
         },
     )
+
+
+@app.put("/configuration/active-incident", tags=["ops"])
+async def configure_active_incident(
+    body: ActiveIncidentRequest,
+    x_signal_store_secret: str | None = Header(default=None),
+) -> dict[str, str | None]:
+    """Set or clear the incident used for subsequently mapped Wazuh alerts.
+
+    This endpoint is internal-only and authenticated.  Clearing the context on
+    room close makes the configured fallback INCIDENT_ID available again for
+    standalone exercises.
+    """
+    expected = settings.signal_store_config_secret
+    if not expected:
+        raise HTTPException(status_code=503, detail="Runtime incident configuration is disabled")
+    if not x_signal_store_secret or not hmac.compare_digest(
+        x_signal_store_secret, expected
+    ):
+        raise HTTPException(status_code=401, detail="Invalid signal-store configuration secret")
+
+    _set_active_incident_id(body.incident_id)
+    logger.info("[main] Active exercise incident changed to %s", body.incident_id or "<fallback>")
+    return {"active_incident_id": body.incident_id}
 
 
 @app.get("/events", tags=["events"], summary="Return last N mapped events")
@@ -174,7 +222,7 @@ async def ingest_alert(request: Request) -> JSONResponse:
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    event = map_alert(raw)
+    event = map_alert(raw, incident_id_override=_get_active_incident_id())
     if event is None:
         raise HTTPException(
             status_code=422, detail="Could not map alert to ATTENSE StandardEvent"

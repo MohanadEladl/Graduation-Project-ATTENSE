@@ -61,7 +61,7 @@ def truncate(s: str, n: int = 200) -> str:
     return s[:n] + ("…" if len(s) > n else "")
 
 
-def or_none(value: str) -> str | None:
+def or_none(value: str | None) -> str | None:
     """Return *value* if non-empty/non-whitespace, else None."""
     stripped = (value or "").strip()
     return stripped if stripped else None

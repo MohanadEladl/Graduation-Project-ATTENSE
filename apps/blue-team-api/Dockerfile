@@ -19,13 +19,13 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Builder stage: deps copied and installed before any source code, so this
-# layer is cache-hit on every rebuild that doesn't touch requirments.txt.
+# layer is cache-hit on every rebuild that doesn't touch requirements.txt.
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
-COPY apps/blue-team-api/requirments.txt .
+COPY apps/blue-team-api/requirements.txt .
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir -r requirments.txt
+    && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # Final stage: only the built venv is copied in below — pip's own footprint
 # never reaches the shipped image.

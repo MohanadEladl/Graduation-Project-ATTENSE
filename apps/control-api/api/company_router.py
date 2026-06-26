@@ -58,6 +58,14 @@ def register_with_manager(body: RegisterCompanyWithManagerRequest):
     return {"company": company, "manager": manager}
 
 
+@router.get("")
+def list_all_companies(session: dict = Depends(require_session)):
+    """Return every company for CISO oversight, regardless of status."""
+    if session["role"] != "ciso":
+        raise HTTPException(status_code=403, detail="Only ciso can list all companies")
+    return company_store.list_companies()
+
+
 @router.get("/pending")
 def list_pending(session: dict = Depends(require_session)):
     if session["role"] != "ciso":

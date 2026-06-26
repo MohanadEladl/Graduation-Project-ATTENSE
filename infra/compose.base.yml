@@ -66,6 +66,7 @@ services:
       OUTPUT_PATH: /attense/data/mapped_events.jsonl
       EVENT_STORE_URL: "http://attense-app:8010/blueteam/raise-alert"
       INCIDENT_ID: "phase3-incident-001"
+      SIGNAL_STORE_CONFIG_SECRET: "${WEBHOOK_SECRET}"
       MODE: wazuh
     volumes:
       - wazuh_alerts:/wazuh/alerts:ro
@@ -130,6 +131,10 @@ services:
       # Gate for POST /api/incidents/events (red-team engine -> controller);
       # port 8020 is published to the host so this can't rely on network trust alone.
       RED_TEAM_EVENTS_SECRET: "${RED_TEAM_EVENTS_SECRET}"
+      # Authenticates the room lifecycle handoff that binds Wazuh alerts to
+      # the room's incident ID in signal-store.
+      SIGNAL_STORE_URL: "http://signal-store:8000"
+      SIGNAL_STORE_CONFIG_SECRET: "${WEBHOOK_SECRET}"
       # Sandbox / Target Agent
       SANDBOX_URL: "http://target-agent:80"
       # Remaining per-organisation runtime secrets are injected below.

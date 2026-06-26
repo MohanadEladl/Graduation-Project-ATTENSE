@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # notifier reads this env var (SIGNAL_STORE_URL) directly.
     signal_store_url: str = "http://signal-store:8005"
 
+    # Shared secret for the internal room-controller -> signal-store context
+    # endpoint.  It is intentionally separate from event payloads: only the
+    # controller may switch which live exercise receives Wazuh detections.
+    signal_store_config_secret: str = ""
+
     # ── Reader ────────────────────────────────────────────────────────────────
     # Seconds to wait for the alerts file to appear before aborting
     file_wait_timeout: int = 120

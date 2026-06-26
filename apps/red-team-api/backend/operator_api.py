@@ -24,11 +24,13 @@ import socket
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
 import json
 import docker as docker_sdk
+from docker.errors import DockerException, NotFound as DockerNotFound
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -284,14 +286,13 @@ def get_attackbox_status() -> Dict[str, Any]:
         client = _docker_client()
         container = client.containers.get(ATTACKBOX_CONTAINER)
         exit_code, output = container.exec_run("echo alive", demux=False)
-        if exit_code == 0 and b"alive" in output:
+        output_bytes = output if isinstance(output, bytes) else b"".join(output)
+        if exit_code == 0 and b"alive" in output_bytes:
             return {"status": "running", "container": ATTACKBOX_CONTAINER}
-        return {"status": "error", "detail": output.decode("utf-8", errors="replace").strip()}
-    except docker_sdk.errors.NotFound:
+        return {"status": "error", "detail": output_bytes.decode("utf-8", errors="replace").strip()}
+    except DockerNotFound:
         return {"status": "stopped", "detail": "attackbox container not found"}
-    except docker_sdk.errors.DockerException as e:
-        return {"status": "error", "detail": str(e)}
-    except Exception as e:
+    except (DockerException, Exception) as e:
         return {"status": "error", "detail": str(e)}
 
 
@@ -311,7 +312,7 @@ def exec_in_attackbox(command: str) -> Dict[str, Any]:
             demux=False,
             socket=False,
         )
-        raw = output or b""
+        raw = output if isinstance(output, bytes) else b"".join(output) if output else b""
         text = raw.decode("utf-8", errors="replace")
         stdout_part = text[:MAX_OUTPUT_LEN]
         return {
@@ -321,21 +322,14 @@ def exec_in_attackbox(command: str) -> Dict[str, Any]:
             "tool": tool,
             "exit_code": exit_code,
         }
-    except docker_sdk.errors.NotFound:
+    except DockerNotFound:
         return {
             "status": "error",
             "command": command,
             "output": "attackbox container not found.",
             "tool": tool,
         }
-    except docker_sdk.errors.DockerException as e:
-        return {
-            "status": "error",
-            "command": command,
-            "output": str(e),
-            "tool": tool,
-        }
-    except Exception as e:
+    except (DockerException, Exception) as e:
         return {
             "status": "error",
             "command": command,
@@ -460,7 +454,6 @@ def zap_repeater_send(method: str, path: str, headers: Optional[Dict] = None,
         request_header += "\r\n"
         full_request = request_header + (body or "")
 
-        import urllib.parse
         api_url = (f"{ZAP_API_URL}/JSON/core/action/sendRequest/"
                    f"?apikey={ZAP_API_KEY}"
                    f"&request={urllib.parse.quote(full_request)}"

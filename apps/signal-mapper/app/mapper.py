@@ -84,7 +84,7 @@ from app.classifier import classify
 from app.parser import parse_alert
 from app.schema import WazuhAlert
 from app.utils import or_none, to_iso, truncate
-from ATTENSE_app.events.event import Event
+from attense_core.models.event import Event
 
 logger = logging.getLogger("signal-mapper.mapper")
 
@@ -118,7 +118,9 @@ _TARGET_TYPE_MAP: dict[str, str] = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _resolve_incident_id(alert: WazuhAlert) -> str:
+def _resolve_incident_id(
+    alert: WazuhAlert, incident_id_override: Optional[str] = None
+) -> str:
     """
     Resolve the ATTENSE incident_id this detection belongs to.
 
@@ -136,6 +138,12 @@ def _resolve_incident_id(alert: WazuhAlert) -> str:
     exercise incident_id is configured (standalone / test / file-output mode,
     where the attacker node and env correlation aren't in the loop).
     """
+    # A room controller can set the active exercise at runtime.  This must win
+    # over the process environment: a long-lived signal-store cannot be
+    # restarted for every room just to change INCIDENT_ID.
+    if incident_id_override:
+        return incident_id_override
+
     env_id = os.getenv("INCIDENT_ID")
     if env_id:
         return env_id
@@ -210,7 +218,7 @@ def _build_metadata(alert: WazuhAlert, cls) -> dict:
 
 # ── Main mapping function ─────────────────────────────────────────────────────
 
-def map_alert(raw: dict) -> Optional[Event]:
+def map_alert(raw: dict, incident_id_override: Optional[str] = None) -> Optional[Event]:
     """
     Convert *raw* (a Wazuh alert dict) into a single ATTENSE Event.
 
@@ -257,7 +265,7 @@ def map_alert(raw: dict) -> Optional[Event]:
         or or_none(alert.agent.id)
         or "unknown"
     )
-    incident_id = _resolve_incident_id(alert)
+    incident_id = _resolve_incident_id(alert, incident_id_override)
     metadata    = _build_metadata(alert, cls)
 
     # ── Step 4: Determine outcome ──────────────────────────────────────────────

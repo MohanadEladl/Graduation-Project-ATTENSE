@@ -134,7 +134,7 @@ ABUSEIPDB_API_KEY: ""       # fill in with real key
 
 ---
 
-### Modified: `requirments.txt`
+### Modified: `requirements.txt`
 
 No new packages needed — `httpx` is already installed and handles all HTTP calls.
 
