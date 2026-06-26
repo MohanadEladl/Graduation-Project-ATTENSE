@@ -28,7 +28,6 @@ Convention for linking Hive cases to ATTENSE incidents:
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from datetime import datetime
 from typing import Optional
