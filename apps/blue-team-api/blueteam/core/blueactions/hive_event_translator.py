@@ -34,7 +34,7 @@ from datetime import datetime
 from typing import Optional
 
 from ATTENSE_app.events.event import Event
-from ATTENSE_app.blueteam.core.blueactions.hive_keywords import (
+from blueteam.core.blueactions.hive_keywords import (
     DISMISSAL_APPROVED_RE as _DISMISSAL_APPROVED_RE,
     LESSONS_LEARNED_RE   as _LESSONS_LEARNED_RE,
 )
