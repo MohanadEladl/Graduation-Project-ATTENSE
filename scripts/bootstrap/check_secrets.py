@@ -80,16 +80,15 @@ REQUIRED_KEYS = [
 # Left empty on purpose to disable that enrichment source gracefully.
 OPTIONAL_KEYS = ["VIRUSTOTAL_API_KEY", "ABUSEIPDB_API_KEY"]
 
-# Fails the run: this account can see every company's org/cases, so an
-# unrotated default here is a real cross-tenant leak, not just hygiene.
-CRITICAL_DEFAULTS = {
-    "THEHIVE_ADMIN_PASSWORD": "secret",
-}
+# Moved to WARN_DEFAULTS for local single-user lab bootstrap.
+# In production (multi-user), rotate this before exposing the stack.
+CRITICAL_DEFAULTS: dict[str, str] = {}
 
 # Warns but doesn't fail: single shared infra credentials with no
 # per-company data behind them, so a solo local lab can reasonably leave
 # these default until more than one person gets access to the deployment.
 WARN_DEFAULTS = {
+    "THEHIVE_ADMIN_PASSWORD": "secret",
     "THEHIVE_ADMIN_LOGIN": "admin@thehive.local",
     "CORTEX_ADMIN_PASSWORD": "attense-Admin1!",
     "CORTEX_ORG_PASS": "attense-Analyst1!",

@@ -198,13 +198,16 @@ def _user_login_for(org_name: str) -> str:
 
 
 def ensure_user(org_name: str) -> str:
+    import urllib.parse
     user_login = _user_login_for(org_name)
+    encoded_login = urllib.parse.quote(user_login, safe="")
     print(f"\n👤 Step 3: Ensuring service user '{user_login}' in '{org_name}' …")
 
     # Does the user already exist? (v0 user endpoint is the reliable one here.)
     # Must look in the org the user belongs to, not the admin session's org.
+    # URL-encode the login so '@' becomes '%40'.
     try:
-        _req("GET", f"/api/user/{user_login}", org=org_name)
+        _req("GET", f"/api/user/{encoded_login}", org=org_name)
         print(f"   ✅ User '{user_login}' already exists — skipping creation.")
         return user_login
     except RuntimeError as e:
@@ -230,7 +233,11 @@ def fetch_api_key(user_login: str, org_name: str) -> str:
     # v0 route (the v1 route 404s with "User not found"). The X-Organisation
     # header is required so TheHive resolves the user in their own org, not the
     # admin session's 'admin' org.
-    key = _req("POST", f"/api/user/{user_login}/key/renew", raw=True, org=org_name)
+    # URL-encode the login so '@' becomes '%40' — without this TheHive 4.1.x
+    # returns 404 "User not found" even for a just-created user.
+    import urllib.parse
+    encoded_login = urllib.parse.quote(user_login, safe="")
+    key = _req("POST", f"/api/user/{encoded_login}/key/renew", raw=True, org=org_name)
     # Some builds wrap it in JSON — handle both.
     if key.startswith("{"):
         try:

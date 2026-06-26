@@ -62,6 +62,8 @@ services:
       VERTEX_LOCATION: "${VERTEX_LOCATION:-us-central1}"
       VERTEX_MODEL: "${VERTEX_MODEL:-gemini-2.5-flash}"
       GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      GOOGLE_APPLICATION_CREDENTIALS: "/tmp/gcloud/application_default_credentials.json"
+      GOOGLE_CLOUD_PROJECT: "${GOOGLE_CLOUD_PROJECT:-}"
     # The agent runs non-root (see Dockerfile) but reads container logs via the
     # mounted Docker socket. Grant the host's docker group gid so the socket is
     # readable without running as root. Override DOCKER_GID if `getent group
@@ -71,6 +73,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - zeroday_reports:/app/reports
+      - C:/Users/rawan/AppData/Roaming/gcloud:/tmp/gcloud:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c 'print(\"ok\")'"]
       interval: 30s

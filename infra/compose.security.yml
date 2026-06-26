@@ -171,6 +171,7 @@ services:
       - THEHIVE_URL=http://thehive:9000
       - THEHIVE_ORG_NAME=blue-team
       - THEHIVE_WEBHOOK_ENDPOINT=blueteam
+      - ENV_FILE_PATH=/secrets/ATTENSE.env
     # THEHIVE_ADMIN_LOGIN/THEHIVE_ADMIN_PASSWORD come from here. Without this,
     # setup_thehive.py falls back to its "secret" default and 401s on every
     # re-run after the admin password has been rotated -- discovered when
@@ -179,6 +180,7 @@ services:
       - ../secrets/ATTENSE.env
     volumes:
       - ../scripts/bootstrap:/scripts:ro
+      - ../secrets:/secrets                # write HIVE_API_KEY into ATTENSE.env
     command: python /scripts/setup_thehive.py
     networks:
       - attense_net
