@@ -71,7 +71,7 @@ def extract_analyst_action(
     status = f"{status_raw} {resolution}".strip()
 
     # Match against rules
-    event_type = None
+    action_type = None
     for rule_type, rule_op, rule_status, mapped in _RULES:
         if rule_type != object_type:
             continue
@@ -79,24 +79,24 @@ def extract_analyst_action(
             continue
         if rule_status and rule_status.lower() not in status.lower():
             continue
-        event_type = mapped
+        action_type = mapped
         break
 
     # Keyword-based fallback for v2.0.0 events that cannot be matched by
     # (object_type, operation, status) alone — they're identified by message content.
-    if not event_type:
+    if not action_type:
         if object_type in ("case_task_log", "tasklog") and operation == "create":
             message = obj.get("message", "") or obj.get("description", "") or ""
             if _DISMISSAL_APPROVED_RE.search(message):
-                event_type = "dismissal_approved"
+                action_type = "dismissal_approved"
             elif _LESSONS_LEARNED_RE.search(message):
-                event_type = "lessons_learned_recorded"
+                action_type = "lessons_learned_recorded"
         elif object_type in ("case_task", "task") and operation == "update":
             title = obj.get("title", "") or obj.get("description", "") or ""
             if (obj.get("status") or "").lower() == "completed" and _LESSONS_LEARNED_RE.search(title):
-                event_type = "lessons_learned_recorded"
+                action_type = "lessons_learned_recorded"
 
-    if not event_type:
+    if not action_type:
         return None
 
     # Extract analyst identity.
@@ -127,7 +127,7 @@ def extract_analyst_action(
         "analyst_id": analyst_id,
         "incident_id": incident_id,
         "scenario_id": _extract_scenario_id(obj),
-        "event_type": event_type,
+        "event_type": action_type,
         "t_offset_sec": 0,
         "detail": _build_detail(object_type, operation, status, obj),
     }

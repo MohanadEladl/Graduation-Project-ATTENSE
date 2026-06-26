@@ -47,6 +47,7 @@ OLLAMA_URL      = os.getenv("OLLAMA_URL",      "http://localhost:11434")
 BATCH_INTERVAL  = int(os.getenv("BATCH_INTERVAL", "30"))
 AUDIT_LOG       = os.getenv("AUDIT_LOG",       "/var/log/audit/audit.log")
 OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",    "llama3.2")
+RAW_LOG         = os.getenv("RAW_LOG", os.path.join(os.path.dirname(__file__), "raw_actions.jsonl"))
 
 # Timeout for a single Ollama call — 1.5x the batch interval is enough headroom
 # for slow local inference without blocking the batch thread for minutes.
@@ -80,6 +81,55 @@ _cmd_queue: queue.Queue[tuple[int, str]] = queue.Queue()
 
 # Set by SIGINT/SIGTERM; both threads watch it to exit cleanly.
 _shutdown = threading.Event()
+
+
+# ── Raw action log ───────────────────────────────────────────────────────────
+
+def _write_raw_log(
+    analyst_id: str,
+    incident_id: str,
+    batch: list[tuple[int, str]],
+    reason: str,
+    ollama_events: Optional[list[dict]] = None,
+) -> None:
+    """Append unclassified commands to RAW_LOG as JSONL rows."""
+    ts = time.time()
+    entries: list[dict] = []
+
+    if ollama_events:
+        # Ollama returned events but event_type wasn't in _VALID_EVENT_TYPES
+        for ev in ollama_events:
+            entries.append({
+                "ts":           ts,
+                "analyst_id":   analyst_id,
+                "incident_id":  incident_id,
+                "t_offset_sec": ev.get("t_offset_sec", 0),
+                "command":      None,
+                "ollama_label": ev.get("event_type"),
+                "detail":       ev.get("detail", ""),
+                "reason":       reason,
+            })
+    else:
+        # Ollama failed or returned nothing — log every raw command in the batch
+        for t_offset, cmd in batch:
+            entries.append({
+                "ts":           ts,
+                "analyst_id":   analyst_id,
+                "incident_id":  incident_id,
+                "t_offset_sec": t_offset,
+                "command":      cmd,
+                "ollama_label": None,
+                "detail":       None,
+                "reason":       reason,
+            })
+
+    try:
+        with open(RAW_LOG, "a", encoding="utf-8") as f:
+            for entry in entries:
+                f.write(json.dumps(entry) + "\n")
+        logger.info("[raw-log] wrote %d unclassified row(s) -- reason=%s", len(entries), reason)
+    except OSError as exc:
+        logger.warning("[raw-log] could not write to %s: %s", RAW_LOG, exc)
 
 
 # ── Audit log parsing ─────────────────────────────────────────────────────────
@@ -161,10 +211,16 @@ def _tail_thread(path: str, session_start: float) -> None:
 def _classify_with_ollama(
     analyst_id: str,
     commands: list[tuple[int, str]],
-) -> list[dict]:
-    """Send a batch of (t_offset_sec, command) pairs to Ollama for classification."""
+) -> tuple[list[dict], list[dict]]:
+    """Send a batch of (t_offset_sec, command) pairs to Ollama for classification.
+
+    Returns (validated, unclassified):
+      validated     — events with a recognised action_type, ready to POST
+      unclassified  — events Ollama returned but whose action_type is unknown
+    On Ollama failure both lists are empty and the caller writes the raw batch.
+    """
     if not commands:
-        return []
+        return [], []
 
     numbered = "\n".join(
         f"{i+1}. [t=+{t}s] {cmd}"
@@ -205,31 +261,49 @@ def _classify_with_ollama(
     try:
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            json={
+                "model":   OLLAMA_MODEL,
+                "prompt":  prompt,
+                "stream":  False,
+                "options": {
+                    # Each event is ~40 tokens; 2048 covers batches up to ~50 commands.
+                    "num_predict": 2048,
+                },
+            },
             timeout=_OLLAMA_TIMEOUT,
         )
         resp.raise_for_status()
         raw_text = resp.json().get("response", "")
     except requests.RequestException as exc:
         logger.error("[ollama] request failed: %s", exc)
-        return []
+        return [], []
 
+    # ── Full parse (happy path) ───────────────────────────────────────────────
     json_match = re.search(r'\{.*"events"\s*:.*\}', raw_text, re.DOTALL)
-    if not json_match:
-        logger.warning("[ollama] no JSON in response: %s", raw_text[:200])
-        return []
+    events: list = []
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group(0))
+            if isinstance(parsed.get("events"), list):
+                events = parsed["events"]
+        except json.JSONDecodeError:
+            pass
 
-    try:
-        parsed = json.loads(json_match.group(0))
-    except json.JSONDecodeError as exc:
-        logger.warning("[ollama] JSON parse error: %s -- raw: %s", exc, raw_text[:200])
-        return []
-
-    events = parsed.get("events", [])
-    if not isinstance(events, list):
-        return []
+    # ── Partial recovery (truncated or structurally broken JSON) ─────────────
+    # Walk the raw text character by character and extract every complete {...}
+    # block that looks like an event object. This salvages events from responses
+    # where the outer array was cut off or a leading '{' was missing.
+    if not events:
+        logger.warning("[ollama] full parse failed — attempting partial recovery: %s", raw_text[:200])
+        events = _recover_events(raw_text)
+        if events:
+            logger.info("[ollama] partial recovery salvaged %d event(s)", len(events))
+        else:
+            logger.warning("[ollama] partial recovery found nothing — batch goes to raw log")
+            return [], []
 
     validated = []
+    unclassified = []
     for ev in events:
         et = ev.get("event_type", "")
         if et in _VALID_EVENT_TYPES and isinstance(ev.get("t_offset_sec"), (int, float)):
@@ -238,7 +312,37 @@ def _classify_with_ollama(
                 "t_offset_sec": int(ev["t_offset_sec"]),
                 "detail":       str(ev.get("detail", ""))[:300],
             })
-    return validated
+        else:
+            unclassified.append(ev)
+    return validated, unclassified
+
+
+def _recover_events(raw_text: str) -> list[dict]:
+    """Extract individual event objects from malformed or truncated Ollama output.
+
+    Walks the text brace-by-brace so it works even when the outer array
+    is broken or a leading '{' was dropped for some objects.
+    """
+    recovered = []
+    depth = 0
+    start = None
+    for i, ch in enumerate(raw_text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidate = raw_text[start : i + 1]
+                try:
+                    obj = json.loads(candidate)
+                    if isinstance(obj, dict) and "event_type" in obj:
+                        recovered.append(obj)
+                except json.JSONDecodeError:
+                    pass
+                start = None
+    return recovered
 
 
 # ── BlueTeam poster ───────────────────────────────────────────────────────────
@@ -288,7 +392,14 @@ def _flush(analyst_id: str, incident_id: str, scenario_id: str, session_start: f
         return
 
     logger.info("[batch] classifying %d command(s) with Ollama", len(batch))
-    events = _classify_with_ollama(analyst_id, batch)
+    events, unclassified = _classify_with_ollama(analyst_id, batch)
+
+    if not events and not unclassified:
+        # Ollama completely failed — log every raw command
+        _write_raw_log(analyst_id, incident_id, batch, reason="ollama_failed")
+
+    if unclassified:
+        _write_raw_log(analyst_id, incident_id, batch, reason="unknown_event_type", ollama_events=unclassified)
 
     for ev in events:
         detail = ev["detail"].strip() or (f"Analyst ran: {batch[-1][1]}" if batch else "Action recorded")

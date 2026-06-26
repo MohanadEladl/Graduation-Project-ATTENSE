@@ -143,6 +143,7 @@ services:
     ports:
       # Bound to loopback only: reachable from the host (browser/tools) but not
       # from the LAN. Use an SSH tunnel / reverse proxy for remote access.
+      - "127.0.0.1:8010:8010"
       - "127.0.0.1:8020:8020"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8020/health >/dev/null && curl -fsS http://localhost:8010/health >/dev/null"]
