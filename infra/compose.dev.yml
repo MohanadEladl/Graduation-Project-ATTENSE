@@ -1,8 +1,9 @@
 # =============================================================================
 # ATTENSE Cyber Range — infra/compose.dev.yml
 # =============================================================================
-# Development overrides: live source mounts for hot reload. Applied on top of
-# compose.base.yml (same service names merge as overrides, not new services):
+# Development overrides: bind-mounted source trees. Applied on top of the root
+# stack, these make local source code the code executed in containers. Image
+# rebuilds are therefore only needed for Dockerfile or dependency changes.
 #
 #   docker compose -f infra/compose.base.yml -f infra/compose.security.yml \
 #                   -f infra/compose.ai.yml -f infra/compose.dev.yml up
@@ -14,8 +15,60 @@
 
 services:
 
+  # Control API and embedded Blue Team API. Uvicorn reload watches every
+  # mounted package, including the canonical shared core package.
+  attense-app:
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8020", "--reload", "--reload-dir", "/app"]
+    volumes:
+      - ../apps/control-api/ATTENSE_app:/app/ATTENSE_app
+      - ../apps/control-api/api:/app/api
+      - ../apps/control-api/core:/app/core
+      - ../apps/control-api/dependencies:/app/dependencies
+      - ../apps/control-api/pipeline:/app/pipeline
+      - ../apps/control-api/controller.py:/app/controller.py
+      - ../apps/control-api/main.py:/app/main.py
+      - ../apps/blue-team-api/blueteam:/app/blueteam
+      - ../packages/attense-core/attense_core:/app/attense_core
+
+  # The Wazuh mapper can reload independently while retaining its named data
+  # volume and Wazuh alert mount from the base Compose file.
+  signal-store:
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
+    volumes:
+      - ../apps/signal-mapper/app:/app/app
+
+  # The Red Team API reloads from the local backend, engine, modules, and
+  # shared utility source rather than the COPY layers baked into its image.
+  red-team-backend:
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/red-team"]
+    volumes:
+      - ../apps/red-team-api/backend:/red-team/backend
+      - ../apps/red-team-api/core:/red-team/core
+      - ../apps/red-team-api/engine:/red-team/engine
+      - ../apps/red-team-api/modules:/red-team/modules
+      - ../apps/red-team-api/utils:/red-team/utils
+      - ../apps/red-team-api/main.py:/red-team/main.py
+
+  # These processes are long-running scripts rather than reload-capable web
+  # servers. Their code is mounted; use `docker compose restart <service>`
+  # after an edit instead of rebuilding an image.
+  target-agent:
+    volumes:
+      - ../apps/target-lab/app:/app
+
+  watcher:
+    volumes:
+      - ../apps/watcher:/app
+
+  zeroday-agent:
+    volumes:
+      - ../apps/zeroday-agent/app:/app/app
+
   attense-react:
     volumes:
       - ../frontends/portal/src:/app/src
       - ../frontends/portal/public:/app/public
       - ../frontends/portal/index.html:/app/index.html
+      # Vite reads proxy and development-server settings from this file at
+      # startup; mounting it keeps local portal routing changes in sync too.
+      - ../frontends/portal/vite.config.js:/app/vite.config.js:ro
