@@ -33,6 +33,10 @@ from datetime import datetime
 from typing import Optional
 
 from ATTENSE_app.events.event import Event
+from blueteam.core.blueactions.hive_keywords import (
+    DISMISSAL_APPROVED_RE as _DISMISSAL_APPROVED_RE,
+    LESSONS_LEARNED_RE   as _LESSONS_LEARNED_RE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,17 +187,32 @@ class HiveEventTranslator:
             return None, "host", "unknown"
 
         # 5b. containment_succeeded via Task completion (manual task path — no Cortex)
+        #     BUT: if the completed task title matches lessons-learned keywords, that
+        #     takes priority — a "Lessons Learned" task completing is not containment.
         if otype == "task" and op == "update" and hive_status == "Completed":
+            title = object_data.get("title", "") or object_data.get("description", "") or ""
+            if _LESSONS_LEARNED_RE.search(title):
+                return "lessons_learned_recorded", "alert", "success"
             return "containment_succeeded", "host", "success"
-        if otype == "tasklog" and op == "create":
-            message = object_data.get("message", "").lower()
-            # If the log does not contain failed/error, we consider it just a general task update.
 
-            # 6. containment_failed
-            if "failed" in message or "error" in message:
+        if otype == "tasklog" and op == "create":
+            message = object_data.get("message", "") or ""
+
+            # 6a. dismissal_approved — keyword match takes highest priority.
+            #     The second-actor guard (self-approval prevention) is enforced by
+            #     the webhook router AFTER translation, not here.
+            if _DISMISSAL_APPROVED_RE.search(message):
+                return "dismissal_approved", "alert", "success"
+
+            # 6b. lessons_learned_recorded — keyword match
+            if _LESSONS_LEARNED_RE.search(message):
+                return "lessons_learned_recorded", "alert", "success"
+
+            # 6c. containment_failed / containment_succeeded — generic fallback
+            message_lower = message.lower()
+            if "failed" in message_lower or "error" in message_lower:
                 return "containment_failed", "host", "failure"
 
-            # If it's just a regular log on a completed task
             if hive_status == "Completed":
                 return "containment_succeeded", "host", "success"
 

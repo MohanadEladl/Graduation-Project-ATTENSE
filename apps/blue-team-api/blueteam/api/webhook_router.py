@@ -44,6 +44,32 @@ webhook_router = APIRouter(
 _translator = HiveEventTranslator()
 
 
+def _check_dismissal_approval(event, store, incident_id: str) -> bool:
+    """
+    Enforce second-party approval: the actor who logs the dismissal approval
+    must differ from the actor who issued the preceding alert_denied.
+
+    Returns True  → approval is from a different actor; proceed with emit.
+    Returns False → self-approval detected; caller must reject without emitting.
+    """
+    prior_denials = [
+        e for e in store.get_events(incident_id)
+        if e.event_type == "alert_denied"
+    ]
+    if not prior_denials:
+        # No prior denial on record — let the approval through (may be out-of-order).
+        return True
+    last_denial = max(prior_denials, key=lambda e: e.timestamp)
+    if event.actor_id == last_denial.actor_id:
+        logger.warning(
+            "[Webhook] Self-approval blocked for incident '%s': actor '%s' cannot "
+            "approve their own alert dismissal",
+            incident_id, event.actor_id,
+        )
+        return False
+    return True
+
+
 def _annotate_investigation_gap(event, store, incident_id: str) -> None:
     """
     Flag a containment_initiated event that fired with little or no prior
@@ -179,6 +205,12 @@ async def receive_hive_webhook(
     # alert_investigation_started event already recorded for this incident.
     if event.event_type == "containment_initiated":
         _annotate_investigation_gap(event, store, incident_id)
+
+    # Enforce second-party approval: dismissal_approved must come from a different
+    # actor than the analyst who issued the preceding alert_denied.
+    if event.event_type == "dismissal_approved":
+        if not _check_dismissal_approval(event, store, incident_id):
+            return {"status": "rejected", "reason": "self_approval_not_permitted"}
 
     # Step 4: Emit — persists the event and updates incident state
     try:

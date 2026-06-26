@@ -18,6 +18,7 @@ import json
 import asyncio
 import logging
 import threading
+import time
 from collections import deque
 from typing import Any
 
@@ -82,15 +83,24 @@ def _process_alert(raw: dict) -> None:
 
 
 def _tail_worker() -> None:
-    """Daemon thread: continuously tail alerts.json and dispatch events."""
+    """Daemon thread: tails alerts.json and dispatches events.
+
+    Loops with backoff on any error so the worker never exits permanently.
+    The /health endpoint reflects whether this thread is actually alive.
+    """
     logger.info("[main] Alert tailing worker started.")
-    try:
-        for raw in tail_alerts():
-            _process_alert(raw)
-    except Exception as exc:
-        logger.critical(
-            "[main] Alert tailing worker died: %s", exc, exc_info=True
-        )
+    while True:
+        try:
+            for raw in tail_alerts():
+                _process_alert(raw)
+            # tail_alerts() is an infinite generator; returning means something
+            # terminated it unexpectedly. Restart immediately.
+            logger.warning("[main] tail_alerts() generator ended unexpectedly — restarting.")
+        except Exception as exc:
+            logger.error(
+                "[main] Tail worker error: %s — restarting in 5s.", exc, exc_info=True
+            )
+            time.sleep(5)
 
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -129,14 +139,18 @@ async def startup() -> None:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["ops"], summary="Liveness probe")
-async def health() -> dict:
-    return {
-        "status": "ok",
-        "output_mode": settings.output_mode,
-        "events_buffered": len(_ring),
-        "worker_running": worker_task is not None and worker_task.is_alive(),
-        "events_in_store": len(_events)
-    }
+async def health() -> JSONResponse:
+    alive = worker_task is not None and worker_task.is_alive()
+    return JSONResponse(
+        status_code=200 if alive else 503,
+        content={
+            "status": "ok" if alive else "degraded",
+            "output_mode": settings.output_mode,
+            "events_buffered": len(_ring),
+            "worker_running": alive,
+            "events_in_store": len(_events),
+        },
+    )
 
 
 @app.get("/events", tags=["events"], summary="Return last N mapped events")

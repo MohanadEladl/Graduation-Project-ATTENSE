@@ -333,7 +333,6 @@ services:
 
 networks:
   attense_net:
-    name: attense_net
     driver: bridge
 
 volumes:

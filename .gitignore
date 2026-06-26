@@ -29,6 +29,9 @@ npm-debug.log
 # Docker (runtime)
 red_team_logs/
 
+# Generated runtime reports
+apps/zeroday-agent/reports/
+
 # Environment secrets
 .env
 .env.local
