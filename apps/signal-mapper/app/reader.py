@@ -21,19 +21,15 @@ from app.config import settings
 logger = logging.getLogger("signal-mapper.reader")
 
 
-def _wait_for_file(path: str, timeout: int) -> None:
-    """Block until *path* exists or raise RuntimeError on timeout."""
-    deadline = time.monotonic() + timeout
-    logged = False
+def _wait_for_file(path: str) -> None:
+    """Block until *path* exists, logging every 60s so the wait is visible."""
+    last_log: float = 0.0
     while not os.path.exists(path):
-        if time.monotonic() > deadline:
-            raise RuntimeError(
-                f"[reader] Timed out after {timeout}s waiting for: {path}"
-            )
-        if not logged:
+        now = time.monotonic()
+        if now - last_log >= 60:
             logger.info("[reader] Waiting for alerts file: %s", path)
-            logged = True
-        time.sleep(0.5)
+            last_log = now
+        time.sleep(1)
     logger.info("[reader] Alerts file found: %s", path)
 
 
@@ -50,7 +46,7 @@ def tail_alerts(path: str | None = None) -> Generator[dict, None, None]:
     * Never raises; any error is logged and the loop continues.
     """
     path = path or settings.wazuh_alerts_path
-    _wait_for_file(path, settings.file_wait_timeout)
+    _wait_for_file(path)
 
     while True:  # outer loop handles rotation
         try:
