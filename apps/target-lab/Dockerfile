@@ -69,7 +69,9 @@ RUN mkdir -p /app/logs /app/static/uploads /app/runtime && \
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Source files can be edited on Windows; normalize CRLF before Docker executes
+# the shebang so `/bin/bash\r` never causes the misleading "no such file" error.
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 EXPOSE 80
 
