@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -140,7 +142,37 @@ class EventRepository:
             json.dump(self._projections, fh, ensure_ascii=False, indent=2)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, self.incidents_path)
+        self._replace_file(tmp, self.incidents_path)
+
+    @staticmethod
+    def _replace_file(src: str, dst: str) -> None:
+        """Replace a file, retrying transient Windows file-lock failures."""
+        last_error: OSError | None = None
+        for _ in range(5):
+            try:
+                os.replace(src, dst)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(0.05)
+        try:
+            if os.path.exists(dst):
+                os.remove(dst)
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            last_error = exc
+        try:
+            shutil.copyfile(src, dst)
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+            return
+        except OSError as exc:
+            last_error = exc
+        if last_error is not None:
+            raise last_error
 
     @staticmethod
     def _projection_record(projection: IncidentProjection) -> dict:

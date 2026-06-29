@@ -16,13 +16,9 @@ stack (a local cyber-range lab, not a public-facing production system).
 | `target-agent/Dockerfile` + nested duplicate | ✅ builder venv for the Flask app only | ✅ `app/requirements.txt` installed before app code | ✅ apt + Wazuh install chained, `rm -rf /var/lib/apt/lists/*` in same layer | ❌ stays root — documented exception (see below) |
 | `attackbox/Dockerfile` | ❌ not applicable — no separable build artifact | n/a | ✅ already chained `apt-get update/install/clean` | ❌ stays root — documented exception |
 | `red-team/frontend/Dockerfile` | ✅ already multistage (Vite builder → nginx) | ✅ `package.json` before source | n/a | ✅ switched base to `nginxinc/nginx-unprivileged`, port 8080 |
-| `AttenseFront/attense-react/Dockerfile` (dev) | unchanged on purpose | — | — | — |
-| `AttenseFront/attense-react/Dockerfile.prod` (new) | ✅ Vite builder → nginx | ✅ `package*.json` before source | n/a | ✅ `nginx-unprivileged`, port 8080 |
 
 Also added: `.dockerignore` in every build context that lacked one
-(`attense-app`, `signal-store`, `red-team`, `target-agent`,
-`AttenseFront/attense-react`); `attackbox` and `red-team/frontend` already
-had one.
+(`attense-app`, `signal-store`, `red-team`, `target-agent`); `attackbox` and `red-team/frontend` already had one.
 
 `docker-compose.yml`: `red-team-frontend` port mapping changed from
 `3000:80` to `3000:8080` and its healthcheck URL updated to match, since the
@@ -46,10 +42,6 @@ container now listens on the unprivileged port.
 - Recreated the live stack with `docker compose up -d` and confirmed every
   rebuilt service reports `healthy` and responds on its published port
   (`3000`, `8000`, `8010`, `8081`, `8005`).
-- **Not yet build-tested**: `Dockerfile.prod` for `attense-react` — it isn't
-  wired into `docker-compose.yml` yet, so it has only been reviewed, not
-  actually built. Build it once before relying on it.
-
 ## Were the concepts right for this stack?
 
 **Multi-stage build** — correct and worth keeping, but only where there's
@@ -108,6 +100,3 @@ faking compliance.
 - `attense-app/ATTENSE_app/blueteam/Dockerfile` is unused — BlueTeam is
   served by `attense-app` now. Updated for consistency, not because it's
   load-bearing.
-- `AttenseFront/attense-react/Dockerfile.prod` exists but nothing builds or
-  runs it yet; wire it into `docker-compose.yml` (or a separate prod
-  compose file) when you actually need a production build of that frontend.

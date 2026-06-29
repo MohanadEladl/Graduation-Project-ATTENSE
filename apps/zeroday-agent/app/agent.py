@@ -96,7 +96,6 @@ CONTAINERS = {
     "attense_cortex":               "cortex",
     "attense_cassandra":            "cassandra",
     "attense_elasticsearch":        "elasticsearch",
-    "attense_react":                "attense-react",
     "attense_wazuh_agent_watchdog": "wazuh-agent-watchdog",
 }
 

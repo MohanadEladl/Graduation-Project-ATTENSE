@@ -96,6 +96,18 @@ class AttenseController:
                 except Exception as e:
                     logger.warning(f"Could not associate incident {incident_id} with a room: {e}")
 
+            try:
+                from core import room_manager
+                room_id = room_manager.find_room_id_for_incident(incident_id)
+                if room_id:
+                    room_manager.record_incident_event(
+                        room_id,
+                        event.event_type,
+                        event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
+                    )
+            except Exception as e:
+                logger.warning(f"Could not update room timing for incident {incident_id}: {e}")
+
             incident = self.incidents[incident_id]
             incident.apply_event(event)
 

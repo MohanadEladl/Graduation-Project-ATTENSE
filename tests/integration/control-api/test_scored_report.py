@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import tempfile
+import uuid
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -63,7 +64,12 @@ def _write_analyst_actions(actions_dir: str) -> None:
 
 class ScoredReportWiringTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        base_tmp = os.environ.get("ATTENSE_TEST_TMPDIR")
+        if base_tmp:
+            self.tmp = os.path.join(base_tmp, f"scored-report-{uuid.uuid4().hex}")
+            os.makedirs(self.tmp, exist_ok=True)
+        else:
+            self.tmp = tempfile.mkdtemp()
         self.actions = os.path.join(self.tmp, "actions")
         os.makedirs(self.actions)
         # bridge reads these as module-level globals at call time — point them
@@ -101,6 +107,47 @@ class ScoredReportWiringTests(unittest.TestCase):
         self.assertIn("outcome", report)
         # both sources were merged (1 Wazuh alert + 7 analyst actions)
         self.assertEqual(len(events), 8)
+
+
+    def test_deferred_room_scores_from_blue_start_and_keeps_contributions(self):
+        t0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+        with open(bridge.MAPPED_EVENTS, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "event_id": "deferred-alert", "incident_id": INCIDENT,
+                "scenario_id": "APP-01", "actor_id": "wazuh",
+                "target_id": "sandbox-target", "event_type": "alert_raised",
+                "actor_type": "system", "target_type": "alert",
+                "timestamp": t0.isoformat(), "outcome": "detected",
+                "metadata": {"severity": "high"},
+            }) + "\n")
+
+        action_path = os.path.join(self.actions, "analyst-deferred.jsonl")
+        with open(action_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "analyst_id": "analyst-a", "incident_id": INCIDENT,
+                "scenario_id": "APP-01", "event_type": "investigation_started",
+                "detail": "opened case", "stored_at": (t0 + timedelta(minutes=5)).isoformat(),
+            }) + "\n")
+
+        original_room_context = bridge._room_context
+        blue_start = t0 + timedelta(minutes=4)
+        try:
+            bridge._room_context = lambda _incident_id: {
+                "room_id": "room-deferred",
+                "exercise_mode": "deferred",
+                "blue_started_at": blue_start.isoformat(),
+                "blue_started_by": "analyst-a",
+                "packaged_at": t0.isoformat(),
+            }
+            report, _events = run_bridge(INCIDENT)
+        finally:
+            bridge._room_context = original_room_context
+
+        self.assertEqual(report["scoring_started_at"], blue_start.replace(tzinfo=None).isoformat())
+        r01 = next(rule for rule in report["scoring_rules"] if rule["rule_id"].endswith("R01"))
+        self.assertIn("t=60s", " ".join(r01["evidence"]))
+        self.assertEqual(report["analyst_contributions"][0]["analyst_id"], "analyst-a")
+        self.assertEqual(report["analyst_contributions"][0]["first_action_offset_sec"], 60.0)
 
     def test_no_events_raises_valueerror_for_the_endpoint_fallback(self):
         # the endpoint catches this exact ValueError and degrades to the basic

@@ -1,10 +1,12 @@
 import { chromium } from 'playwright';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 1440, height: 820 } });
 const errs = [];
 p.on('console', m => { if (m.type()==='error') errs.push('CONSOLE: '+m.text()); });
 p.on('pageerror', e => errs.push('PAGEERR: '+e.message));
-const D = 'C:/Users/Yousof/GradProject/attense-v8-final/attense-v6/red-team/frontend';
+const D = dirname(fileURLToPath(import.meta.url));
 const canvasInfo = () => p.evaluate(() => {
   const c=document.querySelector('#hero-canvas canvas');
   const w=document.querySelector('#hero-canvas')?.parentElement;
@@ -14,12 +16,12 @@ const canvasInfo = () => p.evaluate(() => {
 // 1) Home page nav
 await p.goto('http://localhost:3000/', { waitUntil: 'load' });
 await p.waitForTimeout(2500);
-await p.screenshot({ path: D+'/_home_shot.png' });
+await p.screenshot({ path: join(D, '_home_shot.png') });
 
 // 2) First Gauntlet visit (full load)
 await p.goto('http://localhost:3000/gauntlet', { waitUntil: 'load' });
 await p.waitForTimeout(4000);
-await p.screenshot({ path: D+'/_g1_shot.png' });
+await p.screenshot({ path: join(D, '_g1_shot.png') });
 const f1 = await canvasInfo();
 
 // 3) SPA navigate away then back (RangeLayout stays mounted)
@@ -27,7 +29,7 @@ await p.locator('a[href="/modules"]').click({ force: true, noWaitAfter: true });
 await p.waitForTimeout(1500);
 await p.locator('a[href="/gauntlet"]').click({ force: true, noWaitAfter: true });
 await p.waitForTimeout(3500);
-await p.screenshot({ path: D+'/_g2_shot.png' });
+await p.screenshot({ path: join(D, '_g2_shot.png') });
 const f2 = await canvasInfo();
 
 console.log('ERRORS:', errs.length ? errs.join('\n') : 'none');

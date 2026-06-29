@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/png" href="assets/ATTENSELOGO.png">
+<link rel="shortcut icon" type="image/png" href="assets/ATTENSELOGO.png">
+<link rel="apple-touch-icon" href="assets/ATTENSELOGO.png">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATTENSE — Blue Team Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; scroll-behavior: smooth; }
+  body { font-family: Inter, system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, p { margin: 0; }
+
+  .att-word {
+    background: linear-gradient(90deg, #22d3ee 0%, #a78bfa 38%, #7c6df2 56%, #3b82f6 82%, #06b6d4 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; display: inline-block;
+  }
+
+  #tabs-root {
+    position: relative; display: inline-flex; align-items: center; border-radius: 999px;
+    padding: 4px 6px; gap: 0;
+    background: rgba(8,12,28,0.88);
+    border: 1px solid rgba(255,255,255,0.13);
+    backdrop-filter: blur(18px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.09), 0 8px 32px rgba(0,0,0,0.45);
+  }
+  #tab-pill {
+    position: absolute; border-radius: 999px; z-index: 1; pointer-events: none;
+    background: #0a1929;
+    box-shadow: inset 0 0.2rem 0.5rem rgba(255,255,255,0.18), inset 0 -0.08rem 0.2rem rgba(0,0,0,0.6), inset 0 -0.18rem 0.4rem rgba(129,216,255,0.22);
+    transition: left 0.32s cubic-bezier(0.4,0,0.2,1), width 0.32s cubic-bezier(0.4,0,0.2,1), top 0.32s, height 0.32s;
+  }
+  .tab-btn {
+    position: relative; z-index: 2; height: 34px; padding: 0 16px;
+    border: none; background: none; color: #9ca3b7;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    white-space: nowrap; cursor: pointer; border-radius: 999px;
+    transition: color 0.2s;
+  }
+  .tab-btn:hover { color: #f7f8ff; }
+  .tab-btn.is-active { color: rgba(129,216,255,0.95); }
+
+  .pb{outline:none;cursor:pointer;border:0;position:relative;border-radius:100px;background-color:#0a1929;transition:box-shadow .2s ease,transform .2s ease;text-decoration:none;display:inline-block;box-shadow:inset 0 .3rem .9rem rgba(255,255,255,.3),inset 0 -.1rem .3rem rgba(0,0,0,.7),inset 0 -.4rem .9rem rgba(255,255,255,.5),0 3rem 3rem rgba(0,0,0,.3),0 1rem 1rem -.6rem rgba(0,0,0,.8);}
+  .pb-wrap{font-family:Inter,system-ui,sans-serif;font-size:19px;font-weight:500;color:rgba(129,216,255,.9);padding:26px 48px;border-radius:100px;position:relative;overflow:hidden;white-space:nowrap;}
+  .pb-wrap p{display:flex;align-items:center;gap:12px;margin:0;transition:transform .2s ease;transform:translateY(2%);-webkit-mask-image:linear-gradient(to bottom,rgba(129,216,255,1) 40%,transparent);mask-image:linear-gradient(to bottom,rgba(129,216,255,1) 40%,transparent);}
+  .pb-wrap::before,.pb-wrap::after{content:"";position:absolute;transition:all .3s ease;}
+  .pb-wrap::before{left:-15%;right:-15%;bottom:25%;top:-100%;border-radius:50%;background-color:rgba(64,180,255,.15);}
+  .pb-wrap::after{left:6%;right:6%;top:12%;bottom:40%;border-radius:22px 22px 0 0;box-shadow:inset 0 10px 8px -10px rgba(129,216,255,.6);background:linear-gradient(180deg,rgba(64,180,255,.25) 0%,transparent 50%);}
+  .pb:hover{box-shadow:inset 0 .3rem .5rem rgba(129,216,255,.4),inset 0 -.1rem .3rem rgba(0,0,0,.7),inset 0 -.4rem .9rem rgba(64,180,255,.6),0 3rem 3rem rgba(0,0,0,.3),0 1rem 1rem -.6rem rgba(0,0,0,.8);}
+  .pb:hover .pb-wrap::before{transform:translateY(-5%);}.pb:hover .pb-wrap::after{opacity:.4;transform:translateY(5%);}.pb:hover .pb-wrap p{transform:translateY(-4%);}.pb:active{transform:translateY(4px);}
+  .pb-sm .pb-wrap{font-size:15px;padding:18px 34px;}
+  .pb-purple{background-color:#100a28;}.pb-purple .pb-wrap{color:rgba(190,170,255,.9);}
+  .pb-purple .pb-wrap p{-webkit-mask-image:linear-gradient(to bottom,rgba(190,170,255,1) 40%,transparent);mask-image:linear-gradient(to bottom,rgba(190,170,255,1) 40%,transparent);}
+  .pb-purple .pb-wrap::before{background-color:rgba(124,109,242,.2);}.pb-purple .pb-wrap::after{box-shadow:inset 0 10px 8px -10px rgba(170,150,255,.6);background:linear-gradient(180deg,rgba(124,109,242,.28) 0%,transparent 50%);}
+  .pb-purple:hover{box-shadow:inset 0 .3rem .5rem rgba(170,150,255,.4),inset 0 -.1rem .3rem rgba(0,0,0,.7),inset 0 -.4rem .9rem rgba(124,109,242,.65),0 3rem 3rem rgba(0,0,0,.3),0 1rem 1rem -.6rem rgba(0,0,0,.8);}
+
+  .gc { position: relative; overflow: hidden; border-radius: 18px; padding: 28px 26px 26px; background: linear-gradient(160deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01)); border: 1px solid rgba(255,255,255,0.09); }
+  .gc-ray { position: absolute; top: -24px; left: 50%; transform: translateX(-50%); width: 110%; height: 70px; border-radius: 50%; pointer-events: none; }
+  .gc-dot { position: absolute; top: -4px; left: 50%; transform: translateX(-50%); width: 8px; height: 8px; border-radius: 50%; }
+  .gc-num { font-size: 44px; font-weight: 900; letter-spacing: -0.04em; line-height: 1; margin-bottom: 2px; }
+  .gc-sub { font-size: 11px; color: #9ca3b7; font-weight: 500; margin-bottom: 18px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .gc .bl { position: absolute; overflow: hidden; }
+  .gc .bl::after { content: ''; position: absolute; }
+  .gc .topl { top: 0; left: 0; width: 100%; height: 1px; }
+  .gc .bottoml { bottom: 0; left: 0; width: 100%; height: 1px; }
+  .gc .leftl  { top: 0; left: 0; width: 1px; height: 100%; }
+  .gc .rightl { top: 0; right: 0; width: 1px; height: 100%; }
+  .gc .topl::after   { width:40%;height:100%; animation:br 3s ease-in-out infinite; }
+  .gc .bottoml::after{ width:40%;height:100%; animation:bl2 3s ease-in-out infinite 1.5s; }
+  .gc .leftl::after  { width:100%;height:40%; animation:bd 3s ease-in-out infinite 0.75s; }
+  .gc .rightl::after { width:100%;height:40%; animation:bu 3s ease-in-out infinite 2.25s; }
+  @keyframes br{0%,100%{transform:translateX(-110%)}50%{transform:translateX(310%)}}
+  @keyframes bl2{0%,100%{transform:translateX(310%)}50%{transform:translateX(-110%)}}
+  @keyframes bd{0%,100%{transform:translateY(-110%)}50%{transform:translateY(310%)}}
+  @keyframes bu{0%,100%{transform:translateY(310%)}50%{transform:translateY(-110%)}}
+  .gc-v .topl::after,.gc-v .bottoml::after{background:linear-gradient(90deg,transparent,rgba(124,109,242,.85),transparent);}
+  .gc-v .leftl::after,.gc-v .rightl::after{background:linear-gradient(180deg,transparent,rgba(124,109,242,.85),transparent);}
+  .gc-r .topl::after,.gc-r .bottoml::after{background:linear-gradient(90deg,transparent,rgba(229,57,53,.85),transparent);}
+  .gc-r .leftl::after,.gc-r .rightl::after{background:linear-gradient(180deg,transparent,rgba(229,57,53,.85),transparent);}
+  .gc-b .topl::after,.gc-b .bottoml::after{background:linear-gradient(90deg,transparent,rgba(74,134,232,.85),transparent);}
+  .gc-b .leftl::after,.gc-b .rightl::after{background:linear-gradient(180deg,transparent,rgba(74,134,232,.85),transparent);}
+  .gc-g .topl::after,.gc-g .bottoml::after{background:linear-gradient(90deg,transparent,rgba(67,211,159,.85),transparent);}
+  .gc-g .leftl::after,.gc-g .rightl::after{background:linear-gradient(180deg,transparent,rgba(67,211,159,.85),transparent);}
+
+  .sr{opacity:0;transform:translateY(28px);transition:opacity .72s ease,transform .72s ease;}
+  .sr.in-view{opacity:1;transform:translateY(0);}
+  .sr.d1{transition-delay:.1s;}.sr.d2{transition-delay:.2s;}.sr.d3{transition-delay:.3s;}.sr.d4{transition-delay:.4s;}
+  .ai-row{transition:background .2s,padding-left .2s;border-radius:12px;}
+  .ai-row:hover{background:rgba(255,255,255,.04);padding-left:20px!important;}
+  .rep-row{transition:background .15s ease;}
+  .rep-row:hover{background:rgba(255,255,255,.05)!important;}
+  .ai1{animation:fu .7s cubic-bezier(.22,1,.36,1) both;}
+  .ai2{animation:fu .7s .1s cubic-bezier(.22,1,.36,1) both;}
+  .ai3{animation:fu .7s .2s cubic-bezier(.22,1,.36,1) both;}
+  .ai4{animation:fu .7s .32s cubic-bezier(.22,1,.36,1) both;}
+  .ai5{animation:fu .7s .46s cubic-bezier(.22,1,.36,1) both;}
+  @keyframes fu{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes bounce-y{0%,100%{transform:translateY(0)}50%{transform:translateY(9px)}}
+  @keyframes pb2{0%,100%{box-shadow:0 0 0 0 rgba(83,184,255,.7)}70%{box-shadow:0 0 0 7px rgba(83,184,255,0)}}
+  @keyframes logo-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+  @media(max-width:900px){.feat-inner{flex-direction:column!important;}.feat-spline{min-height:300px!important;}.perk-grid{grid-template-columns:1fr 1fr!important;}.cta-btns{flex-direction:column!important;align-items:center!important;}.pb-wrap{font-size:16px!important;padding:22px 36px!important;}#tabs-root{display:none!important;}}
+  @media(max-width:560px){.perk-grid{grid-template-columns:1fr!important;}}
+</style>
+</head>
+<body>
+<div id="glow-orb" style="position:fixed;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(120,170,255,0.07) 0%,transparent 65%);pointer-events:none;z-index:9998;opacity:0;top:0;left:0;"></div>
+
+<div style="color:#f7f8ff;background:#060810;overflow-x:hidden;">
+
+  <!-- NAV -->
+  <header id="at-nav" style="position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:200;width:min(1160px,calc(100% - 32px));height:64px;padding:0 16px 0 20px;display:flex;align-items:center;justify-content:space-between;border:1px solid transparent;border-radius:0 0 18px 18px;transition:background .22s,border-color .22s,backdrop-filter .22s;">
+    <div style="display:flex;align-items:center;gap:16px;flex-shrink:0;">
+      <a href="fortress-viewer.html" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:rgba(140,180,255,.6);text-decoration:none;letter-spacing:.06em;text-transform:uppercase;transition:color .2s;" onmouseover="this.style.color='rgba(140,180,255,1)'" onmouseout="this.style.color='rgba(140,180,255,.6)'">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Fortress
+      </a>
+      <img src="assets/ATTENSELOGO.png" style="width:36px;height:36px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(83,184,255,.45));mix-blend-mode:screen;" alt="" />
+      <span class="att-word" style="font-size:19px;font-weight:900;letter-spacing:-.02em;">ATTENSE</span>
+    </div>
+    <div id="tabs-root">
+      <div id="tab-pill"></div>
+      <button class="tab-btn is-active" data-tab-btn="0" onclick="scrollTo('hero',0)">Overview</button>
+      <button class="tab-btn" data-tab-btn="1" onclick="scrollTo('benefits-section',1)">Blue Team</button>
+      <button class="tab-btn" data-tab-btn="2" onclick="scrollTo('spline-section',2)">AI Engine</button>
+      <button class="tab-btn" data-tab-btn="3" onclick="scrollTo('dashboard-section',3)">Dashboard</button>
+      <button class="tab-btn" data-tab-btn="4" onclick="scrollTo('cta-section',4)">Get Started</button>
+    </div>
+    <a href="blue-login.html" style="flex-shrink:0;display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 18px;border-radius:9px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#e5e8f5;font-size:13px;font-weight:600;text-decoration:none;">
+      Sign In <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </a>
+  </header>
+
+  <!-- HERO -->
+  <section id="hero" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(rgba(255,255,255,.026) 1px,transparent 1px),radial-gradient(ellipse at 50% -12%,rgba(74,134,232,.16) 0%,transparent 52%),radial-gradient(ellipse at 90% 90%,rgba(124,109,242,.1) 0%,transparent 46%),#060810;background-size:28px 28px,100% 100%,100% 100%;padding:72px 24px 32px;text-align:center;position:relative;overflow:hidden;">
+    <div style="position:absolute;top:0;left:0;width:500px;height:500px;background:radial-gradient(circle at 20% 20%,rgba(74,134,232,.05) 0%,transparent 70%);pointer-events:none;"></div>
+    <div style="position:absolute;bottom:0;right:0;width:500px;height:500px;background:radial-gradient(circle at 80% 80%,rgba(124,109,242,.07) 0%,transparent 70%);pointer-events:none;"></div>
+
+    <div class="ai1" style="width:min(100%,720px);height:160px;margin-bottom:18px;">
+      <canvas id="attense-canvas" style="display:block;width:100%;height:100%;touch-action:none;"></canvas>
+    </div>
+
+    <div class="ai2" style="margin-bottom:16px;">
+      <img src="assets/ATTENSELOGO.png" style="width:160px;height:160px;object-fit:contain;mix-blend-mode:screen;filter:drop-shadow(0 0 40px rgba(34,211,238,.42)) drop-shadow(0 0 80px rgba(124,109,242,.28));animation:logo-float 4.5s ease-in-out infinite;" alt="Attense" />
+    </div>
+
+    <div class="ai3" style="margin-bottom:16px;">
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 15px;border-radius:999px;background:rgba(83,184,255,.09);border:1px solid rgba(83,184,255,.22);color:#53b8ff;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;">
+        <span style="width:6px;height:6px;border-radius:50%;background:#53b8ff;animation:pb2 2.2s infinite;display:block;"></span>
+        Blue Team · Incident Response Platform
+      </div>
+    </div>
+
+    <div class="ai3" style="max-width:520px;margin-bottom:36px;">
+      <p style="color:#9ca3b7;font-size:16px;line-height:1.72;">Your organization's incident response command center — built for teams that move fast and leave no threat unresolved.</p>
+    </div>
+
+    <div class="ai4" style="display:flex;flex-wrap:wrap;gap:24px;justify-content:center;align-items:center;" class="cta-btns">
+      <a href="blue-register.html" class="pb pb-purple"><div class="pb-wrap"><p><span>✧</span>First Time? Sign Up</p></div></a>
+      <a href="blue-login.html" class="pb"><div class="pb-wrap"><p><span>✧</span>Sign In to Attense</p></div></a>
+    </div>
+
+    <div class="ai5" style="position:absolute;bottom:32px;display:flex;flex-direction:column;align-items:center;gap:8px;color:#6f7689;font-size:11px;letter-spacing:.07em;text-transform:uppercase;">
+      <span>Scroll to explore</span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:bounce-y 1.6s ease-in-out infinite;"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+  </section>
+
+  <!-- BLUE TEAM PERKS -->
+  <section id="benefits-section" style="padding:100px 24px;background:#060810;">
+    <div style="max-width:1180px;margin:0 auto;">
+      <div class="sr" style="text-align:center;margin-bottom:56px;">
+        <div style="font-size:11px;font-weight:700;color:#4a86e8;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;">Blue Team Advantage</div>
+        <h2 style="font-size:clamp(28px,4vw,46px);font-weight:800;letter-spacing:-.025em;line-height:1.08;max-width:580px;margin:0 auto 16px;">What your Blue Team unlocks with Attense</h2>
+        <p style="color:#9ca3b7;font-size:15px;line-height:1.7;max-width:480px;margin:0 auto;">Four critical capabilities that separate prepared teams from reactive ones.</p>
+      </div>
+      <div class="perk-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;">
+        <div class="gc gc-v sr d1">
+          <div class="gc-ray" style="background:radial-gradient(ellipse at 50% 0%,rgba(124,109,242,.22),transparent 70%);"></div>
+          <div class="gc-dot" style="background:#7c6df2;box-shadow:0 0 14px 5px rgba(124,109,242,.5);"></div>
+          <div class="bl topl"></div><div class="bl leftl"></div><div class="bl bottoml"></div><div class="bl rightl"></div>
+          <div class="gc-num" style="background:linear-gradient(135deg,#c4b5fd,#7c6df2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">99%</div>
+          <div class="gc-sub">Threat Detection</div>
+          <h3 style="font-size:15px;font-weight:700;color:#f7f8ff;margin-bottom:10px;line-height:1.3;">Realistic Attack Simulation</h3>
+          <p style="color:#9ca3b7;font-size:13px;line-height:1.65;">Test your team against real-world attack chains — phishing, lateral movement, privilege escalation — in a controlled, realistic environment.</p>
+        </div>
+        <div class="gc gc-r sr d2">
+          <div class="gc-ray" style="background:radial-gradient(ellipse at 50% 0%,rgba(229,57,53,.2),transparent 70%);"></div>
+          <div class="gc-dot" style="background:#e53935;box-shadow:0 0 14px 5px rgba(229,57,53,.5);"></div>
+          <div class="bl topl"></div><div class="bl leftl"></div><div class="bl bottoml"></div><div class="bl rightl"></div>
+          <div class="gc-num" style="background:linear-gradient(135deg,#fca5a5,#e53935);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Live</div>
+          <div class="gc-sub">Red Team Ops</div>
+          <h3 style="font-size:15px;font-weight:700;color:#f7f8ff;margin-bottom:10px;line-height:1.3;">Actual Attackers Inside</h3>
+          <p style="color:#9ca3b7;font-size:13px;line-height:1.65;">Full red team integration with live adversary emulation. Watch attacker movement across your network in real-time as incidents unfold and escalate.</p>
+        </div>
+        <div class="gc gc-b sr d3">
+          <div class="gc-ray" style="background:radial-gradient(ellipse at 50% 0%,rgba(74,134,232,.2),transparent 70%);"></div>
+          <div class="gc-dot" style="background:#4a86e8;box-shadow:0 0 14px 5px rgba(74,134,232,.5);"></div>
+          <div class="bl topl"></div><div class="bl leftl"></div><div class="bl bottoml"></div><div class="bl rightl"></div>
+          <div class="gc-num" style="background:linear-gradient(135deg,#93c5fd,#4a86e8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Auto</div>
+          <div class="gc-sub">Reporting</div>
+          <h3 style="font-size:15px;font-weight:700;color:#f7f8ff;margin-bottom:10px;line-height:1.3;">Incident Reporting</h3>
+          <p style="color:#9ca3b7;font-size:13px;line-height:1.65;">Every incident auto-documented with full timeline, evidence chain, affected assets, and remediation steps. Compliance-ready PDF in one click.</p>
+        </div>
+        <div class="gc gc-g sr d4">
+          <div class="gc-ray" style="background:radial-gradient(ellipse at 50% 0%,rgba(67,211,159,.18),transparent 70%);"></div>
+          <div class="gc-dot" style="background:#43d39f;box-shadow:0 0 14px 5px rgba(67,211,159,.5);"></div>
+          <div class="bl topl"></div><div class="bl leftl"></div><div class="bl bottoml"></div><div class="bl rightl"></div>
+          <div class="gc-num" style="background:linear-gradient(135deg,#6ee7b7,#43d39f);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">0-Day</div>
+          <div class="gc-sub">Threat Shield</div>
+          <h3 style="font-size:15px;font-weight:700;color:#f7f8ff;margin-bottom:10px;line-height:1.3;">Zero-Day Detection</h3>
+          <p style="color:#9ca3b7;font-size:13px;line-height:1.65;">AI behavioral analysis (UEBA) detects unknown threats with no known signatures. Stop zero-days before they spread using Wazuh + Attense ML models.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AI FEATURE CARD -->
+  <section id="spline-section" style="padding:80px 24px;background:#020308;">
+    <div style="max-width:1180px;margin:0 auto;">
+      <div class="sr" style="text-align:center;margin-bottom:48px;">
+        <div style="display:inline-flex;align-items:center;gap:8px;padding:5px 14px;border-radius:999px;background:rgba(74,134,232,.1);border:1px solid rgba(74,134,232,.22);color:#4a86e8;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:18px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>AI-Powered</div>
+        <h2 style="font-size:clamp(28px,4vw,46px);font-weight:800;letter-spacing:-.025em;max-width:600px;margin:0 auto 12px;line-height:1.08;">Security intelligence that never sleeps</h2>
+        <p style="color:#9ca3b7;font-size:14px;max-width:440px;margin:0 auto;line-height:1.65;">Built on <strong style="color:#53b8ff;">Wazuh SIEM</strong> and <strong style="color:#7c6df2;">TheHive</strong> for enterprise-grade detection and collaborative response.</p>
+      </div>
+      <div id="feat-card" class="sr d1" style="border-radius:24px;background:rgba(0,0,0,.96);border:1px solid rgba(255,255,255,.08);overflow:hidden;position:relative;min-height:500px;">
+        <div id="card-orb" style="position:absolute;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.08) 0%,transparent 70%);pointer-events:none;z-index:2;opacity:0;transition:opacity .2s;left:50%;top:50%;"></div>
+        <div class="feat-inner" style="display:flex;align-items:stretch;">
+          <div style="flex:1;padding:52px 48px;position:relative;z-index:10;display:flex;flex-direction:column;justify-content:center;min-width:0;">
+            <h2 style="font-size:clamp(24px,3vw,38px);font-weight:800;line-height:1.08;letter-spacing:-.025em;margin-bottom:18px;color:#f7f8ff;">AI-Powered<br/>Security Operations</h2>
+            <p style="color:#9ca3b7;font-size:14px;line-height:1.72;margin-bottom:24px;max-width:380px;">Attense integrates <strong style="color:#53b8ff;">Wazuh</strong> for SIEM+XDR and <strong style="color:#9b91ff;">TheHive</strong> for case management — giving your Blue Team a fully automated, collaborative response pipeline.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;">
+              <div style="display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:7px;background:rgba(83,184,255,.1);border:1px solid rgba(83,184,255,.22);color:#53b8ff;font-size:11px;font-weight:600;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/></svg>Wazuh SIEM</div>
+              <div style="display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:7px;background:rgba(124,109,242,.1);border:1px solid rgba(124,109,242,.22);color:#9b91ff;font-size:11px;font-weight:600;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>TheHive</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;align-items:center;gap:10px;"><div style="width:28px;height:28px;border-radius:7px;background:rgba(74,134,232,.14);border:1px solid rgba(74,134,232,.26);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4a86e8" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83"/></svg></div><span style="font-size:13px;font-weight:600;color:#f7f8ff;">24/7 Autonomous Monitoring</span></div>
+              <div style="display:flex;align-items:center;gap:10px;"><div style="width:28px;height:28px;border-radius:7px;background:rgba(229,57,53,.12);border:1px solid rgba(229,57,53,.24);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#e53935" stroke-width="2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div><span style="font-size:13px;font-weight:600;color:#f7f8ff;">Intelligent Alert Triage</span></div>
+              <div style="display:flex;align-items:center;gap:10px;"><div style="width:28px;height:28px;border-radius:7px;background:rgba(67,211,159,.1);border:1px solid rgba(67,211,159,.22);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#43d39f" stroke-width="2" stroke-linecap="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><span style="font-size:13px;font-weight:600;color:#f7f8ff;">Automated Response Playbooks</span></div>
+            </div>
+          </div>
+          <div class="feat-spline" style="flex:1;position:relative;min-height:480px;background:#020816;overflow:hidden;display:grid;place-items:center;">
+            <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 40%,rgba(83,184,255,.18),transparent 34%),radial-gradient(circle at 76% 68%,rgba(124,109,242,.16),transparent 28%),linear-gradient(135deg,rgba(8,18,44,.96),rgba(2,3,8,.98));"></div>
+            <div style="position:absolute;inset:34px;border:1px solid rgba(83,184,255,.18);background:linear-gradient(rgba(83,184,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(83,184,255,.05) 1px,transparent 1px);background-size:32px 32px;border-radius:18px;box-shadow:inset 0 0 80px rgba(83,184,255,.08),0 0 70px rgba(83,184,255,.08);"></div>
+            <div style="position:relative;z-index:2;width:min(78%,420px);aspect-ratio:1;border-radius:50%;border:1px solid rgba(83,184,255,.34);box-shadow:0 0 60px rgba(83,184,255,.22),inset 0 0 60px rgba(124,109,242,.16);display:grid;place-items:center;animation:logo-float 5s ease-in-out infinite;">
+              <div style="position:absolute;inset:12%;border-radius:50%;border:1px dashed rgba(124,109,242,.34);"></div>
+              <div style="position:absolute;width:74%;height:74%;border-radius:50%;background:conic-gradient(from 40deg,rgba(83,184,255,.18),rgba(124,109,242,.05),rgba(67,211,159,.14),rgba(83,184,255,.18));filter:blur(.2px);"></div>
+              <img src="assets/ATTENSELOGO.png" alt="Attense" style="position:relative;width:34%;height:34%;object-fit:contain;mix-blend-mode:screen;filter:drop-shadow(0 0 24px rgba(83,184,255,.65));" />
+            </div>
+            <div style="position:absolute;left:34px;right:34px;bottom:34px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;z-index:3;">
+              <div style="height:8px;border-radius:999px;background:linear-gradient(90deg,#53b8ff,transparent);"></div>
+              <div style="height:8px;border-radius:999px;background:linear-gradient(90deg,#7c6df2,transparent);"></div>
+              <div style="height:8px;border-radius:999px;background:linear-gradient(90deg,#43d39f,transparent);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD PREVIEW -->
+  <section id="dashboard-section" style="padding:100px 24px;background:#020308;">
+    <div style="max-width:1180px;margin:0 auto;">
+      <div class="sr" style="text-align:center;margin-bottom:48px;">
+        <div style="font-size:11px;font-weight:700;color:#43d39f;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;">Operations Dashboard</div>
+        <h2 style="font-size:clamp(28px,4vw,46px);font-weight:800;letter-spacing:-.025em;line-height:1.08;max-width:560px;margin:0 auto 16px;">A glimpse of what you'll see inside</h2>
+        <p style="color:#9ca3b7;font-size:15px;line-height:1.7;max-width:460px;margin:0 auto;">Real-time incident tracking, analyst workloads, and live threat feeds.</p>
+      </div>
+      <div class="sr d1" style="border-radius:20px;overflow:hidden;border:1px solid rgba(255,255,255,.1);background:#0c0e18;box-shadow:0 40px 100px rgba(0,0,0,.6);">
+        <div style="display:flex;align-items:center;gap:8px;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.07);background:#090b14;">
+          <span style="width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.18);display:inline-block;"></span><span style="width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.18);display:inline-block;"></span><span style="width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.18);display:inline-block;"></span>
+          <span style="flex:1;text-align:center;font-size:12px;color:#6f7689;">Attense / Operations Center</span>
+          <div style="display:flex;align-items:center;gap:5px;"><span style="width:7px;height:7px;border-radius:50%;background:#43d39f;"></span><span style="font-size:11px;color:#43d39f;font-weight:600;">Live</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);">
+          <div style="padding:14px 18px;background:#0a0c16;"><div style="font-size:22px;font-weight:800;color:#f7f8ff;margin-bottom:2px;">12</div><div style="font-size:11px;color:#6f7689;">Active Incidents</div></div>
+          <div style="padding:14px 18px;background:#0a0c16;"><div style="font-size:22px;font-weight:800;color:#ef5350;margin-bottom:2px;">2</div><div style="font-size:11px;color:#6f7689;">Critical</div></div>
+          <div style="padding:14px 18px;background:#0a0c16;"><div style="font-size:22px;font-weight:800;color:#43d39f;margin-bottom:2px;">4.2m</div><div style="font-size:11px;color:#6f7689;">Avg MTTR</div></div>
+          <div style="padding:14px 18px;background:#0a0c16;"><div style="font-size:22px;font-weight:800;color:#53b8ff;margin-bottom:2px;">8</div><div style="font-size:11px;color:#6f7689;">Resolved Today</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 260px;">
+          <div style="border-right:1px solid rgba(255,255,255,.06);">
+            <div style="padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.06);"><span style="font-size:12px;font-weight:700;color:#d7dbea;">Recent Incidents</span></div>
+            <div class="rep-row" style="display:grid;grid-template-columns:76px 68px 1fr 100px 88px;padding:10px 18px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;background:rgba(229,57,53,.03);"><span style="font-size:11px;color:#9ca3b7;font-family:monospace;">AT-2847</span><span style="display:inline-flex;padding:2px 7px;border-radius:4px;background:rgba(229,57,53,.12);color:#ef5350;font-size:10px;font-weight:700;width:fit-content;">Critical</span><span style="font-size:12px;color:#f7f8ff;padding:0 10px;">Ransomware on endpoint WS-044</span><span style="font-size:12px;color:#9ca3b7;">J. Smith</span><span style="font-size:11px;color:#f2b95b;">In Progress</span></div>
+            <div class="rep-row" style="display:grid;grid-template-columns:76px 68px 1fr 100px 88px;padding:10px 18px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;"><span style="font-size:11px;color:#9ca3b7;font-family:monospace;">AT-2846</span><span style="display:inline-flex;padding:2px 7px;border-radius:4px;background:rgba(229,57,53,.08);color:#ef5350;font-size:10px;font-weight:700;width:fit-content;">High</span><span style="font-size:12px;color:#f7f8ff;padding:0 10px;">Lateral movement — 10.0.1.x subnet</span><span style="font-size:12px;color:#9ca3b7;">A. Chen</span><span style="font-size:11px;color:#f2b95b;">In Progress</span></div>
+            <div class="rep-row" style="display:grid;grid-template-columns:76px 68px 1fr 100px 88px;padding:10px 18px;align-items:center;"><span style="font-size:11px;color:#9ca3b7;font-family:monospace;">AT-2844</span><span style="display:inline-flex;padding:2px 7px;border-radius:4px;background:rgba(83,184,255,.1);color:#53b8ff;font-size:10px;font-weight:700;width:fit-content;">Low</span><span style="font-size:12px;color:#f7f8ff;padding:0 10px;">SSH brute force blocked by Wazuh</span><span style="font-size:12px;color:#9ca3b7;">AI Auto</span><span style="font-size:11px;color:#43d39f;">Resolved</span></div>
+          </div>
+          <div style="padding:12px 14px;">
+            <div style="font-size:10px;font-weight:700;color:#6f7689;text-transform:uppercase;letter-spacing:.08em;margin-bottom:9px;">Live Threat Feed</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;align-items:flex-start;gap:6px;"><span style="width:5px;height:5px;border-radius:50%;background:#ef5350;margin-top:4px;flex-shrink:0;"></span><div><div style="font-size:11px;color:#d7dbea;line-height:1.4;">Phishing campaign — 3 users targeted</div><div style="font-size:10px;color:#6f7689;margin-top:1px;">09:44 · Wazuh</div></div></div>
+              <div style="display:flex;align-items:flex-start;gap:6px;"><span style="width:5px;height:5px;border-radius:50%;background:#43d39f;margin-top:4px;flex-shrink:0;"></span><div><div style="font-size:11px;color:#d7dbea;line-height:1.4;">Brute force blocked — 248 attempts</div><div style="font-size:10px;color:#6f7689;margin-top:1px;">09:38 · Auto</div></div></div>
+              <div style="display:flex;align-items:flex-start;gap:6px;"><span style="width:5px;height:5px;border-radius:50%;background:#f2b95b;margin-top:4px;flex-shrink:0;"></span><div><div style="font-size:11px;color:#d7dbea;line-height:1.4;">Anomalous data exfil pattern flagged</div><div style="font-size:10px;color:#6f7689;margin-top:1px;">09:21 · UEBA</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section id="cta-section" style="padding:110px 24px;text-align:center;background:radial-gradient(ellipse at 50% 0%,rgba(74,134,232,.09) 0%,transparent 60%),#060810;position:relative;">
+    <div class="sr" style="max-width:600px;margin:0 auto;">
+      <img src="assets/ATTENSELOGO.png" style="width:90px;height:90px;object-fit:contain;mix-blend-mode:screen;filter:drop-shadow(0 0 24px rgba(74,134,232,.45));margin-bottom:26px;" alt="" />
+      <h2 style="font-size:clamp(28px,4vw,46px);font-weight:800;letter-spacing:-.025em;line-height:1.08;margin-bottom:16px;">Ready to secure your organization?</h2>
+      <p style="color:#9ca3b7;font-size:16px;line-height:1.7;margin-bottom:48px;">Join incident response teams already using Attense to stay ahead of threats and respond with precision.</p>
+    </div>
+    <div class="cta-btns sr d1" style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;align-items:center;">
+      <a href="blue-register.html" class="pb pb-purple pb-sm"><div class="pb-wrap"><p><span>✧</span>Sign Up</p></div></a>
+      <a href="blue-login.html" class="pb pb-sm"><div class="pb-wrap"><p><span>✧</span>Sign In</p></div></a>
+    </div>
+    <p style="margin-top:32px;font-size:12px;color:#6f7689;">Powered by Wazuh + TheHive · Invite-only</p>
+  </section>
+
+  <!-- Footer -->
+  <div style="padding:24px 32px;border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;background:#060810;">
+    <div style="display:flex;align-items:center;gap:10px;"><img src="assets/ATTENSELOGO.png" style="width:22px;height:22px;object-fit:contain;opacity:.8;mix-blend-mode:screen;" alt="" /><span class="att-word" style="font-size:13px;font-weight:800;letter-spacing:-.02em;">ATTENSE</span><span style="font-size:12px;color:#6f7689;">© 2026</span></div>
+    <div style="display:flex;gap:20px;"><a href="#" style="font-size:12px;color:#6f7689;text-decoration:none;">Privacy</a><a href="#" style="font-size:12px;color:#6f7689;text-decoration:none;">Security</a><a href="blue-login.html" style="font-size:12px;color:#6f7689;text-decoration:none;">Sign In</a></div>
+  </div>
+</div>
+
+<script>
+function scrollTo(id, tabIdx) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const top = el.getBoundingClientRect().top + window.pageYOffset - 80;
+  window.scroll({ top, behavior: 'smooth' });
+  setActiveTab(tabIdx);
+}
+
+function setActiveTab(idx) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('is-active', i===idx));
+  updatePill(idx);
+}
+
+function updatePill(idx) {
+  const pill = document.getElementById('tab-pill');
+  const btn = document.querySelector(`[data-tab-btn="${idx}"]`);
+  if (!pill || !btn) return;
+  pill.style.left = btn.offsetLeft + 'px';
+  pill.style.top = btn.offsetTop + 'px';
+  pill.style.width = btn.offsetWidth + 'px';
+  pill.style.height = btn.offsetHeight + 'px';
+}
+
+// Init pill
+setTimeout(() => { updatePill(0); }, 200);
+window.addEventListener('resize', () => { const active = document.querySelector('.tab-btn.is-active'); if(active) updatePill(parseInt(active.dataset.tabBtn)); });
+
+// Scroll reveal
+const obs = new IntersectionObserver(entries => entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('in-view'); }), { threshold: 0.08 });
+document.querySelectorAll('.sr').forEach(el => obs.observe(el));
+
+// Header glass
+const nav = document.getElementById('at-nav');
+window.addEventListener('scroll', () => {
+  const y = window.pageYOffset;
+  nav.style.background = y > 60 ? 'rgba(5,7,14,0.9)' : 'rgba(5,7,14,0)';
+  nav.style.backdropFilter = y > 60 ? 'blur(20px)' : 'none';
+  nav.style.borderColor = y > 60 ? 'rgba(255,255,255,0.1)' : 'transparent';
+
+  // Active tab from scroll
+  const sections = ['hero','benefits-section','spline-section','dashboard-section','cta-section'];
+  let active = 0;
+  sections.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el && el.offsetTop <= y + 120) active = i;
+  });
+  setActiveTab(active);
+}, { passive: true });
+
+// Cursor glow
+const orb = document.getElementById('glow-orb');
+let raf;
+document.addEventListener('mousemove', e => {
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(() => { orb.style.left=(e.clientX-350)+'px'; orb.style.top=(e.clientY-350)+'px'; orb.style.opacity='1'; });
+});
+
+// Feature card spotlight
+const card = document.getElementById('feat-card');
+const cOrb = document.getElementById('card-orb');
+if (card && cOrb) {
+  card.addEventListener('mousemove', e => { const r=card.getBoundingClientRect(); cOrb.style.left=(e.clientX-r.left-200)+'px'; cOrb.style.top=(e.clientY-r.top-200)+'px'; cOrb.style.opacity='1'; });
+  card.addEventListener('mouseleave', () => cOrb.style.opacity='0');
+}
+
+// Particle canvas
+document.fonts.ready.then(() => setTimeout(initParticles, 120));
+window.addEventListener('resize', () => { clearTimeout(window._prt); window._prt = setTimeout(initParticles, 200); }, { passive: true });
+
+function initParticles() {
+  const canvas = document.getElementById('attense-canvas');
+  if (!canvas) return;
+  if (window._pRaf) cancelAnimationFrame(window._pRaf);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || 680, H = canvas.offsetHeight || 160;
+  canvas.width = Math.round(W*dpr); canvas.height = Math.round(H*dpr);
+  ctx.setTransform(1,0,0,1,0,0); ctx.scale(dpr,dpr);
+  const fs = Math.min(100, W * 0.148);
+  ctx.font = `900 ${fs}px Inter,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#fff';
+  ctx.fillText('ATTENSE', W/2, H/2);
+  const img = ctx.getImageData(0,0,canvas.width,canvas.height); ctx.clearRect(0,0,W,H);
+  const pts = []; const step = Math.max(3, Math.round(5*dpr)); const cw = canvas.width;
+  const stops = [[0,[255,59,59]],[.28,[229,57,53]],[.52,[168,85,247]],[.74,[74,134,232]],[1,[29,111,232]]];
+  for (let y=0;y<canvas.height;y+=step) for (let x=0;x<canvas.width;x+=step) {
+    if (img.data[(y*cw+x)*4+3]>128) {
+      const ox=x/dpr,oy=y/dpr,t=x/canvas.width;
+      let i=0; while(i<stops.length-1&&stops[i+1][0]<=t)i++;
+      const[t0,c0]=stops[i],[t1,c1]=stops[Math.min(i+1,stops.length-1)];
+      const f=t1===t0?0:Math.max(0,Math.min(1,(t-t0)/(t1-t0)));
+      pts.push({x:ox+(Math.random()-.5)*8,y:oy+(Math.random()-.5)*8,ox,oy,vx:(Math.random()-.5)*4,vy:(Math.random()-.5)*4,color:`rgb(${Math.round(c0[0]+(c1[0]-c0[0])*f)},${Math.round(c0[1]+(c1[1]-c0[1])*f)},${Math.round(c0[2]+(c1[2]-c0[2])*f)})`});
+    }
+  }
+  let mx=-1000,my=-1000;
+  canvas.onmousemove=e=>{const r=canvas.getBoundingClientRect();mx=(e.clientX-r.left)*(W/r.width);my=(e.clientY-r.top)*(H/r.height);};
+  canvas.onmouseleave=()=>{mx=-1000;my=-1000;};
+  const draw=()=>{
+    ctx.clearRect(0,0,W,H);
+    for(const p of pts){
+      const dx=mx-p.x,dy=my-p.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<120&&mx>0){const f=(120-d)/120;p.vx-=(dx/d)*f*15;p.vy-=(dy/d)*f*15;}
+      p.vx+=(p.ox-p.x)*.08;p.vy+=(p.oy-p.y)*.08;p.vx*=.85;p.vy*=.85;p.x+=p.vx;p.y+=p.vy;
+      ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,1.5,0,Math.PI*2);ctx.fill();
+    }
+    window._pRaf=requestAnimationFrame(draw);
+  };
+  draw();
+}
+</script>
+</body>
+</html>

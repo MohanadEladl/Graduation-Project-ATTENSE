@@ -73,7 +73,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - zeroday_reports:/app/reports
-      - C:/Users/rawan/AppData/Roaming/gcloud:/tmp/gcloud:ro
+      - ${GCLOUD_CONFIG_DIR:-../secrets/gcloud}:/tmp/gcloud:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c 'print(\"ok\")'"]
       interval: 30s

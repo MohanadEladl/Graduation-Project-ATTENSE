@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +39,10 @@ def _save_room(room: dict) -> None:
         json.dump(room, room_file, indent=2)
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
     company = company_store.get_company(company_id)
     if company is None:
@@ -53,11 +58,20 @@ def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
         "incident_id": incident_id,
         "incidents": [incident_id],
         "scenario_id": scenario_id,
+        "exercise_mode": "deferred",
         "internal_url": f"http://blueteam_{room_id}:8010",
         "status": "created",
         "blue_team_members": [],
         "red_team_members": [],
         "created_by": created_by,
+        "created_at": _now_iso(),
+        "prefired_by": None,
+        "prefired_at": None,
+        "attack_started_at": None,
+        "attack_completed_at": None,
+        "packaged_at": None,
+        "blue_started_at": None,
+        "blue_started_by": None,
     }
 
     _save_room(room)
@@ -65,9 +79,67 @@ def create_room(company_id: str, scenario_id: str, created_by: str) -> dict:
     return room
 
 
+
+def prefire_room(room_id: str, username: str) -> dict:
+    """Mark a room as pre-fired/deferred.
+
+    The actual attack and alert events still arrive through the existing
+    red-team/signal/Blue Team event pipelines. This function records the room
+    lifecycle gate used by the control plane.
+    """
+    room = _load_room(room_id)
+    if room.get("status") == "closed":
+        raise RuntimeError("Cannot prefire a closed room")
+    if room.get("blue_started_at"):
+        raise RuntimeError("Cannot prefire after the Blue team has started")
+
+    now = _now_iso()
+    room.setdefault("exercise_mode", "deferred")
+    room["status"] = "packaged"
+    room["prefired_by"] = room.get("prefired_by") or username
+    room["prefired_at"] = room.get("prefired_at") or now
+    room["packaged_at"] = room.get("packaged_at") or now
+    _save_room(room)
+    return room
+
+
+def start_blue_team(room_id: str, username: str) -> dict:
+    """Start the deferred Blue-team timer when a Blue user launches TheHive."""
+    room = _load_room(room_id)
+    if room.get("status") == "closed":
+        raise RuntimeError("Cannot start a closed room")
+    if room.get("exercise_mode", "deferred") == "deferred" and not room.get("packaged_at"):
+        raise RuntimeError("Room is not packaged yet")
+
+    members = room.setdefault("blue_team_members", [])
+    if username not in members:
+        members.append(username)
+    if not room.get("blue_started_at"):
+        room["blue_started_at"] = _now_iso()
+        room["blue_started_by"] = username
+    room["status"] = "blue_active"
+    room["hive_launch_url"] = os.getenv("THEHIVE_PUBLIC_URL", "http://localhost:9000")
+    _save_room(room)
+    return room
+
+
+def record_incident_event(room_id: str, event_type: str, timestamp: str) -> dict:
+    """Update room lifecycle timestamps from incident events."""
+    room = _load_room(room_id)
+    if event_type == "malicious_action_executed":
+        room["attack_started_at"] = room.get("attack_started_at") or timestamp
+        room["attack_completed_at"] = timestamp
+    elif event_type == "alert_raised":
+        room["packaged_at"] = room.get("packaged_at") or timestamp
+        if room.get("status") in {"created", "prefiring"}:
+            room["status"] = "packaged"
+    _save_room(room)
+    return room
+
+
 def spin_up_blueteam(room_id: str) -> dict:
     room = _load_room(room_id)
-    if room["status"] == "active":
+    if room["status"] in {"active", "blue_active"}:
         return room
 
     soc_manager = next(
@@ -217,9 +289,9 @@ def add_incident(room_id: str, incident_id: str) -> dict:
     return room
 
 
-def find_room_id_for_incident(incident_id: str) -> Optional[str]:
-    """Return the room_id whose designated or associated incidents include
-    incident_id, or None if no room matches."""
+
+def find_room_for_incident(incident_id: str) -> Optional[dict]:
+    """Return the room whose designated/associated incidents include incident_id."""
     if not ROOMS_DIR.exists():
         return None
     for path in ROOMS_DIR.glob("*.json"):
@@ -229,8 +301,15 @@ def find_room_id_for_incident(incident_id: str) -> Optional[str]:
         except (OSError, json.JSONDecodeError):
             continue
         if room.get("incident_id") == incident_id or incident_id in room.get("incidents", []):
-            return room.get("room_id")
+            return room
     return None
+
+
+def find_room_id_for_incident(incident_id: str) -> Optional[str]:
+    """Return the room_id whose designated or associated incidents include
+    incident_id, or None if no room matches."""
+    room = find_room_for_incident(incident_id)
+    return room.get("room_id") if room else None
 
 
 def join_room_as_red_team(room_id: str, username: str) -> dict:

@@ -238,6 +238,61 @@ def _to_datetime(ts) -> datetime:
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
+
+def _normalise_scoring_anchor(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=None)
+
+
+def _room_context(incident_id: str) -> dict:
+    try:
+        from core import room_manager
+        room = room_manager.find_room_for_incident(incident_id)
+    except Exception:
+        return {}
+    return room or {}
+
+
+def _analyst_contributions(events: list[Event], scoring_started_at: Optional[datetime]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for ev in events:
+        if ev.actor_type != "blue_team":
+            continue
+        row = grouped.setdefault(ev.actor_id, {
+            "analyst_id": ev.actor_id,
+            "first_action_at": ev.timestamp,
+            "last_action_at": ev.timestamp,
+            "event_count": 0,
+            "event_types": {},
+        })
+        row["event_count"] += 1
+        row["first_action_at"] = min(row["first_action_at"], ev.timestamp)
+        row["last_action_at"] = max(row["last_action_at"], ev.timestamp)
+        row["event_types"][ev.event_type] = row["event_types"].get(ev.event_type, 0) + 1
+
+    out = []
+    for row in grouped.values():
+        first = row["first_action_at"]
+        last = row["last_action_at"]
+        out.append({
+            "analyst_id": row["analyst_id"],
+            "first_action_at": first.isoformat(),
+            "last_action_at": last.isoformat(),
+            "first_action_offset_sec": (
+                (first - scoring_started_at).total_seconds()
+                if scoring_started_at is not None else None
+            ),
+            "event_count": row["event_count"],
+            "event_types": dict(sorted(row["event_types"].items())),
+        })
+    return sorted(out, key=lambda item: item["first_action_at"])
+
+
 def _load_wazuh_events(incident_id: str) -> list[Event]:
     events: list[Event] = []
     if not os.path.exists(MAPPED_EVENTS):
@@ -405,8 +460,29 @@ def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
         }
         rule_data = {**rule_data, "scenarios": rule_data.get("scenarios", []) + [synthetic]}
 
-    scoring = score_incident(incident, all_events, rule_data)
+    room = _room_context(incident_id)
+    scoring_started_at = None
+    if room.get("exercise_mode") == "deferred":
+        scoring_started_at = _normalise_scoring_anchor(room.get("blue_started_at"))
+
+    scoring = score_incident(
+        incident,
+        all_events,
+        rule_data,
+        scoring_started_at=scoring_started_at,
+    )
     report.update(_scoring_to_dict(scoring))
+    report["scoring_started_at"] = scoring_started_at.isoformat() if scoring_started_at else None
+    report["room_timing"] = {
+        "room_id": room.get("room_id"),
+        "exercise_mode": room.get("exercise_mode", "live"),
+        "attack_started_at": room.get("attack_started_at"),
+        "attack_completed_at": room.get("attack_completed_at"),
+        "packaged_at": room.get("packaged_at"),
+        "blue_started_at": room.get("blue_started_at"),
+        "blue_started_by": room.get("blue_started_by"),
+    }
+    report["analyst_contributions"] = _analyst_contributions(all_events, scoring_started_at)
     report["mitre_attack"]       = rule_data.get("mitre_attack", {})
     report["response_framework"] = rule_data.get("response_framework", {})
 

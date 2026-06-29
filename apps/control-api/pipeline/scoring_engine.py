@@ -418,6 +418,7 @@ def score_incident(
     incident: Incident,
     events: list[Event],
     rule_data: dict,
+    scoring_started_at: Optional[datetime] = None,
 ) -> ScoringResult:
     """
     Score an incident against the rules in rule_data.
@@ -455,7 +456,9 @@ def score_incident(
 
     # ── t0 = first alert_raised event ────────────────────────────────────────
     t0_event = next((e for e in events if e.event_type == "alert_raised"), None)
-    if t0_event is not None:
+    if scoring_started_at is not None:
+        t0 = scoring_started_at
+    elif t0_event is not None:
         t0 = t0_event.timestamp
     elif incident.detection_time is not None:
         t0 = incident.detection_time

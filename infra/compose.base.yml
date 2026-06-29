@@ -269,8 +269,28 @@ services:
     networks:
       - attense_net
 
-  # Blue Team endpoints provided by `attense-app` (embedded; no separate service)
 
+  # Blue Team Frontend: React + Vite/Nginx
+  blue-team-frontend:
+    build:
+      context: ../frontends/blue-team
+    container_name: attense_blue_team_frontend
+    hostname: blue-team-frontend
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - attense-app
+    ports:
+      - "127.0.0.1:3100:8080"  # loopback only, Blue Team workspace
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - attense_net
+  # Blue Team endpoints provided by attense-app (embedded API; frontend added above)
   # ── Watcher Agent: SOC analyst terminal monitor ──────────────────────────────
   # Tails the host audit log, classifies analyst commands via Ollama, and posts
   # classified SOC actions to attense-app:8010/blueteam/analyst-action.
@@ -304,23 +324,6 @@ services:
     privileged: true
     volumes:
       - /var/log/audit:/var/log/audit:ro
-    networks:
-      - attense_net
-
-  # ── Attense React (portal frontend) ─────────────────────────────────────────
-  attense-react:
-    build:
-      context: ../frontends/portal
-    container_name: attense_react
-    hostname: attense-react
-    restart: unless-stopped
-    logging: *default-logging
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
     networks:
       - attense_net
 
