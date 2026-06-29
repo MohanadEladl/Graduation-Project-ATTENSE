@@ -1,6 +1,6 @@
 # Cortex-Lite: Threat Intelligence Enrichment Module (Option B)
 
-Add a lightweight `cortex/` enrichment module inside the BlueTeam that gives analysts real threat intelligence **during the investigation phase** — without adding a Cortex process or any new container.
+Add a lightweight `cortex/` enrichment module inside the BlueTeam that gives analysts real threat intelligence **during the investigation phase** â€” without adding a Cortex process or any new container.
 
 ---
 
@@ -8,13 +8,13 @@ Add a lightweight `cortex/` enrichment module inside the BlueTeam that gives ana
 
 Right now the investigation flow is:
 ```
-raise_alert → investigate_alert → confirm/deny
+raise_alert â†’ investigate_alert â†’ confirm/deny
 ```
 The analyst receives raw alert data but has **no enrichment** to base their decision on.
 
 After this change:
 ```
-raise_alert → [enrich IOCs automatically] → investigate_alert (analyst sees enrichment) → confirm/deny
+raise_alert â†’ [enrich IOCs automatically] â†’ investigate_alert (analyst sees enrichment) â†’ confirm/deny
 ```
 The analyst sees IP reputation + VirusTotal results attached to the alert before deciding.
 
@@ -24,10 +24,10 @@ The analyst sees IP reputation + VirusTotal results attached to the alert before
 
 > [!IMPORTANT]
 > **API Keys Required**: VirusTotal and AbuseIPDB are free but require API key registration.
-> - AbuseIPDB free tier: 1,000 checks/day → https://www.abuseipdb.com/register
-> - VirusTotal free tier: 500 lookups/day → https://www.virustotal.com/gui/join-us
+> - AbuseIPDB free tier: 1,000 checks/day â†’ https://www.abuseipdb.com/register
+> - VirusTotal free tier: 500 lookups/day â†’ https://www.virustotal.com/gui/join-us
 >
-> Keys are passed as environment variables — no hardcoding. The module works in **graceful degradation mode** (returns empty enrichment) if keys are missing or APIs are unreachable.
+> Keys are passed as environment variables â€” no hardcoding. The module works in **graceful degradation mode** (returns empty enrichment) if keys are missing or APIs are unreachable.
 
 > [!NOTE]
 > **No new containers, no new processes.** This is pure Python inside the existing BlueTeam FastAPI service. Zero Docker changes needed.
@@ -38,8 +38,8 @@ The analyst sees IP reputation + VirusTotal results attached to the alert before
 
 > [!IMPORTANT]
 > **When should enrichment trigger?**
-> - **Option 1 (Recommended)**: Automatically when `raise_alert` is called — enrichment is ready before the analyst even opens the alert.
-> - **Option 2**: On-demand via a new `POST /blueteam/enrich` endpoint — analyst requests enrichment manually.
+> - **Option 1 (Recommended)**: Automatically when `raise_alert` is called â€” enrichment is ready before the analyst even opens the alert.
+> - **Option 2**: On-demand via a new `POST /blueteam/enrich` endpoint â€” analyst requests enrichment manually.
 >
 > Option 1 is more realistic (SOAR-style auto-enrichment). Option 2 gives more control for demos. Please confirm which you prefer.
 
@@ -56,16 +56,16 @@ Empty package marker.
 
 #### [NEW] `infrastructure/cortex/virustotal_client.py`
 Calls the VirusTotal API v3 to look up:
-- **IP addresses** → malicious votes, country, ASN, last analysis stats
-- **URLs** → malicious/suspicious vote counts
-- **File hashes** → malware family, detection ratio (e.g. 42/72 engines flagged)
+- **IP addresses** â†’ malicious votes, country, ASN, last analysis stats
+- **URLs** â†’ malicious/suspicious vote counts
+- **File hashes** â†’ malware family, detection ratio (e.g. 42/72 engines flagged)
 
 Returns a structured `VTResult` dataclass. Returns empty result gracefully if API key is missing.
 
 #### [NEW] `infrastructure/cortex/abuseipdb_client.py`
 Calls AbuseIPDB API v2 to look up:
-- **IP reputation** → abuse confidence score (0–100%), total reports, country, ISP, usage type
-- Confidence ≥ 50% → HIGH risk, ≥ 20% → MEDIUM, < 20% → LOW
+- **IP reputation** â†’ abuse confidence score (0â€“100%), total reports, country, ISP, usage type
+- Confidence â‰¥ 50% â†’ HIGH risk, â‰¥ 20% â†’ MEDIUM, < 20% â†’ LOW
 
 Returns a structured `AbuseIPResult` dataclass. Graceful degradation if key missing.
 
@@ -134,9 +134,9 @@ ABUSEIPDB_API_KEY: ""       # fill in with real key
 
 ---
 
-### Modified: `requirments.txt`
+### Modified: `requirements.txt`
 
-No new packages needed — `httpx` is already installed and handles all HTTP calls.
+No new packages needed â€” `httpx` is already installed and handles all HTTP calls.
 
 ---
 
@@ -144,20 +144,20 @@ No new packages needed — `httpx` is already installed and handles all HTTP cal
 
 ```
 blueteam/
-├── infrastructure/
-│   └── cortex/                          ← NEW
-│       ├── __init__.py                  ← NEW
-│       ├── virustotal_client.py         ← NEW
-│       ├── abuseipdb_client.py          ← NEW
-│       └── enrichment_service.py        ← NEW
-├── config/
-│   └── settings.py                      ← MODIFY (add 2 API key fields)
-├── api/
-│   ├── dependencies.py                  ← MODIFY (add get_enrichment_service)
-│   └── router.py                        ← MODIFY (wire enrichment into raise_alert or new endpoint)
-├── schemas/responses/
-│   └── action_response.py               ← MODIFY (add optional enrichment field)
-└── docker-compose.yml                   ← MODIFY (add env vars)
+â”œâ”€â”€ infrastructure/
+â”‚   â””â”€â”€ cortex/                          â† NEW
+â”‚       â”œâ”€â”€ __init__.py                  â† NEW
+â”‚       â”œâ”€â”€ virustotal_client.py         â† NEW
+â”‚       â”œâ”€â”€ abuseipdb_client.py          â† NEW
+â”‚       â””â”€â”€ enrichment_service.py        â† NEW
+â”œâ”€â”€ config/
+â”‚   â””â”€â”€ settings.py                      â† MODIFY (add 2 API key fields)
+â”œâ”€â”€ api/
+â”‚   â”œâ”€â”€ dependencies.py                  â† MODIFY (add get_enrichment_service)
+â”‚   â””â”€â”€ router.py                        â† MODIFY (wire enrichment into raise_alert or new endpoint)
+â”œâ”€â”€ schemas/responses/
+â”‚   â””â”€â”€ action_response.py               â† MODIFY (add optional enrichment field)
+â””â”€â”€ docker-compose.yml                   â† MODIFY (add env vars)
 ```
 
 ---
@@ -165,11 +165,11 @@ blueteam/
 ## Verification Plan
 
 ### Automated
-- Run the BlueTeam API with empty API keys → enrichment returns gracefully with `null`
-- Run with mock keys → verify error handling doesn't crash the alert flow
+- Run the BlueTeam API with empty API keys â†’ enrichment returns gracefully with `null`
+- Run with mock keys â†’ verify error handling doesn't crash the alert flow
 - Check `GET /health` still returns `ok`
 
 ### Manual
-- With real AbuseIPDB key: POST to `/blueteam/raise-alert` with a known-bad IP → verify `enrichment.abuse_confidence_score` is > 0
-- With real VT key: include a known malicious hash in `raw_log` → verify detection ratio in response
+- With real AbuseIPDB key: POST to `/blueteam/raise-alert` with a known-bad IP â†’ verify `enrichment.abuse_confidence_score` is > 0
+- With real VT key: include a known malicious hash in `raw_log` â†’ verify detection ratio in response
 - Confirm that if both keys are empty, the normal alert workflow is completely unaffected

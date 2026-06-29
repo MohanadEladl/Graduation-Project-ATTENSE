@@ -84,7 +84,7 @@ For the current project, use **one stateless Blue Team API**. Every request and 
 
 **Files involved**
 
-- `red-team/frontend/src/data/missionBriefings.js`
+- `frontends/red-team/src/data/missionBriefings.js`
 - `red-team/backend/report_generator.py`
 - `red-team/backend/report_agent.py`
 - `red-team/backend/lab_progress.py`
@@ -133,7 +133,7 @@ The project has parallel route modules for guided and operator modes. Although s
 
 **Recommendation**
 
-Use one route implementation per vulnerability and inject a `ScenarioProfile` or `ExerciseMode` policy. The policy should control hints, allowed payload classes, logging detail, reset behavior, and scoring—not duplicate the HTTP handler.
+Use one route implementation per vulnerability and inject a `ScenarioProfile` or `ExerciseMode` policy. The policy should control hints, allowed payload classes, logging detail, reset behavior, and scoringâ€”not duplicate the HTTP handler.
 
 ---
 
@@ -353,7 +353,7 @@ Several services mount `/var/run/docker.sock`. A read-only filesystem mount does
 
 - Standardize on one Python version; 3.12 is a practical choice for the current codebase.
 - Align `pyrightconfig.json` with the actual runtime version.
-- Rename `blueteam/requirments.txt` to `requirements.txt`.
+- Blue Team dependency file is now named `requirements.txt`.
 - Replace broad unbounded `>=` dependencies with a generated lock/constraints file.
 - Move `pytest`, test helpers, and duplicate packages out of runtime requirements.
 - Use non-root users consistently and `COPY --chown` rather than world-writable directories.
@@ -518,64 +518,64 @@ The portal/control API should manage users, companies, rooms, and run lifecycle.
 
 ```text
 attense/
-├── apps/
-│   ├── control-api/                 # auth, companies, rooms, exercise lifecycle
-│   ├── event-api/                   # event ingest, storage, incident projection
-│   ├── signal-mapper/               # Wazuh/raw signal adapters only
-│   ├── red-team-api/                # controlled attack execution
-│   ├── blue-team-api/               # investigation and containment actions
-│   └── target-lab/                  # vulnerable application and scenario switches
-│
-├── frontends/
-│   ├── portal/
-│   └── red-team/
-│
-├── packages/
-│   └── attense-core/
-│       ├── models/
-│       │   ├── event.py
-│       │   ├── incident.py
-│       │   └── scenario.py
-│       ├── evaluation/
-│       │   ├── state_machine.py
-│       │   ├── metrics.py
-│       │   └── reports.py
-│       ├── scenarios/
-│       │   ├── APP-01.yaml
-│       │   ├── APP-02.yaml
-│       │   └── ...
-│       └── repositories/
-│           ├── events.py
-│           └── incidents.py
-│
-├── integrations/
-│   ├── thehive/
-│   ├── cortex/
-│   └── wazuh/
-│
-├── infra/
-│   ├── compose.base.yml
-│   ├── compose.dev.yml
-│   ├── compose.security.yml
-│   ├── compose.ai.yml
-│   ├── nginx/
-│   ├── thehive/
-│   ├── cortex/
-│   └── wazuh/
-│
-├── scripts/
-│   ├── bootstrap/
-│   └── maintenance/
-│
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── e2e/
-│
-├── .env.example
-├── pyproject.toml
-├── Makefile
-└── README.md
+â”œâ”€â”€ apps/
+â”‚   â”œâ”€â”€ control-api/                 # auth, companies, rooms, exercise lifecycle
+â”‚   â”œâ”€â”€ event-api/                   # event ingest, storage, incident projection
+â”‚   â”œâ”€â”€ signal-mapper/               # Wazuh/raw signal adapters only
+â”‚   â”œâ”€â”€ red-team-api/                # controlled attack execution
+â”‚   â”œâ”€â”€ blue-team-api/               # investigation and containment actions
+â”‚   â””â”€â”€ target-lab/                  # vulnerable application and scenario switches
+â”‚
+â”œâ”€â”€ frontends/
+â”‚   â”œâ”€â”€ portal/
+â”‚   â””â”€â”€ red-team/
+â”‚
+â”œâ”€â”€ packages/
+â”‚   â””â”€â”€ attense-core/
+â”‚       â”œâ”€â”€ models/
+â”‚       â”‚   â”œâ”€â”€ event.py
+â”‚       â”‚   â”œâ”€â”€ incident.py
+â”‚       â”‚   â””â”€â”€ scenario.py
+â”‚       â”œâ”€â”€ evaluation/
+â”‚       â”‚   â”œâ”€â”€ state_machine.py
+â”‚       â”‚   â”œâ”€â”€ metrics.py
+â”‚       â”‚   â””â”€â”€ reports.py
+â”‚       â”œâ”€â”€ scenarios/
+â”‚       â”‚   â”œâ”€â”€ APP-01.yaml
+â”‚       â”‚   â”œâ”€â”€ APP-02.yaml
+â”‚       â”‚   â””â”€â”€ ...
+â”‚       â””â”€â”€ repositories/
+â”‚           â”œâ”€â”€ events.py
+â”‚           â””â”€â”€ incidents.py
+â”‚
+â”œâ”€â”€ integrations/
+â”‚   â”œâ”€â”€ thehive/
+â”‚   â”œâ”€â”€ cortex/
+â”‚   â””â”€â”€ wazuh/
+â”‚
+â”œâ”€â”€ infra/
+â”‚   â”œâ”€â”€ compose.base.yml
+â”‚   â”œâ”€â”€ compose.dev.yml
+â”‚   â”œâ”€â”€ compose.security.yml
+â”‚   â”œâ”€â”€ compose.ai.yml
+â”‚   â”œâ”€â”€ nginx/
+â”‚   â”œâ”€â”€ thehive/
+â”‚   â”œâ”€â”€ cortex/
+â”‚   â””â”€â”€ wazuh/
+â”‚
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ bootstrap/
+â”‚   â””â”€â”€ maintenance/
+â”‚
+â”œâ”€â”€ tests/
+â”‚   â”œâ”€â”€ unit/
+â”‚   â”œâ”€â”€ integration/
+â”‚   â””â”€â”€ e2e/
+â”‚
+â”œâ”€â”€ .env.example
+â”œâ”€â”€ pyproject.toml
+â”œâ”€â”€ Makefile
+â””â”€â”€ README.md
 ```
 
 ## Consolidation decisions
@@ -603,7 +603,7 @@ attense/
 
 # Actionable Next Steps
 
-## Phase 0 — Protect the current project
+## Phase 0 â€” Protect the current project
 
 1. Create a refactoring branch and tag the current working version.
 2. Export only required databases and non-secret configuration.
@@ -615,7 +615,7 @@ attense/
 
 ---
 
-## Phase 1 — Lock down current behavior with tests
+## Phase 1 â€” Lock down current behavior with tests
 
 1. Add unit tests for each incident-state transition.
 2. Add tests for TTD/TTC calculations using fixed UTC timestamps.
@@ -637,7 +637,7 @@ exercise start
 
 ---
 
-## Phase 2 — Introduce the canonical event contract
+## Phase 2 â€” Introduce the canonical event contract
 
 1. Create the Pydantic `StandardEvent` model.
 2. Add `schema_version`, `room_id`, `run_id`, `incident_id`, `source`, and UTC `occurred_at`.
@@ -649,7 +649,7 @@ exercise start
 
 ---
 
-## Phase 3 — Unify persistence and incident state
+## Phase 3 â€” Unify persistence and incident state
 
 1. Add SQLite migrations for events, incidents, rooms, runs, and memberships.
 2. Implement `EventRepository` with a unique `event_id` constraint.
@@ -663,7 +663,7 @@ exercise start
 
 ---
 
-## Phase 4 — Fix correlation before UI refactoring
+## Phase 4 â€” Fix correlation before UI refactoring
 
 1. Generate an incident/run identifier at exercise start.
 2. Carry it through target execution and telemetry.
@@ -675,7 +675,7 @@ exercise start
 
 ---
 
-## Phase 5 — Choose and enforce one Blue Team topology
+## Phase 5 â€” Choose and enforce one Blue Team topology
 
 1. Keep one shared Blue Team API.
 2. Remove embedded Uvicorn startup from the controller.
@@ -687,7 +687,7 @@ exercise start
 
 ---
 
-## Phase 6 — Consolidate scenarios and target routes
+## Phase 6 â€” Consolidate scenarios and target routes
 
 1. Define the scenario specification schema.
 2. Migrate one scenario first and verify UI, execution, scoring, and reporting.
@@ -700,7 +700,7 @@ exercise start
 
 ---
 
-## Phase 7 — Simplify infrastructure
+## Phase 7 â€” Simplify infrastructure
 
 1. Split Compose into base/dev/security/AI files and profiles.
 2. Remove fixed `container_name` values.
@@ -715,7 +715,7 @@ exercise start
 
 ---
 
-## Phase 8 — Delete verified legacy code
+## Phase 8 â€” Delete verified legacy code
 
 1. Run import/dependency analysis and coverage.
 2. Remove the unused report generator.
@@ -729,7 +729,7 @@ exercise start
 
 ---
 
-## Phase 9 — Add CI and acceptance gates
+## Phase 9 â€” Add CI and acceptance gates
 
 The CI pipeline should run:
 

@@ -15,10 +15,10 @@ stack (a local cyber-range lab, not a public-facing production system).
 | `attense-app/ATTENSE_app/blueteam/Dockerfile` (unused) | ✅ same pattern | ✅ same | ✅ apt deps in one `RUN` | ✅ `appuser` |
 | `target-agent/Dockerfile` + nested duplicate | ✅ builder venv for the Flask app only | ✅ `app/requirements.txt` installed before app code | ✅ apt + Wazuh install chained, `rm -rf /var/lib/apt/lists/*` in same layer | ❌ stays root — documented exception (see below) |
 | `attackbox/Dockerfile` | ❌ not applicable — no separable build artifact | n/a | ✅ already chained `apt-get update/install/clean` | ❌ stays root — documented exception |
-| `red-team/frontend/Dockerfile` | ✅ already multistage (Vite builder → nginx) | ✅ `package.json` before source | n/a | ✅ switched base to `nginxinc/nginx-unprivileged`, port 8080 |
+| `frontends/red-team/Dockerfile` | ✅ already multistage (Vite builder → nginx) | ✅ `package.json` before source | n/a | ✅ switched base to `nginxinc/nginx-unprivileged`, port 8080 |
 
 Also added: `.dockerignore` in every build context that lacked one
-(`attense-app`, `signal-store`, `red-team`, `target-agent`); `attackbox` and `red-team/frontend` already had one.
+(`attense-app`, `signal-store`, `red-team`, `target-agent`); `attackbox` and `frontends/red-team` already had one.
 
 `docker-compose.yml`: `red-team-frontend` port mapping changed from
 `3000:80` to `3000:8080` and its healthcheck URL updated to match, since the

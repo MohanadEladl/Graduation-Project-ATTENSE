@@ -2,7 +2,7 @@
 backend/identity.py — Resolve a red-team operator's real identity.
 
 The frontend forwards whatever session token it captured at login (see
-red-team/frontend/src/routes/Login.jsx) as X-Session-Token. We validate it
+frontends/red-team/src/routes/Login.jsx) as X-Session-Token. We validate it
 against attense-app's own session store -- the same one every other ATTENSE
 service trusts (core/session_store.py) -- rather than inventing a second
 identity system.

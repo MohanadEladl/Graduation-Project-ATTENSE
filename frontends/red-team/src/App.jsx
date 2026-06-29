@@ -20,7 +20,7 @@ import Gauntlet          from './routes/Gauntlet.jsx'
 import ShapeshiftTest    from './routes/ShapeshiftTest.jsx'
 
 // Captures ?token=<attense-app session token> from the URL (handed off by
-// the portal after login — see red-team/backend/identity.py for how the
+// attense-react after login — see red-team/backend/identity.py for how the
 // backend validates it), persists it, then strips it from the address bar
 // so it doesn't linger in browser history / get leaked via Referer.
 function useSessionTokenFromUrl() {

@@ -64,7 +64,7 @@ bootstrap.
 | `apps/blue-team-api/` | `blueteam/` (package nested as `blueteam/blueteam/blueteam` — see note below) |
 | `apps/target-lab/` | `target-agent/` |
 | `frontends/portal/` | `AttensePortal/AttenseFront/attense-react/` |
-| `frontends/red-team/` | `red-team/frontend/` |
+| `frontends/red-team/` | `frontends/red-team/` |
 | `integrations/{thehive,cortex,wazuh}/` | `thehive/`, `cortex/`, `wazuh/` |
 | `scripts/bootstrap/` | `setup_thehive.py`, `setup_cortex.py`, `setup_wazuh.py`, `check_secrets.py` |
 | `scripts/maintenance/` | `wazuh_agent_watchdog.py`, `close_lab.py` |

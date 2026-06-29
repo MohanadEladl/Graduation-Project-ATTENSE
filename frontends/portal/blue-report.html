@@ -20,7 +20,6 @@
     <a class="brand" href="blue-home.html"><img src="assets/ATTENSELOGO.png" alt="Attense"><b>ATTENSE BLUE</b></a>
     <div class="nav-actions">
       <a class="btn" href="blue-home.html">Home</a>
-      <button class="btn notif-btn" id="openNotifications" type="button">Notifications <span class="notif-count" id="notificationCount"></span></button>
       <button class="btn" id="clearRooms" type="button">Clear Data</button>
     </div>
   </nav>
@@ -94,19 +93,6 @@
     </section>
   </main>
 
-  <div class="drawer-backdrop" id="notificationBackdrop"></div>
-  <aside class="notif-drawer" id="notificationDrawer" aria-hidden="true">
-    <div class="drawer-head">
-      <div>
-        <span class="kicker">Invitations</span>
-        <div style="font-size:12px;color:#8c95aa;margin-top:7px" id="inviteBadge">No pending invitations</div>
-      </div>
-      <button class="btn" id="closeNotifications" type="button">Close</button>
-    </div>
-    <div class="drawer-body">
-      <div class="invite-list" id="invitations"></div>
-    </div>
-  </aside>
 </div>
 <script>
 (function(){
@@ -140,10 +126,6 @@
   const toastEl = document.getElementById('toast');
   const invitationsEl = document.getElementById('invitations');
   const inviteCountEl = document.getElementById('inviteCount');
-  const inviteBadgeEl = document.getElementById('inviteBadge');
-  const notificationCountEl = document.getElementById('notificationCount');
-  const notificationDrawerEl = document.getElementById('notificationDrawer');
-  const notificationBackdropEl = document.getElementById('notificationBackdrop');
 
   const showToast = message => {
     toastEl.textContent = message;
@@ -157,6 +139,7 @@
       roomName: room.name,
       mode: room.mode,
       scenario: room.scenario || 'phishing',
+      hiveUrl: room.hiveLaunchUrl || room.hive_launch_url || 'http://127.0.0.1:9000/',
     });
     window.location.href = `${BLUE_UI_URL}?${params.toString()}`;
   }
@@ -189,14 +172,6 @@
 
   document.getElementById('teamModeBtn').addEventListener('click', () => setMode('team'));
   document.getElementById('soloModeBtn').addEventListener('click', () => setMode('solo'));
-  const setNotificationsOpen = open => {
-    notificationDrawerEl.classList.toggle('open', open);
-    notificationBackdropEl.classList.toggle('open', open);
-    notificationDrawerEl.setAttribute('aria-hidden', open ? 'false' : 'true');
-  };
-  document.getElementById('openNotifications').addEventListener('click', () => setNotificationsOpen(true));
-  document.getElementById('closeNotifications').addEventListener('click', () => setNotificationsOpen(false));
-  notificationBackdropEl.addEventListener('click', () => setNotificationsOpen(false));
   roomsEl.addEventListener('click', event => {
     const button = event.target.closest('[data-enter-room]');
     if (!button) return;
@@ -209,9 +184,6 @@
   function renderInvitations(){
     const invitations = getInvitations();
     inviteCountEl.textContent = String(invitations.length);
-    inviteBadgeEl.textContent = invitations.length ? `${invitations.length} pending invitation${invitations.length === 1 ? '' : 's'}` : 'No pending invitations';
-    notificationCountEl.textContent = invitations.length ? String(invitations.length) : '';
-    notificationCountEl.classList.toggle('show', invitations.length > 0);
     if (!invitations.length) {
       invitationsEl.innerHTML = '<div class="empty">No invitations yet.</div>';
       return;
@@ -238,7 +210,15 @@
     const teamId = 'TEAM-' + Math.floor(1000 + Math.random() * 9000);
     const createdAt = new Date().toLocaleString();
     const rooms = getRooms();
-    const room = { id: teamId, name: roomName, mode: 'team', teamCode: teamId, scenario: 'phishing', createdAt };
+    const room = {
+      id: teamId,
+      name: roomName,
+      mode: 'team',
+      teamCode: teamId,
+      scenario: 'phishing',
+      createdAt,
+      hiveLaunchUrl: 'http://127.0.0.1:9000/',
+    };
     rooms.unshift(room);
     saveRooms(rooms);
     const invitations = getInvitations();
@@ -258,7 +238,14 @@
     const name = nameInput.value.trim() || 'Solo Blue Room';
     const rooms = getRooms();
     const id = 'SOLO-' + Math.floor(1000 + Math.random() * 9000);
-    const room = { id, name, mode: 'solo', scenario, createdAt: new Date().toLocaleString() };
+    const room = {
+      id,
+      name,
+      mode: 'solo',
+      scenario,
+      createdAt: new Date().toLocaleString(),
+      hiveLaunchUrl: 'http://127.0.0.1:9000/',
+    };
     rooms.unshift(room);
     saveRooms(rooms);
     nameInput.value = '';

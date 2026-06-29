@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    h1, h2, h3, p { margin: 0; }
+    @keyframes br  { 0%,100%{transform:translateX(-110%)} 50%{transform:translateX(310%)} }
+    @keyframes bl2 { 0%,100%{transform:translateX(310%)}  50%{transform:translateX(-110%)} }
+    @keyframes bd  { 0%,100%{transform:translateY(-110%)} 50%{transform:translateY(310%)} }
+    @keyframes bu  { 0%,100%{transform:translateY(310%)}  50%{transform:translateY(-110%)} }
+    @keyframes fu  { from{opacity:0;transform:translateY(18px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes pulse-g { 0%,100%{box-shadow:0 0 0 0 rgba(67,211,159,.65)} 70%{box-shadow:0 0 0 6px rgba(67,211,159,0)} }
+  </style>
+</helmet>
+
+<div style="display:flex;min-height:100vh;background:#060810;color:#f7f8ff;font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;">
+
+  <!-- SIDEBAR -->
+  <aside style="width:220px;flex-shrink:0;background:#030509;border-right:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;">
+    <div style="padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,.06);">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:5px;">
+        <img src="assets/ATTENSELOGO.png" style="width:26px;height:26px;object-fit:contain;mix-blend-mode:screen;filter:drop-shadow(0 0 8px rgba(83,184,255,.5));" alt="">
+        <span style="font-size:15px;font-weight:900;letter-spacing:-.025em;background:linear-gradient(90deg,#22d3ee,#a78bfa 50%,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">ATTENSE</span>
+      </div>
+      <div style="font-size:10px;color:#6f7689;font-weight:600;letter-spacing:.09em;text-transform:uppercase;">Blue Team Portal</div>
+    </div>
+    <nav style="padding:14px 10px;flex:1;display:flex;flex-direction:column;gap:3px;">
+      <a href="dashboard.dc.html" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;background:rgba(74,134,232,.1);border:1px solid rgba(74,134,232,.18);text-decoration:none;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a86e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
+        <span style="font-size:13px;font-weight:600;color:#4a86e8;">Dashboard</span>
+      </a>
+      <a href="rooms.dc.html" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;text-decoration:none;" style-hover="background:rgba(255,255,255,.04);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7689" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+        <span style="font-size:13px;font-weight:600;color:#6f7689;">Rooms</span>
+      </a>
+      <a href="report.dc.html" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;text-decoration:none;" style-hover="background:rgba(255,255,255,.04);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7689" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+        <span style="font-size:13px;font-weight:600;color:#6f7689;">Reports</span>
+      </a>
+      <div style="height:1px;background:rgba(255,255,255,.06);margin:10px 4px;"></div>
+      <a href="#" onClick="{{ goBack }}" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;text-decoration:none;" style-hover="background:rgba(255,255,255,.04);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7689" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        <span style="font-size:13px;font-weight:500;color:#6f7689;">Go Back</span>
+      </a>
+    </nav>
+    <div style="padding:10px;flex-shrink:0;">
+      <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:10px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4a86e8,#7c6df2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">J</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:700;color:#f7f8ff;">Jane Smith</div>
+          <div style="font-size:11px;color:#6f7689;">SOC Analyst</div>
+        </div>
+        <div style="width:7px;height:7px;border-radius:50%;background:#43d39f;animation:pulse-g 2s infinite;flex-shrink:0;"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main style="flex:1;min-width:0;padding:32px 36px;display:flex;flex-direction:column;gap:28px;overflow-y:auto;">
+
+    <!-- HEADER -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;animation:fu .55s cubic-bezier(.22,1,.36,1) both;">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:#6f7689;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;">Good morning · Sat Jun 28, 2026</div>
+        <h1 style="font-size:26px;font-weight:800;letter-spacing:-.03em;line-height:1.15;margin-bottom:10px;">Welcome back, <span style="background:linear-gradient(90deg,#93c5fd,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Jane Smith.</span></h1>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:7px;background:rgba(74,134,232,.1);border:1px solid rgba(74,134,232,.2);color:#4a86e8;font-size:11px;font-weight:700;">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4M12 19v4"></path></svg>
+            SOC Analyst
+          </div>
+          <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;background:rgba(67,211,159,.08);border:1px solid rgba(67,211,159,.2);color:#43d39f;font-size:11px;font-weight:700;">
+            <div style="width:5px;height:5px;border-radius:50%;background:#43d39f;"></div>
+            Online
+          </div>
+        </div>
+      </div>
+      <a href="rooms.dc.html" style="display:inline-flex;align-items:center;gap:8px;padding:11px 22px;border-radius:10px;background:rgba(74,134,232,.1);border:1px solid rgba(74,134,232,.28);color:#f7f8ff;font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0;" style-hover="background:rgba(74,134,232,.18);border-color:rgba(74,134,232,.5);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a86e8" stroke-width="2.5" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+        Enter a New Room
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4a86e8" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </a>
+    </div>
+
+    <!-- STAT CARDS -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;animation:fu .55s .08s cubic-bezier(.22,1,.36,1) both;">
+
+      <!-- Purple: Avg Score -->
+      <div style="position:relative;overflow:hidden;border-radius:16px;padding:22px 20px 20px;background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.09);">
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;left:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(124,109,242,.85),transparent);animation:br 3s ease-in-out infinite;"></div>
+        <div style="position:absolute;overflow:hidden;bottom:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;right:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(124,109,242,.85),transparent);animation:bl2 3s ease-in-out infinite 1.5s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(124,109,242,.85),transparent);animation:bd 3s ease-in-out infinite .75s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;right:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(124,109,242,.85),transparent);animation:bu 3s ease-in-out infinite 2.25s;"></div>
+        <div style="position:absolute;top:-24px;left:50%;transform:translateX(-50%);width:110%;height:60px;border-radius:50%;background:radial-gradient(ellipse at 50% 0%,rgba(124,109,242,.22),transparent 70%);pointer-events:none;"></div>
+        <div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:#7c6df2;box-shadow:0 0 14px 5px rgba(124,109,242,.5);"></div>
+        <div style="font-size:40px;font-weight:900;letter-spacing:-.04em;line-height:1;background:linear-gradient(135deg,#c4b5fd,#7c6df2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-top:10px;margin-bottom:2px;">78%</div>
+        <div style="font-size:10px;color:#9ca3b7;font-weight:600;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;">Overall Avg Score</div>
+        <div style="font-size:12px;color:#6f7689;">Across 12 rooms</div>
+      </div>
+
+      <!-- Blue: Rooms Completed -->
+      <div style="position:relative;overflow:hidden;border-radius:16px;padding:22px 20px 20px;background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.09);">
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;left:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(74,134,232,.85),transparent);animation:br 3s ease-in-out infinite .5s;"></div>
+        <div style="position:absolute;overflow:hidden;bottom:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;right:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(74,134,232,.85),transparent);animation:bl2 3s ease-in-out infinite 2s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(74,134,232,.85),transparent);animation:bd 3s ease-in-out infinite 1.25s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;right:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(74,134,232,.85),transparent);animation:bu 3s ease-in-out infinite 2.75s;"></div>
+        <div style="position:absolute;top:-24px;left:50%;transform:translateX(-50%);width:110%;height:60px;border-radius:50%;background:radial-gradient(ellipse at 50% 0%,rgba(74,134,232,.2),transparent 70%);pointer-events:none;"></div>
+        <div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:#4a86e8;box-shadow:0 0 14px 5px rgba(74,134,232,.5);"></div>
+        <div style="font-size:40px;font-weight:900;letter-spacing:-.04em;line-height:1;background:linear-gradient(135deg,#93c5fd,#4a86e8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-top:10px;margin-bottom:2px;">12</div>
+        <div style="font-size:10px;color:#9ca3b7;font-weight:600;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;">Rooms Completed</div>
+        <div style="font-size:12px;color:#6f7689;">+2 this month</div>
+      </div>
+
+      <!-- Green: Team Rank -->
+      <div style="position:relative;overflow:hidden;border-radius:16px;padding:22px 20px 20px;background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.09);">
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;left:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(67,211,159,.85),transparent);animation:br 3s ease-in-out infinite 1s;"></div>
+        <div style="position:absolute;overflow:hidden;bottom:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;right:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(67,211,159,.85),transparent);animation:bl2 3s ease-in-out infinite 2.5s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(67,211,159,.85),transparent);animation:bd 3s ease-in-out infinite 1.75s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;right:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(67,211,159,.85),transparent);animation:bu 3s ease-in-out infinite .25s;"></div>
+        <div style="position:absolute;top:-24px;left:50%;transform:translateX(-50%);width:110%;height:60px;border-radius:50%;background:radial-gradient(ellipse at 50% 0%,rgba(67,211,159,.18),transparent 70%);pointer-events:none;"></div>
+        <div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:#43d39f;box-shadow:0 0 14px 5px rgba(67,211,159,.5);"></div>
+        <div style="font-size:40px;font-weight:900;letter-spacing:-.04em;line-height:1;background:linear-gradient(135deg,#6ee7b7,#43d39f);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-top:10px;margin-bottom:2px;">#4</div>
+        <div style="font-size:10px;color:#9ca3b7;font-weight:600;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;">Team Rank</div>
+        <div style="font-size:12px;color:#6f7689;">Out of 14 analysts</div>
+      </div>
+
+      <!-- Red: Best Score -->
+      <div style="position:relative;overflow:hidden;border-radius:16px;padding:22px 20px 20px;background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.09);">
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;left:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(229,57,53,.85),transparent);animation:br 3s ease-in-out infinite 1.5s;"></div>
+        <div style="position:absolute;overflow:hidden;bottom:0;left:0;width:100%;height:1px;" style-after="content:'';position:absolute;right:0;top:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(229,57,53,.85),transparent);animation:bl2 3s ease-in-out infinite 0s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;left:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(229,57,53,.85),transparent);animation:bd 3s ease-in-out infinite 2.25s;"></div>
+        <div style="position:absolute;overflow:hidden;top:0;right:0;width:1px;height:100%;" style-after="content:'';position:absolute;left:0;top:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(229,57,53,.85),transparent);animation:bu 3s ease-in-out infinite .75s;"></div>
+        <div style="position:absolute;top:-24px;left:50%;transform:translateX(-50%);width:110%;height:60px;border-radius:50%;background:radial-gradient(ellipse at 50% 0%,rgba(229,57,53,.18),transparent 70%);pointer-events:none;"></div>
+        <div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:#ef5350;box-shadow:0 0 14px 5px rgba(229,57,53,.5);"></div>
+        <div style="font-size:40px;font-weight:900;letter-spacing:-.04em;line-height:1;background:linear-gradient(135deg,#fca5a5,#e53935);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-top:10px;margin-bottom:2px;">91</div>
+        <div style="font-size:10px;color:#9ca3b7;font-weight:600;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;">Best Score</div>
+        <div style="font-size:12px;color:#6f7689;">Ransomware Outbreak</div>
+      </div>
+
+    </div>
+
+    <!-- RECENT HISTORY TABLE -->
+    <div style="border-radius:16px;border:1px solid rgba(255,255,255,.08);overflow:hidden;animation:fu .55s .16s cubic-bezier(.22,1,.36,1) both;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02);">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#f7f8ff;">Recent History</div>
+          <div style="font-size:12px;color:#6f7689;margin-top:2px;">All completed exercises</div>
+        </div>
+        <a href="report.dc.html" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:#4a86e8;text-decoration:none;" style-hover="color:#93c5fd;">
+          View all reports
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </a>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 140px 80px 80px 140px;padding:9px 22px;background:rgba(255,255,255,.015);border-bottom:1px solid rgba(255,255,255,.05);">
+        <div style="font-size:11px;font-weight:700;color:#6f7689;text-transform:uppercase;letter-spacing:.06em;">Scenario</div>
+        <div style="font-size:11px;font-weight:700;color:#6f7689;text-transform:uppercase;letter-spacing:.06em;">Date</div>
+        <div style="font-size:11px;font-weight:700;color:#6f7689;text-transform:uppercase;letter-spacing:.06em;text-align:center;">Score</div>
+        <div style="font-size:11px;font-weight:700;color:#6f7689;text-transform:uppercase;letter-spacing:.06em;text-align:center;">Grade</div>
+        <div style="font-size:11px;font-weight:700;color:#6f7689;text-transform:uppercase;letter-spacing:.06em;text-align:right;">Action</div>
+      </div>
+      <sc-for list="{{ reports }}" as="report" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:1fr 140px 80px 80px 140px;padding:14px 22px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center;" style-hover="background:rgba(255,255,255,.025);">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#f7f8ff;">{{ report.scenario }}</div>
+            <div style="font-size:11px;color:#6f7689;margin-top:2px;font-family:monospace,monospace;">{{ report.id }}</div>
+          </div>
+          <div style="font-size:13px;color:#9ca3b7;">{{ report.date }}</div>
+          <div style="{{ report.scoreStyle }}">{{ report.score }}</div>
+          <div style="display:flex;justify-content:center;">
+            <span style="{{ report.gradeStyle }}">{{ report.grade }}</span>
+          </div>
+          <div style="display:flex;justify-content:flex-end;">
+            <a href="report.dc.html" style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;background:rgba(74,134,232,.08);border:1px solid rgba(74,134,232,.18);color:#4a86e8;font-size:12px;font-weight:600;text-decoration:none;" style-hover="background:rgba(74,134,232,.15);">
+              View Report
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </a>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- ENTER NEW ROOM BANNER -->
+    <div style="position:relative;border-radius:16px;overflow:hidden;border:1px solid rgba(74,134,232,.22);background:linear-gradient(135deg,rgba(74,134,232,.07),rgba(124,109,242,.05));padding:28px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;animation:fu .55s .24s cubic-bezier(.22,1,.36,1) both;">
+      <div style="position:absolute;top:0;right:0;width:300px;height:100%;background:radial-gradient(circle at 100% 50%,rgba(74,134,232,.08),transparent 70%);pointer-events:none;"></div>
+      <div style="position:relative;z-index:1;">
+        <div style="font-size:11px;font-weight:700;color:#4a86e8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Start Training</div>
+        <h2 style="font-size:20px;font-weight:800;letter-spacing:-.025em;color:#f7f8ff;margin-bottom:8px;line-height:1.2;">Ready for your next exercise?</h2>
+        <p style="font-size:14px;color:#9ca3b7;line-height:1.65;max-width:440px;">Browse available rooms and jump into a live scenario. Three rooms are currently active and accepting analysts.</p>
+      </div>
+      <a href="rooms.dc.html" style="display:inline-flex;align-items:center;gap:8px;padding:13px 26px;border-radius:10px;background:rgba(74,134,232,.14);border:1px solid rgba(74,134,232,.32);color:#f7f8ff;font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0;position:relative;z-index:1;" style-hover="background:rgba(74,134,232,.22);border-color:rgba(74,134,232,.55);">
+        Browse Rooms
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </a>
+    </div>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const scoreColor = s => s >= 90 ? '#43d39f' : s >= 80 ? '#53b8ff' : s >= 70 ? '#f2b95b' : '#ef5350';
+    const scoreStyle = s => ({ fontSize:'15px', fontWeight:'800', color:scoreColor(s), textAlign:'center' });
+    const gradeStyle = s => {
+      const c = scoreColor(s);
+      return { padding:'3px 9px', borderRadius:'6px', fontSize:'12px', fontWeight:'700', color:c, background:c+'18', border:'1px solid '+c+'40', display:'inline-block' };
+    };
+    const reports = [
+      { id:'RPT-2847', scenario:'Ransomware Outbreak',      date:'Jun 24, 2026', score:91, grade:'A'  },
+      { id:'RPT-2841', scenario:'Phishing Campaign',         date:'Jun 18, 2026', score:83, grade:'B+' },
+      { id:'RPT-2836', scenario:'Lateral Movement',          date:'Jun 10, 2026', score:74, grade:'B'  },
+      { id:'RPT-2829', scenario:'Insider Threat Simulation', date:'Jun 02, 2026', score:68, grade:'C+' },
+      { id:'RPT-2814', scenario:'DDoS Mitigation',           date:'May 22, 2026', score:88, grade:'A-' },
+    ].map(r => ({ ...r, scoreStyle: scoreStyle(r.score), gradeStyle: gradeStyle(r.score) }));
+    return { reports, goBack: (e) => { e.preventDefault(); window.history.back(); } };
+  }
+}
+</script>
+</body>
+</html>

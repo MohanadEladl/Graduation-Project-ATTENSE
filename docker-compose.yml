@@ -1,5 +1,5 @@
 # =============================================================================
-# ATTENSE Cyber Range — root convenience wrapper (report Phase 7: split the
+# ATTENSE Cyber Range â€” root convenience wrapper (report Phase 7: split the
 # Compose stack by concern). The real service definitions live in
 # infra/compose.base.yml, compose.security.yml, and compose.ai.yml; this file
 # just includes all three so `docker compose up` from the repo root still
@@ -10,11 +10,12 @@
 #
 # compose.base.yml's `attense-app`/`red-team-backend` hard-depend on services
 # defined in compose.security.yml/compose.ai.yml, so all three are always
-# included together here — see MIGRATION.md for the deferred work to decouple
+# included together here â€” see MIGRATION.md for the deferred work to decouple
 # that and allow a lightweight base-only dev stack.
 # =============================================================================
 
 include:
+  - infra/compose.database.yml
   - infra/compose.base.yml
   - infra/compose.security.yml
   - infra/compose.ai.yml

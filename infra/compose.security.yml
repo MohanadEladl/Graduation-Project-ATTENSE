@@ -1,5 +1,5 @@
 # =============================================================================
-# ATTENSE Cyber Range — infra/compose.security.yml
+# ATTENSE Cyber Range ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ infra/compose.security.yml
 # =============================================================================
 # The security stack: Wazuh SIEM, TheHive case management, Cortex responders,
 # and their Cassandra/Elasticsearch backing stores, plus the one-shot
@@ -20,7 +20,7 @@ x-default-logging: &default-logging
 
 services:
 
-  # ── Manager: Wazuh Manager ──────────────────────────────────────────────────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ Manager: Wazuh Manager ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   wazuh-manager:
     image: wazuh/wazuh-manager:4.9.2
     container_name: attense_wazuh_manager
@@ -43,7 +43,7 @@ services:
     networks:
       - attense_net
 
-  # ── Cassandra: TheHive Database ─────────────────────────────────────────────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ Cassandra: TheHive Database ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   cassandra:
     image: cassandra:3.11
     container_name: attense_cassandra
@@ -80,7 +80,7 @@ services:
     networks:
       - attense_net
 
-  # ── Elasticsearch: TheHive Indexer ──────────────────────────────────────────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ Elasticsearch: TheHive Indexer ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
     container_name: attense_elasticsearch
@@ -106,7 +106,7 @@ services:
     networks:
       - attense_net
 
-  # ── TheHive: Case Management UI ─────────────────────────────────────────────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ TheHive: Case Management UI ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   cassandra-init:
     image: cassandra:3.11
     container_name: attense_cassandra_init
@@ -137,25 +137,39 @@ services:
         condition: service_completed_successfully
       elasticsearch:
         condition: service_healthy
+      cortex-init:
+        condition: service_completed_successfully
     environment:
       - JVM_OPTS=-Xms512m -Xmx512m
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
     # WEBHOOK_SECRET is shared with attense-app at runtime.
     env_file:
       - ../secrets/ATTENSE.env
-    command: >
-      --secret "${THEHIVE_SECRET}"
-      --cql-hostnames cassandra
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - |
+        until curl -fsS 'http://elasticsearch:9200/_cluster/health?wait_for_status=yellow&timeout=10s' >/dev/null; do
+          echo 'Waiting for Elasticsearch before starting TheHive...'
+          sleep 5
+        done
+        if [ -f /secrets/ATTENSE.env ]; then
+          set -a
+          . /secrets/ATTENSE.env
+          set +a
+        fi
+        exec /opt/thehive/entrypoint --secret "$${THEHIVE_SECRET}" --cql-hostnames cassandra
     volumes:
       - ../integrations/thehive/application.conf:/etc/thehive/application.conf
+      - ../secrets:/secrets:ro
+      - ../scripts/healthcheck/check_thehive_cortex.py:/healthchecks/check_thehive_cortex.py:ro
     ports:
-      - "127.0.0.1:9000:9000"  # loopback only — TheHive UI not exposed to the LAN
+      - "127.0.0.1:9000:9000"  # loopback only ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ TheHive UI not exposed to the LAN
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/api/status >/dev/null"]
+      test: ["CMD-SHELL", "python3 /healthchecks/check_thehive_cortex.py"]
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 90s
+      start_period: 240s
     networks:
       - attense_net
 
@@ -185,7 +199,7 @@ services:
     networks:
       - attense_net
 
-  # ── Cortex: Active-Response Engine (Responders for TheHive) ─────────────────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ Cortex: Active-Response Engine (Responders for TheHive) ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   cortex:
     image: thehiveproject/cortex:3.1.7-1
     container_name: attense_cortex
@@ -213,7 +227,7 @@ services:
     networks:
       - attense_net
 
-  # ── Cortex Init: One-shot bootstrap (runs once, wires Cortex → TheHive) ─────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ Cortex Init: One-shot bootstrap (runs once, wires Cortex ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ TheHive) ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   # Waits for Cortex to be healthy, then runs setup_cortex.py which:
   #   1. Creates the admin user + ATTENSE org in Cortex
   #   2. Generates an API key for the org
@@ -236,6 +250,7 @@ services:
       - CORTEX_PLAY_SECRET=${CORTEX_PLAY_SECRET:-5f6e69909a9ca4768d36c3f418a9a6e0857a0eac393d18071291f0971abc7e80f3dd02112b7f4505ae8f17eb8500aa61}
       - TARGET_URL=http://target-agent:80
       - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
+      - THEHIVE_SERVICE=
     volumes:
       - ../scripts/bootstrap:/scripts:ro    # setup_cortex.py lives here
       - ../integrations/thehive:/thehive    # script patches application.conf here
@@ -245,7 +260,7 @@ services:
     networks:
       - attense_net
 
-  # ── Secrets Pre-flight Gate: blocks attense-app/red-team-backend until ──────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ Secrets Pre-flight Gate: blocks attense-app/red-team-backend until ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   # scripts/bootstrap/check_secrets.py passes (required keys present,
   # THEHIVE_ADMIN_PASSWORD rotated off its default, and HIVE_API_KEY
   # live-validated against TheHive).
@@ -266,6 +281,7 @@ services:
         condition: service_completed_successfully
     environment:
       - HIVE_URL=http://thehive:9000
+      - CORTEX_URL=http://cortex:9001
     volumes:
       - ..:/app:ro    # whole project root, read-only -- check_secrets.py
                       # resolves its own ROOT relative to its own path, so it
@@ -275,7 +291,7 @@ services:
     networks:
       - attense_net
 
-  # ── Wazuh Init: One-shot fixups (runs once, fixes manager state) ────────────
+  # ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ Wazuh Init: One-shot fixups (runs once, fixes manager state) ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬Ã¢â€šÂ¬
   # The manager's /var/ossec/etc lives in the wazuh_manager_etc named volume,
   # not a repo-tracked file, so these fixes don't survive a fresh volume on
   # their own. Waits for wazuh-manager to be healthy, then runs

@@ -10,6 +10,30 @@ const defaultAction = {
   notes: '',
 }
 
+const defaultPermissions = {
+  ciso: ['view_all_companies', 'view_all_reports', 'manage_permissions'],
+  soc_manager: ['create_rooms', 'start_blue_team', 'manage_hive_keys', 'investigate_alerts', 'confirm_incidents', 'start_containment', 'complete_containment', 'review_reports'],
+  soc_l1: ['investigate_alerts', 'confirm_incidents', 'start_containment'],
+  soc_l2: ['complete_containment', 'review_reports'],
+  red_team: ['join_rooms', 'create_attacks'],
+}
+
+const permissionLabels = {
+  view_all_companies: 'View all companies',
+  view_all_reports: 'View all reports',
+  manage_permissions: 'Manage permissions',
+  create_rooms: 'Create rooms',
+  start_blue_team: 'Start blue exercise',
+  manage_hive_keys: 'Manage Hive keys',
+  investigate_alerts: 'Investigate alerts',
+  confirm_incidents: 'Confirm incidents',
+  start_containment: 'Start containment',
+  complete_containment: 'Complete containment',
+  review_reports: 'Review reports',
+  join_rooms: 'Join rooms',
+  create_attacks: 'Create attacks',
+}
+
 function pickIncident(room) {
   return room?.incident_id || room?.incidents?.[0] || room?.incidents_detail?.[0]?.incident_id || ''
 }
@@ -24,6 +48,120 @@ function statusText(room) {
 }
 
 
+function readInvitations() {
+  try {
+    return JSON.parse(localStorage.getItem('attense_blue_invitations') || '[]')
+  } catch (_) {
+    return []
+  }
+}
+
+function readPermissionStore() {
+  try {
+    const raw = localStorage.getItem('attense_permission_store')
+    if (!raw) return defaultPermissions
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : defaultPermissions
+  } catch (_) {
+    return defaultPermissions
+  }
+}
+
+function writePermissionStore(store) {
+  localStorage.setItem('attense_permission_store', JSON.stringify(store))
+}
+
+function AdminPanel({ permissions, onGrant, onRevoke }) {
+  const roles = Object.keys(defaultPermissions)
+  const actions = Object.keys(permissionLabels)
+  const [role, setRole] = useState('soc_manager')
+  const [action, setAction] = useState('create_rooms')
+
+  return (
+    <section className="panel admin-panel">
+      <div className="admin-head">
+        <div>
+          <p className="eyebrow">Admin permissions</p>
+          <h2>Grant or revoke access</h2>
+        </div>
+        <div className="admin-chip">Local mock backed</div>
+      </div>
+
+      <div className="admin-form">
+        <label className="field">
+          Role
+          <select value={role} onChange={(event) => setRole(event.target.value)}>
+            {roles.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          Permission
+          <select value={action} onChange={(event) => setAction(event.target.value)}>
+            {actions.map((item) => <option key={item} value={item}>{permissionLabels[item]}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="admin-actions">
+        <button className="primary" type="button" onClick={() => onGrant(role, action)}>Grant</button>
+        <button type="button" onClick={() => onRevoke(role, action)}>Revoke</button>
+      </div>
+
+      <div className="admin-grid">
+        {roles.map((item) => (
+          <article key={item} className="admin-role-card">
+            <div className="admin-role-head">
+              <strong>{item}</strong>
+              <span>{permissions[item]?.length || 0} permissions</span>
+            </div>
+            <div className="perm-list">
+              {(permissions[item] || []).length > 0 ? (
+                permissions[item].map((perm) => (
+                  <span key={perm} className="perm-pill">{permissionLabels[perm] || perm}</span>
+                ))
+              ) : (
+                <span className="muted">No permissions granted.</span>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function NotificationsDrawer({ open, invitations, onClose }) {
+  return (
+    <>
+      <div className={open ? 'drawer-backdrop open' : 'drawer-backdrop'} onClick={onClose} aria-hidden={!open} />
+      <aside className={open ? 'notif-drawer open' : 'notif-drawer'} aria-hidden={!open}>
+        <div className="drawer-head">
+          <div className="drawer-title">
+            <p className="eyebrow">Notifications</p>
+            <h2>{invitations.length ? `${invitations.length} invitation${invitations.length === 1 ? '' : 's'}` : 'No invitations'}</h2>
+          </div>
+          <button className="drawer-close" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="drawer-body">
+          {!invitations.length && <div className="empty">No invitations yet.</div>}
+          {invitations.length > 0 && (
+            <div className="invite-list">
+              {invitations.map((invite) => (
+                <article className="invite" key={invite.id}>
+                  <div>
+                    <h3>{invite.email}</h3>
+                    <p>{invite.roomName} - Invite {invite.code} - {invite.createdAt}</p>
+                  </div>
+                  <span className="badge">Pending</span>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
+  )
+}
 function portalRoomFromUrl() {
   const params = new URLSearchParams(window.location.search)
   const roomId = params.get('portalRoom')
@@ -44,6 +182,7 @@ function portalRoomFromUrl() {
     }],
     portal_name: params.get('roomName') || roomId,
     portal_mode: params.get('mode') || 'team',
+    hive_launch_url: params.get('hiveUrl') || 'http://127.0.0.1:9000/',
   }
 }
 function LoginPanel({ onLogin }) {
@@ -81,7 +220,7 @@ function LoginPanel({ onLogin }) {
   )
 }
 
-function RoomList({ rooms, activeRoomId, onSelect }) {
+function RoomList({ rooms, activeRoomId, onSelect, invitations, onOpenNotifications, user }) {
   return (
     <aside className="sidebar">
       <div className="brand"><img src="/assets/ATTENSELOGO.png" alt="" /><span>ATTENSE</span></div>
@@ -98,6 +237,26 @@ function RoomList({ rooms, activeRoomId, onSelect }) {
           </button>
         ))}
         {!rooms.length && <p className="muted">No rooms available for this account.</p>}
+      </div>
+      <div className="sidebar-footer">
+        <button className="notif-trigger sidebar-notif" type="button" onClick={onOpenNotifications}>
+          <span className="notif-trigger-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 0 0-4-5.7V4a2 2 0 1 0-4 0v1.3A6 6 0 0 0 6 11v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+              <path d="M9 17a3 3 0 0 0 6 0" />
+            </svg>
+            Invitations
+          </span>
+          {invitations.length > 0 && <span className="notif-count">{invitations.length}</span>}
+        </button>
+        <div className="sidebar-user">
+          <div className="sidebar-avatar">{(user?.username || 'B').slice(0, 1).toUpperCase()}</div>
+          <div className="sidebar-user-copy">
+            <strong>{user?.username || 'Blue operator'}</strong>
+            <span>{user?.role || 'SOC Analyst'}</span>
+          </div>
+          <span className="status-dot" />
+        </div>
       </div>
     </aside>
   )
@@ -233,6 +392,9 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState('')
   const [activeRoom, setActiveRoom] = useState(null)
   const [result, setResult] = useState(null)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [invitations, setInvitations] = useState(() => readInvitations())
+  const [permissionStore, setPermissionStore] = useState(() => readPermissionStore())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -253,6 +415,20 @@ export default function App() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    const syncInvitations = () => setInvitations(readInvitations())
+    syncInvitations()
+    window.addEventListener('storage', syncInvitations)
+    return () => window.removeEventListener('storage', syncInvitations)
+  }, [])
+
+  useEffect(() => {
+    const syncPermissions = () => setPermissionStore(readPermissionStore())
+    syncPermissions()
+    window.addEventListener('storage', syncPermissions)
+    return () => window.removeEventListener('storage', syncPermissions)
+  }, [])
 
   useEffect(() => {
     const portalRoom = portalRoomFromUrl()
@@ -280,7 +456,7 @@ export default function App() {
   async function startBlue() {
     if (!activeRoomId) return
     if (activeRoom?.portal_demo) {
-      window.location.href = 'http://127.0.0.1:9000/'
+      window.location.href = activeRoom?.hive_launch_url || activeRoom?.hiveLaunchUrl || 'http://127.0.0.1:9000/'
       return
     }
     setError('')
@@ -299,18 +475,42 @@ export default function App() {
     setActiveRoom(room)
   }
 
+  function grantPermission(role, action) {
+    setPermissionStore((current) => {
+      const next = { ...current, [role]: Array.from(new Set([...(current[role] || []), action])) }
+      writePermissionStore(next)
+      return next
+    })
+  }
+
+  function revokePermission(role, action) {
+    setPermissionStore((current) => {
+      const next = { ...current, [role]: (current[role] || []).filter((item) => item !== action) }
+      writePermissionStore(next)
+      return next
+    })
+  }
+
   function logout() {
     clearToken()
     setUser(null)
     setRooms([])
     setActiveRoom(null)
+    setNotificationsOpen(false)
   }
 
   if (!getToken() && !user && !loading) return <LoginPanel onLogin={loadInitial} />
 
   return (
     <div className="app-shell">
-      <RoomList rooms={rooms} activeRoomId={activeRoomId} onSelect={selectRoom} />
+            <RoomList
+        rooms={rooms}
+        activeRoomId={activeRoomId}
+        onSelect={selectRoom}
+        invitations={invitations}
+        onOpenNotifications={() => setNotificationsOpen(true)}
+        user={user}
+      />
       <main className="workspace">
         <header className="topbar">
           <div>
@@ -320,6 +520,10 @@ export default function App() {
           </div>
           <div className="top-actions">
             <button onClick={refresh}>Refresh</button>
+            <button className="notif-trigger" type="button" onClick={() => setNotificationsOpen(true)}>
+              Notifications
+              {invitations.length > 0 && <span className="notif-count">{invitations.length}</span>}
+            </button>
             <button className="primary" onClick={startBlue} disabled={!activeRoomId || activeRoom?.blue_started_at}>Enter TheHive</button>
             <button onClick={logout}>Logout</button>
           </div>
@@ -337,7 +541,11 @@ export default function App() {
             </section>
           </div>
         )}
+        {(user?.role === 'ciso' || user?.role === 'admin') && (
+          <AdminPanel permissions={permissionStore} onGrant={grantPermission} onRevoke={revokePermission} />
+        )}
       </main>
+      <NotificationsDrawer open={notificationsOpen} invitations={invitations} onClose={() => setNotificationsOpen(false)} />
     </div>
   )
 }

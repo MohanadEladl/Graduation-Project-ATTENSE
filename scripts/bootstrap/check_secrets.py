@@ -41,6 +41,7 @@ defaults print as warnings but don't fail the run.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -64,6 +65,7 @@ REQUIRED_KEYS = [
     "THEHIVE_ADMIN_PASSWORD",
     "THEHIVE_SECRET",
     "CORTEX_ADMIN_KEY",
+    "CORTEX_API_KEY",
     "CORTEX_ADMIN_LOGIN",
     "CORTEX_ADMIN_PASSWORD",
     "CORTEX_PLAY_SECRET",
@@ -241,12 +243,60 @@ def check_hive_key_live(env: dict[str, tuple[str, Path]]) -> list[str]:
     ]
 
 
+
+def check_cortex_key_live(env: dict[str, tuple[str, Path]]) -> list[str]:
+    key = env.get("CORTEX_API_KEY", ("", None))[0]
+    if not key:
+        return []  # already reported by check_required
+
+    cortex_url = os.getenv("CORTEX_URL", "http://localhost:9001").rstrip("/")
+    request = urllib.request.Request(
+        f"{cortex_url}/api/user/current",
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            if response.status == 200:
+                return []
+            return [f"CORTEX_API_KEY rejected by Cortex (HTTP {response.status})"]
+    except urllib.error.HTTPError as exc:
+        return [f"CORTEX_API_KEY rejected by Cortex (HTTP {exc.code})"]
+    except urllib.error.URLError:
+        return [f"Could not reach Cortex at {cortex_url} to validate CORTEX_API_KEY"]
+
+
+def check_thehive_cortex_connector() -> list[str]:
+    hive_url = os.getenv("HIVE_URL", "http://localhost:9000").rstrip("/")
+    request = urllib.request.Request(f"{hive_url}/api/status")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            status = json.load(response)
+    except (urllib.error.URLError, ValueError) as exc:
+        return [f"Could not read TheHive Cortex connector status: {exc}"]
+
+    cortex = status.get("connectors", {}).get("cortex", {})
+    connector_status = cortex.get("status")
+    servers = cortex.get("servers", [])
+    server_problems = [
+        f"{server.get('name', 'cortex')}={server.get('status', 'UNKNOWN')}"
+        for server in servers
+        if server.get("status") != "OK"
+    ]
+    if connector_status != "OK" or server_problems:
+        details = ", ".join(server_problems) if server_problems else "no server details"
+        return [f"TheHive Cortex connector is stale or unauthorized: {connector_status}; {details}"]
+
+    return []
+
+
 def main() -> int:
     env = load_env_files()
 
     problems = check_required(env)
     problems += check_critical_defaults(env)
     problems += check_hive_key_live(env)
+    problems += check_cortex_key_live(env)
+    problems += check_thehive_cortex_connector()
     warnings = check_warn_defaults(env)
 
     if warnings:
@@ -265,7 +315,7 @@ def main() -> int:
         )
         return 1
 
-    print("Secrets check passed: all required keys present, THEHIVE_ADMIN_PASSWORD rotated, HIVE_API_KEY is valid.")
+    print("Secrets check passed: all required keys present, THEHIVE_ADMIN_PASSWORD rotated, HIVE_API_KEY is valid, CORTEX_API_KEY is valid, and TheHive can reach Cortex.")
     return 0
 
 

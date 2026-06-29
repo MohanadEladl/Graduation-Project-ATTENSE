@@ -150,10 +150,21 @@ def spin_up_blueteam(room_id: str) -> dict:
         ),
         None,
     )
-    if not soc_manager or not soc_manager.get("hive_key"):
+    runtime_keys = user_store.get_blue_team_runtime_keys(soc_manager["id"]) if soc_manager else {}
+    hive_api_key = runtime_keys.get("hive_api_key") or (soc_manager or {}).get("hive_key")
+    if not soc_manager or not hive_api_key:
         raise RuntimeError(
             f"No SOC manager with a Hive API key found for company {room['company_id']}"
         )
+
+    environment = {
+        "INCIDENT_ID": (room.get("incidents") or [room["incident_id"]])[0],
+        "HIVE_URL": "http://thehive:9000",
+        "HIVE_API_KEY": hive_api_key,
+        "SANDBOX_URL": "http://target-agent:80",
+    }
+    if runtime_keys.get("cortex_api_key"):
+        environment["CORTEX_API_KEY"] = runtime_keys["cortex_api_key"]
 
     client = None
     container = None
@@ -163,12 +174,7 @@ def spin_up_blueteam(room_id: str) -> dict:
         container = client.containers.run(
             image=BLUETEAM_IMAGE,
             name=container_name,
-            environment={
-                "INCIDENT_ID": (room.get("incidents") or [room["incident_id"]])[0],
-                "HIVE_URL": "http://thehive:9000",
-                "HIVE_API_KEY": soc_manager["hive_key"],
-                "SANDBOX_URL": "http://target-agent:80",
-            },
+            environment=environment,
             network=DOCKER_NETWORK,
             detach=True,
         )
@@ -314,7 +320,7 @@ def find_room_id_for_incident(incident_id: str) -> Optional[str]:
 
 def join_room_as_red_team(room_id: str, username: str) -> dict:
     """Add username to the room's red_team_members (idempotent). Membership
-    is permissive — a red_team user may belong to more than one room; see
+    is permissive Ã¢â‚¬â€ a red_team user may belong to more than one room; see
     user_store.set_active_room for the most-recently-joined tie-break."""
     room = _load_room(room_id)
     members = room.setdefault("red_team_members", [])
@@ -326,7 +332,7 @@ def join_room_as_red_team(room_id: str, username: str) -> dict:
 
 def get_room_if_member(room_id: str, username: str) -> Optional[dict]:
     """Return the room if it still exists, isn't closed, and username is
-    actually a red_team_members entry — None otherwise. Used to validate a
+    actually a red_team_members entry Ã¢â‚¬â€ None otherwise. Used to validate a
     user's active_room_id pointer hasn't gone stale (room closed/deleted)."""
     try:
         room = _load_room(room_id)
@@ -360,7 +366,7 @@ def find_room_for_red_team_member(username: str) -> Optional[dict]:
 
 def list_rooms_for_company(company_id: Optional[str]) -> list[dict]:
     """Return rooms for company_id, or every room if company_id is None
-    (the ciso case — company_id=None means cross-company oversight, not
+    (the ciso case Ã¢â‚¬â€ company_id=None means cross-company oversight, not
     'no company', matching how list_pending/confirm already treat ciso)."""
     if not ROOMS_DIR.exists():
         return []

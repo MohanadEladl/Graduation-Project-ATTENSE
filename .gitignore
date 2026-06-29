@@ -12,6 +12,7 @@ venv/
 **/node_modules/
 **/dist/
 .vite/
+.npm-cache/
 
 # Editors / OS
 .vscode/

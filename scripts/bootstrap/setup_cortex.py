@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-setup_cortex.py — Cortex First-Boot Automator
+setup_cortex.py ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Cortex First-Boot Automator
 ===============================================
-Automates the entire Cortex → TheHive API key wiring in one shot.
+Automates the entire Cortex ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ TheHive API key wiring in one shot.
 
 What it does
 ------------
@@ -44,12 +44,12 @@ import urllib.request
 from pathlib import Path
 
 
-# ── Load secrets/{ORG_NAME}.env automatically ────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Load secrets/{ORG_NAME}.env automatically ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 # The secrets file is named after the organisation (e.g. ATTENSE.env). It is
 # EPHEMERAL: scripts/close_lab.py timestamp-backs-up and deletes it when the lab
 # is closed, and this script auto-restores it from the newest backup on open
 # (see _restore_secrets_if_missing above). It holds org bootstrap/runtime
-# secrets only — externally-issued keys (VirusTotal/AbuseIPDB) live in the
+# secrets only ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â externally-issued keys (VirusTotal/AbuseIPDB) live in the
 # PERSISTENT secrets/enrichment.env instead.
 #
 # Load order: env vars already set in the shell always win over the file.
@@ -66,7 +66,7 @@ def _restore_secrets_if_missing(org_name: str) -> None:
     """
     Re-open support: if secrets/{org_name}.env is gone (deleted by close_lab.py
     when the lab was last closed), restore it from the newest timestamped backup
-    under secrets/backups/. Backup names end in a UTC stamp (…Z), which sorts
+    under secrets/backups/. Backup names end in a UTC stamp (ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦Z), which sorts
     lexically, so the last entry is the most recent. No-op if the file exists or
     there are no backups.
     """
@@ -79,9 +79,9 @@ def _restore_secrets_if_missing(org_name: str) -> None:
     latest = backups[-1]
     try:
         shutil.copy2(latest, path)
-        print(f"♻️  Restored {path.name} from latest backup: {latest.name}")
+        print(f"ÃƒÂ¢Ã¢â€žÂ¢Ã‚Â»ÃƒÂ¯Ã‚Â¸Ã‚Â  Restored {path.name} from latest backup: {latest.name}")
     except Exception as exc:
-        print(f"⚠️  Could not restore {path.name} from {latest.name}: {exc}")
+        print(f"ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â  Could not restore {path.name} from {latest.name}: {exc}")
 
 
 def _load_secrets_file(org_name: str = "ATTENSE") -> Path | None:
@@ -111,7 +111,7 @@ _restore_secrets_if_missing(os.getenv("CORTEX_ORG_NAME", "ATTENSE"))
 _load_secrets_file(os.getenv("CORTEX_ORG_NAME", "ATTENSE"))
 
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Configuration ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 CORTEX_URL        = os.getenv("CORTEX_URL",        "http://localhost:9001")
 
@@ -121,7 +121,7 @@ THEHIVE_SERVICE = os.getenv("THEHIVE_SERVICE", "thehive")
 
 # Admin credentials that will be created on first boot
 ADMIN_LOGIN    = os.getenv("CORTEX_ADMIN_LOGIN",    "admin")
-ADMIN_PASSWORD = os.getenv("CORTEX_ADMIN_PASSWORD", "attense-Admin1!")  # ≥8 chars, 1 upper, 1 digit
+ADMIN_PASSWORD = os.getenv("CORTEX_ADMIN_PASSWORD", "attense-Admin1!")  # ÃƒÂ¢Ã¢â‚¬Â°Ã‚Â¥8 chars, 1 upper, 1 digit
 ADMIN_NAME     = os.getenv("CORTEX_ADMIN_NAME",     "ATTENSE Admin")
 
 # Organisation that owns the Wazuh-backed responders
@@ -161,7 +161,7 @@ WAZUH_AGENT_NAME   = os.getenv("WAZUH_AGENT_NAME",   "target-agent")
 TARGET_URL         = os.getenv("TARGET_URL",         "http://target-agent:80")
 CONTAINMENT_TOKEN  = os.getenv("CONTAINMENT_API_TOKEN", "attense-containment-token")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Helpers ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def _req(
     method: str,
@@ -175,14 +175,14 @@ def _req(
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     if data is not None:
-        # Only set this when there's an actual body — Cortex's JSON body
+        # Only set this when there's an actual body ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Cortex's JSON body
         # parser otherwise treats "Content-Type: application/json" plus an
         # empty body as a parse error (e.g. on bodyless GET requests).
         req.add_header("Content-Type", "application/json")
 
     if token:
         # Cortex's local/admin auth is cookie-based (see _get_session_token),
-        # not a Bearer token — `token` is (session_cookie, xsrf_token). Once a
+        # not a Bearer token ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â `token` is (session_cookie, xsrf_token). Once a
         # session cookie is present, Play's CSRF filter requires the
         # CORTEX-XSRF-TOKEN cookie value to also be echoed back as the
         # X-CORTEX-XSRF-TOKEN header (double-submit cookie pattern; header
@@ -214,26 +214,43 @@ def _req(
         raise RuntimeError(f"HTTP {e.code} from {method} {path}: {err_body}") from e
 
 
+def _api_key_authenticates(api_key: str) -> bool:
+    """Return True when an existing Cortex API key can authenticate."""
+    if not api_key:
+        return False
+    req = urllib.request.Request(f"{CORTEX_URL}/api/user/current", method="GET")
+    req.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            return False
+        raise RuntimeError(f"HTTP {exc.code} while validating existing Cortex API key") from exc
+    except urllib.error.URLError:
+        return False
+
+
 def _wait_for_cortex(max_wait: int = 120) -> None:
     """Poll until Cortex responds on /api/status."""
-    print(f"⏳ Waiting for Cortex at {CORTEX_URL} …", end="", flush=True)
+    print(f"ÃƒÂ¢Ã‚ÂÃ‚Â³ Waiting for Cortex at {CORTEX_URL} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", end="", flush=True)
     deadline = time.time() + max_wait
     while time.time() < deadline:
         try:
             _req("GET", "/api/status")
-            print(" ✅ Cortex is up!")
+            print(" ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Cortex is up!")
             return
         except Exception:
             print(".", end="", flush=True)
             time.sleep(3)
     print()
-    sys.exit("❌ Cortex did not become ready in time. Is `docker compose up -d` running?")
+    sys.exit("ÃƒÂ¢Ã‚ÂÃ…â€™ Cortex did not become ready in time. Is `docker compose up -d` running?")
 
 
 def _fetch_xsrf_token() -> str:
     """
     GET a public endpoint to obtain the CORTEX-XSRF-TOKEN cookie Play issues
-    on any request (auth not required — confirmed it's set even on an
+    on any request (auth not required ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â confirmed it's set even on an
     unauthenticated request). Returns "" if not present for any reason;
     callers degrade gracefully (no XSRF header sent) rather than failing.
     """
@@ -257,7 +274,7 @@ def _get_session_token(
     """
     Log in and return (session_cookie, xsrf_token).
 
-    Cortex's local auth is cookie-based (Set-Cookie: CORTEX_SESSION=<jwt>) —
+    Cortex's local auth is cookie-based (Set-Cookie: CORTEX_SESSION=<jwt>) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
     the login response body carries no token, so this talks to urllib
     directly to read the response headers instead of going through _req().
     The XSRF cookie isn't set on the login response itself, so a follow-up
@@ -285,12 +302,12 @@ def _get_session_token(
             )
             if not retry_transient or not transient or time.time() >= deadline:
                 raise RuntimeError(message) from e
-            print("   Cortex API is up but Elasticsearch is not ready; retrying …", flush=True)
+            print("   Cortex API is up but Elasticsearch is not ready; retrying ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", flush=True)
             time.sleep(5)
         except urllib.error.URLError as e:
             if not retry_transient or time.time() >= deadline:
                 raise RuntimeError(f"POST /api/login failed: {e}") from e
-            print("   Cortex login endpoint is temporarily unreachable; retrying …", flush=True)
+            print("   Cortex login endpoint is temporarily unreachable; retrying ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", flush=True)
             time.sleep(5)
 
     match = re.search(r"CORTEX_SESSION=([^;]+)", cookie_header)
@@ -299,11 +316,11 @@ def _get_session_token(
     return match.group(1), _fetch_xsrf_token()
 
 
-# ── Step 1: Bootstrap admin ───────────────────────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 1: Bootstrap admin ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def step_bootstrap_admin() -> tuple[str, str]:
     """Create the first admin user if Cortex is in maintenance mode. Returns session token."""
-    print("\n🔧 Step 1: Bootstrap Cortex admin user …")
+    print("\nÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ Step 1: Bootstrap Cortex admin user ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
 
     # Check if already bootstrapped
     try:
@@ -312,7 +329,7 @@ def step_bootstrap_admin() -> tuple[str, str]:
             ADMIN_PASSWORD,
             retry_transient=True,
         )
-        print(f"   ✅ Admin '{ADMIN_LOGIN}' already exists — skipping creation.")
+        print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Admin '{ADMIN_LOGIN}' already exists ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping creation.")
         return token
     except RuntimeError as e:
         if "HTTP 520" not in str(e) and "HTTP 401" not in str(e):
@@ -321,20 +338,20 @@ def step_bootstrap_admin() -> tuple[str, str]:
             raise
 
     # Cortex is in maintenance mode. The first superadmin user must belong to
-    # the special 'cortex' platform organisation — it is not auto-created by
-    # Cortex and is distinct from the 'ATTENSE' org created later — so ensure
+    # the special 'cortex' platform organisation ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it is not auto-created by
+    # Cortex and is distinct from the 'ATTENSE' org created later ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so ensure
     # it exists before creating the admin user.
     orgs = _req("GET", "/api/organization")
     existing_orgs = [o.get("name") for o in (orgs if isinstance(orgs, list) else [])]
     if "cortex" not in existing_orgs:
-        print(f"   Creating bootstrap organisation 'cortex' …")
+        print(f"   Creating bootstrap organisation 'cortex' ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
         _req("POST", "/api/organization", {
             "name":        "cortex",
             "description": "Cortex platform organisation",
             "status":      "Active",
         })
 
-    print(f"   Creating admin user '{ADMIN_LOGIN}' …")
+    print(f"   Creating admin user '{ADMIN_LOGIN}' ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
     _req("POST", "/api/user", {
         "login":    ADMIN_LOGIN,
         "name":     ADMIN_NAME,
@@ -342,21 +359,21 @@ def step_bootstrap_admin() -> tuple[str, str]:
         "roles":    ["superadmin"],
     })
     token = _get_session_token(ADMIN_LOGIN, ADMIN_PASSWORD)
-    print(f"   ✅ Admin created and logged in.")
+    print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Admin created and logged in.")
     return token
 
 
-# ── Step 2: Create organisation ───────────────────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 2: Create organisation ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def step_create_org(admin_token: tuple[str, str]) -> str:
     """Create the ATTENSE organisation. Returns org name."""
-    print(f"\n🏢 Step 2: Create organisation '{ORG_NAME}' …")
+    print(f"\nÃƒÂ°Ã…Â¸Ã‚ÂÃ‚Â¢ Step 2: Create organisation '{ORG_NAME}' ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
 
     # List existing orgs
     orgs = _req("GET", "/api/organization", token=admin_token)
     existing = [o.get("name") for o in (orgs if isinstance(orgs, list) else [])]
     if ORG_NAME in existing:
-        print(f"   ✅ Organisation '{ORG_NAME}' already exists — skipping.")
+        print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Organisation '{ORG_NAME}' already exists ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping.")
         return ORG_NAME
 
     _req("POST", "/api/organization", {
@@ -364,15 +381,15 @@ def step_create_org(admin_token: tuple[str, str]) -> str:
         "description": "ATTENSE Cyber Range Organisation",
         "status":      "Active",
     }, token=admin_token)
-    print(f"   ✅ Organisation '{ORG_NAME}' created.")
+    print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Organisation '{ORG_NAME}' created.")
     return ORG_NAME
 
 
-# ── Step 3: Create org-level user + API key ───────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 3: Create org-level user + API key ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def step_create_api_key(admin_token: tuple[str, str]) -> str:
     """Create an org analyst user and generate an API key. Returns the API key."""
-    print(f"\n🔑 Step 3: Create analyst user and generate API key …")
+    print(f"\nÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬Ëœ Step 3: Create analyst user and generate API key ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
 
     # Check if user exists already. Cortex's /api/user list responses key
     # the login under "id" (and "_id"), not "login".
@@ -380,7 +397,7 @@ def step_create_api_key(admin_token: tuple[str, str]) -> str:
     existing_logins = [u.get("id") for u in (users if isinstance(users, list) else [])]
 
     if ORG_ADMIN_LOGIN not in existing_logins:
-        print(f"   Creating user '{ORG_ADMIN_LOGIN}' in org '{ORG_NAME}' …")
+        print(f"   Creating user '{ORG_ADMIN_LOGIN}' in org '{ORG_NAME}' ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
         _req("POST", "/api/user", {
             "login":        ORG_ADMIN_LOGIN,
             "name":         "ATTENSE Analyst",
@@ -388,44 +405,49 @@ def step_create_api_key(admin_token: tuple[str, str]) -> str:
             "organization": ORG_NAME,
             "roles":        ["read", "analyze", "orgadmin"],
         }, token=admin_token)
-        print(f"   ✅ User '{ORG_ADMIN_LOGIN}' created.")
+        print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ User '{ORG_ADMIN_LOGIN}' created.")
     else:
-        print(f"   ✅ User '{ORG_ADMIN_LOGIN}' already exists — skipping creation.")
+        print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ User '{ORG_ADMIN_LOGIN}' already exists ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping creation.")
+
+    existing_api_key = os.getenv("CORTEX_API_KEY", "").strip()
+    if _api_key_authenticates(existing_api_key):
+        print(f"   Existing CORTEX_API_KEY for '{ORG_ADMIN_LOGIN}' is valid -- reusing it.")
+        return existing_api_key
 
     # Generate (or renew) API key for that user
-    print(f"   Generating API key for '{ORG_ADMIN_LOGIN}' …")
+    print(f"   Generating API key for '{ORG_ADMIN_LOGIN}' ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
     resp = _req("POST", f"/api/user/{ORG_ADMIN_LOGIN}/key/renew", token=admin_token)
-    # This endpoint responds with a bare text/plain key, not JSON — but
+    # This endpoint responds with a bare text/plain key, not JSON ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â but
     # handle a dict shape too in case that ever changes.
     api_key = resp.get("key", "") if isinstance(resp, dict) else resp
     if not api_key:
         raise RuntimeError(f"Could not extract API key from response: {resp}")
 
-    print(f"   ✅ API key generated: {api_key[:8]}…{api_key[-4:]} (truncated for display)")
+    print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ API key generated: {api_key[:8]}ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦{api_key[-4:]} (truncated for display)")
     return str(api_key)
 
 
-# ── Step 4: Enable containment responders ────────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 4: Enable containment responders ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def step_enable_responders(org_token: tuple[str, str]) -> None:
     """Enable Wazuh and target-app responders in the ATTENSE organisation."""
-    print(f"\n🔫 Step 4: Enable containment responders …")
+    print(f"\nÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â« Step 4: Enable containment responders ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
 
     # List available responder definitions. This needs an org-scoped session
-    # (read/analyze/orgadmin) — the platform superadmin alone gets a 403
+    # (read/analyze/orgadmin) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the platform superadmin alone gets a 403
     # "Insufficient rights" against /api/responderdefinition.
     try:
         definitions = _req("GET", "/api/responderdefinition", token=org_token)
     except RuntimeError as e:
-        print(f"   ⚠️  Could not list responders: {e}")
+        print(f"   ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â  Could not list responders: {e}")
         print("       Responders will need to be enabled manually in the Cortex UI.")
         return
 
     if not isinstance(definitions, list):
-        print("   ⚠️  Unexpected responder list format — skipping auto-enable.")
+        print("   ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â  Unexpected responder list format ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping auto-enable.")
         return
 
-    # Already-enabled responders for this org — needed for idempotency,
+    # Already-enabled responders for this org ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â needed for idempotency,
     # since re-enabling one that's already active is a version conflict.
     enabled = _req("GET", "/api/organization/responder?range=all", token=org_token)
     enabled_items = enabled if isinstance(enabled, list) else []
@@ -452,14 +474,14 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
         )
         target = next((d for d in definitions if d.get("name") == responder_name), None)
         if not target:
-            print(f"   ⚠️  Responder '{responder_name}' not found yet.")
+            print(f"   ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â  Responder '{responder_name}' not found yet.")
             print("       Cortex may still be scanning the responders directory.")
             print("       Wait 30s and re-run, or enable it manually in the Cortex UI.")
             continue
 
         worker_definition_id = target.get("id")
         if not worker_definition_id:
-            print(f"   ⚠️  Found responder '{responder_name}' but missing ID — skipping.")
+            print(f"   ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â  Found responder '{responder_name}' but missing ID ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping.")
             continue
 
         display_name = RESPONDER_DISPLAY_NAMES[responder_name]
@@ -479,11 +501,11 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
                 patch_body,
                 token=org_token,
             )
-            print(f"   ✅ '{display_name}' enabled for org '{ORG_NAME}' — configuration refreshed.")
+            print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ '{display_name}' enabled for org '{ORG_NAME}' ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â configuration refreshed.")
             continue
 
         # Note: the org is implied by the caller's own session/org
-        # membership, not a path segment — Cortex's own UI calls this same
+        # membership, not a path segment ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Cortex's own UI calls this same
         # "/api/organization/responder/{id}" path with no org name in it.
         # "name" is what TheHive shows in the responder picker. Keep it
         # independent from Cortex's required versioned worker definition ID.
@@ -492,7 +514,7 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
             "configuration": configuration,
             "jobCache":      10,
         }, token=org_token)
-        print(f"   ✅ '{display_name}' responder enabled for org '{ORG_NAME}'.")
+        print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ '{display_name}' responder enabled for org '{ORG_NAME}'.")
 
     # Remove older enabled versions after the current definitions are ready.
     current_definition_ids = {
@@ -503,10 +525,10 @@ def step_enable_responders(org_token: tuple[str, str]) -> None:
         base_name = definition_id.rsplit("_", 2)[0]
         if base_name in RESPONDERS and definition_id not in current_definition_ids:
             _req("DELETE", f"/api/responder/{old['id']}", token=org_token)
-            print(f"   ✅ Removed obsolete responder instance '{definition_id}'.")
+            print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Removed obsolete responder instance '{definition_id}'.")
 
 
-# ── Step 5: Write CORTEX_API_KEY into secrets/{ORG_NAME}.env ───────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 5: Write CORTEX_API_KEY into secrets/{ORG_NAME}.env ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def step_write_cortex_key_env(api_key: str) -> None:
     """Upsert CORTEX_API_KEY=<key> into secrets/{ORG_NAME}.env.
@@ -514,11 +536,11 @@ def step_write_cortex_key_env(api_key: str) -> None:
     The renewed key is delivered to TheHive purely through the environment: the
     thehive service loads this file via `env_file` in docker-compose, and
     thehive/application.conf reads it with `key = ${?CORTEX_API_KEY}`. We must
-    NEVER write the live key into the tracked thehive/application.conf — doing so
+    NEVER write the live key into the tracked thehive/application.conf ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â doing so
     is exactly what previously leaked the Cortex key into git history. This file
     is gitignored, so rotating the key here can never end up in a commit.
     """
-    print(f"\n📝 Step 5: Writing CORTEX_API_KEY to secrets/{ORG_NAME}.env …")
+    print(f"\nÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â Step 5: Writing CORTEX_API_KEY to secrets/{ORG_NAME}.env ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
     path = _resolve_secrets_path(ORG_NAME)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -543,11 +565,11 @@ def step_write_cortex_key_env(api_key: str) -> None:
         out.append(new_line)
 
     path.write_text("\n".join(out) + "\n", encoding="utf-8")
-    print(f"   ✅ Key {'updated in' if replaced else 'appended to'} {path}")
-    print("   🔒 Tracked thehive/application.conf left untouched — no key in git.")
+    print(f"   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Key {'updated in' if replaced else 'appended to'} {path}")
+    print("   ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬â„¢ Tracked thehive/application.conf left untouched ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no key in git.")
 
 
-# ── Step 7: Recreate TheHive so it loads the new CORTEX_API_KEY ───────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 7: Recreate TheHive so it loads the new CORTEX_API_KEY ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def step_reload_thehive() -> None:
     """
@@ -564,50 +586,53 @@ def step_reload_thehive() -> None:
     printing the command if the docker CLI isn't available here (e.g. when this
     script runs inside a container without the CLI).
     """
-    print(f"\n♻️  Step 7: Recreating TheHive so it loads the new Cortex key …")
+    if not THEHIVE_SERVICE:
+        print("\nStep 7: TheHive recreate skipped; compose starts TheHive after cortex-init.")
+        return
+    print(f"\nÃƒÂ¢Ã¢â€žÂ¢Ã‚Â»ÃƒÂ¯Ã‚Â¸Ã‚Â  Step 7: Recreating TheHive so it loads the new Cortex key ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦")
     cmd = ["docker", "compose", "up", "-d", THEHIVE_SERVICE]
     try:
         result = subprocess.run(
             cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=180
         )
     except FileNotFoundError:
-        print("   ℹ️  docker CLI not available here — recreate it yourself:")
+        print("   ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¹ÃƒÂ¯Ã‚Â¸Ã‚Â  docker CLI not available here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â recreate it yourself:")
         print(f"       docker compose up -d {THEHIVE_SERVICE}")
         return
     except Exception as exc:
-        print(f"   ⚠️  Could not recreate TheHive automatically ({exc}). Run:")
+        print(f"   ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â  Could not recreate TheHive automatically ({exc}). Run:")
         print(f"       docker compose up -d {THEHIVE_SERVICE}")
         return
 
     if result.returncode == 0:
-        print("   ✅ TheHive recreated — ready in ~30s at http://localhost:9000")
+        print("   ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ TheHive recreated ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ready in ~30s at http://localhost:9000")
     else:
-        print(f"   ⚠️  `docker compose up -d {THEHIVE_SERVICE}` failed:")
+        print(f"   ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â  `docker compose up -d {THEHIVE_SERVICE}` failed:")
         print(f"      {(result.stderr or result.stdout).strip()[:200]}")
         print(f"      Run it manually from {PROJECT_ROOT}.")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Main ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def step_note_secrets_kept() -> None:
     """
-    Setup keeps secrets/{ORG_NAME}.env in place — it is NOT backed up or deleted
+    Setup keeps secrets/{ORG_NAME}.env in place ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it is NOT backed up or deleted
     here. The timestamped backup + deletion happen when you CLOSE the lab via
     scripts/close_lab.py; the next open auto-restores it from that backup.
     """
-    print(f"\n🗄️  Step 6: Secrets file kept in place (not deleted).")
+    print(f"\nÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã¢â‚¬Å¾ÃƒÂ¯Ã‚Â¸Ã‚Â  Step 6: Secrets file kept in place (not deleted).")
     secrets_path = _resolve_secrets_path(ORG_NAME)
-    print(f"   ℹ️  {secrets_path}")
+    print(f"   ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¹ÃƒÂ¯Ã‚Â¸Ã‚Â  {secrets_path}")
     print("      Closing the lab (scripts/close_lab.py) timestamp-backs-up and removes")
     print("      this file; the next open restores it. VirusTotal/AbuseIPDB keys live")
     print("      in secrets/enrichment.env and are kept permanently.")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Main ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
 def main() -> None:
     print("=" * 60)
-    print(f"  ATTENSE — Cortex First-Boot Setup  [{ORG_NAME}]")
+    print(f"  ATTENSE ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Cortex First-Boot Setup  [{ORG_NAME}]")
     print("=" * 60)
     print(f"  Secrets file: secrets/{ORG_NAME}.env  (kept; backed up on success)")
     print("=" * 60)
@@ -624,7 +649,7 @@ def main() -> None:
     step_reload_thehive()               # recreates TheHive so it loads the new key from env_file
 
     print("\n" + "=" * 60)
-    print("Cortex setup complete — fully automated!")
+    print("Cortex setup complete ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â fully automated!")
     print()
     print("What just happened:")
     print("  - Cortex admin user + ATTENSE org created")
