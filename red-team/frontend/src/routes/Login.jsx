@@ -50,7 +50,7 @@ export default function Login() {
             <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#ff1535"/>
           </svg>
           <span className="font-display font-bold text-[22px] tracking-widest text-attense-text">
-            ATT<span className="text-attense-red">3</span>NSE
+            ATTENSE
           </span>
         </div>
         <span className="font-mono text-[10px] tracking-[0.3em] text-attense-dim uppercase">Cyber Lab · Secure Access</span>

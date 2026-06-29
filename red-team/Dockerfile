@@ -18,7 +18,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application code
 COPY core/     ./core/
 COPY modules/  ./modules/
-COPY utils/    ./utils/
 COPY engine/   ./engine/
 COPY backend/  ./backend/
 COPY main.py   ./main.py

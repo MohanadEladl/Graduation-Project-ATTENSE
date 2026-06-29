@@ -40,7 +40,7 @@ export default function HomeHero({
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#ff1535" />
             </svg>
             <span className="text-[20px] font-bold tracking-tight text-white">
-              ATT<span style={{ color: '#ff1535' }}>3</span>NSE
+              ATTENSE
             </span>
           </button>
 
