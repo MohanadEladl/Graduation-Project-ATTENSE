@@ -72,6 +72,10 @@ export const api = {
   // Variants per module (called from the variant picker before create)
   variants: (module_id) => get(`/api/modules/${encodeURIComponent(module_id)}/variants`),
 
+  // Full guided-room walkthrough (overview + MITRE-mapped sections + references)
+  walkthrough: (module_id, variant_id) =>
+    get(`/api/modules/${encodeURIComponent(module_id)}/walkthrough${variant_id ? `?variant_id=${encodeURIComponent(variant_id)}` : ''}`),
+
   // Lab action telemetry (Phase 2)
   actions: {
     record: (payload) => post('/api/lab/actions', payload),

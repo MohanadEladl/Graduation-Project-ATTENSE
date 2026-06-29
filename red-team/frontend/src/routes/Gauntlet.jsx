@@ -8,12 +8,13 @@
  * All sub-components are defined in this file to keep the route self-contained.
  * Visual design ported from the standalone gauntlet prototype.
  */
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client.js'
+import GauntletIntro from '../components/GauntletIntro.jsx'
 import {
-  Zap, Workflow, Crosshair, Server, Database, Radar, KeyRound, Code, Repeat,
+  Zap, Workflow, Radar, KeyRound, Code, Repeat,
   SquareTerminal, FolderTree, Upload, Timer, Lock, ShieldCheck, Filter,
   FolderLock, Ban, FileX, FileCheck, Braces, Check, ChevronRight, ArrowRight,
   RotateCcw, X,
@@ -23,7 +24,7 @@ import {
 const CHAIN_META = {
   full_compromise: {
     id: 'full_compromise',
-    icon: Crosshair,
+    cardImage: 'https://images.unsplash.com/photo-1614064641938-3bbee52942c7?auto=format&fit=crop&w=800&q=80',
     name: 'Full Compromise',
     tagline: 'FULL COMPROMISE',
     threat: 'APT-CLASS',
@@ -33,6 +34,7 @@ const CHAIN_META = {
     glowColor: 'rgba(255,21,53,0.18)',
     borderGlow: 'rgba(255,21,53,0.45)',
     steps: ['RECON', 'BRUTE FORCE', 'XSS', 'CSRF'],
+    stepModules: ['recon', 'brute_force', 'xss', 'csrf'],
     stepIcons: [Radar, KeyRound, Code, Repeat],
     description:
       'Execute a complete network takeover — map the surface, breach authentication, inject scripts, and forge cross-site requests. Every phase builds on the last.',
@@ -41,7 +43,7 @@ const CHAIN_META = {
   },
   root_the_box: {
     id: 'root_the_box',
-    icon: Server,
+    cardImage: 'https://images.unsplash.com/photo-1597733336794-12d05021d510?auto=format&fit=crop&w=800&q=80',
     name: 'Root The Box',
     tagline: 'ROOT THE BOX',
     threat: 'OS-LEVEL',
@@ -51,6 +53,7 @@ const CHAIN_META = {
     glowColor: 'rgba(139,47,255,0.18)',
     borderGlow: 'rgba(139,47,255,0.45)',
     steps: ['RECON', 'CMD INJECTION', 'DIR TRAVERSAL', 'FILE UPLOAD'],
+    stepModules: ['recon', 'cmd_injection', 'dir_traversal', 'file_upload'],
     stepIcons: [Radar, SquareTerminal, FolderTree, Upload],
     description:
       'Escalate from zero to root. Fingerprint the target, inject OS commands, traverse the filesystem, and plant your payload via unrestricted file upload.',
@@ -59,7 +62,7 @@ const CHAIN_META = {
   },
   data_exfiltration: {
     id: 'data_exfiltration',
-    icon: Database,
+    cardImage: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80',
     name: 'Data Exfiltration',
     tagline: 'DATA EXFILTRATION',
     threat: 'INSIDER-THREAT',
@@ -69,6 +72,7 @@ const CHAIN_META = {
     glowColor: 'rgba(245,196,0,0.14)',
     borderGlow: 'rgba(245,196,0,0.4)',
     steps: ['RECON', 'BRUTE FORCE', 'DIR TRAVERSAL', 'CSRF'],
+    stepModules: ['recon', 'brute_force', 'dir_traversal', 'csrf'],
     stepIcons: [Radar, KeyRound, FolderTree, Repeat],
     description:
       'Silently drain sensitive data. Enumerate attack vectors, crack credentials, walk the file system for secrets, then weaponize cross-site requests to cover your tracks.',
@@ -302,6 +306,14 @@ const MUTATION_MODULES = [
 // (gradient → red/orange background.png → flow-field warp → blur). Replicated
 // 1:1 from the source site's startShader(): mount a #hero-canvas with a
 // data-cr-project-src blob, then call CoreRenderer.init().
+const GAUNTLET_REVEAL_DELAY = 0.75
+const GAUNTLET_EASE = [0.22, 0.61, 0.36, 1]
+const LOADER_COLUMNS = Array.from({ length: 7 }, (_, i) => i)
+const LOADER_CENTER_ORDER = [3, 2, 4, 1, 5, 0, 6]
+const LOADER_RANDOM_ORDER = [2, 5, 0, 4, 1, 6, 3]
+const LOADER_CENTER_STAGGER = 0.25 / Math.max(LOADER_COLUMNS.length - 1, 1)
+const LOADER_RANDOM_STAGGER = 0.1 / Math.max(LOADER_COLUMNS.length - 1, 1)
+
 let _heroScriptsPromise = null
 function loadHeroScripts() {
   if (_heroScriptsPromise) return _heroScriptsPromise
@@ -391,133 +403,205 @@ function AuroraFlow() {
   return null
 }
 
-// ─── HoverButton — glassmorphic with cursor-trailing glow circles ──────────────
-function HoverButton({ style = {}, onClick, children, isActive }) {
-  const btnRef = useRef(null)
-  const [listening, setListening] = useState(false)
-  const [circles, setCircles] = useState([])
-  const lastAdded = useRef(0)
-
-  const createCircle = useCallback((x, y) => {
-    const w = btnRef.current?.offsetWidth || 1
-    const xPct = (x / w) * 100
-    const color = `linear-gradient(to right, #a0d9f8 ${xPct}%, #3a5bbf ${xPct}%)`
-    const id = Date.now() + Math.random()
-    setCircles(prev => [...prev, { id, x, y, color, fadeState: null }])
-  }, [])
-
-  const handlePointerMove = (e) => {
-    if (!listening) return
-    const now = Date.now()
-    if (now - lastAdded.current > 100) {
-      lastAdded.current = now
-      const rect = e.currentTarget.getBoundingClientRect()
-      createCircle(e.clientX - rect.left, e.clientY - rect.top)
-    }
-  }
-
-  useEffect(() => {
-    circles.forEach(c => {
-      if (c.fadeState !== null) return
-      const tIn  = setTimeout(() => setCircles(prev => prev.map(p => p.id === c.id ? { ...p, fadeState: 'in' } : p)), 0)
-      const tOut = setTimeout(() => setCircles(prev => prev.map(p => p.id === c.id ? { ...p, fadeState: 'out' } : p)), 1000)
-      const tDel = setTimeout(() => setCircles(prev => prev.filter(p => p.id !== c.id)), 2200)
-      return () => { clearTimeout(tIn); clearTimeout(tOut); clearTimeout(tDel) }
-    })
-  }, [circles])
-
-  const bA = isActive ? 0.45 : 0.2
-  const gA = isActive ? 0.18 : 0.1
-  const boA = isActive ? 0.28 : 0.15
-
+// Webflow-style entrance loader from the reference site.
+function GauntletEntranceLoader() {
   return (
-    <button
-      ref={btnRef}
-      onClick={onClick}
-      onPointerMove={handlePointerMove}
-      onPointerEnter={() => setListening(true)}
-      onPointerLeave={() => setListening(false)}
+    <motion.div
+      aria-hidden="true"
+      data-gauntlet-loader="true"
+      initial={{ opacity: 1 }}
+      animate={{ opacity: 0 }}
+      transition={{ delay: 1.82, duration: 0.01, ease: 'linear' }}
       style={{
-        position: 'relative', isolation: 'isolate', padding: 0,
-        borderRadius: 26, border: 'none',
-        background: 'rgba(43,55,80,0.1)', backdropFilter: 'blur(14px)',
-        color: '#e6ecf7', cursor: 'pointer', overflow: 'hidden',
-        boxShadow: [
-          `inset 0 0 0 1px rgba(170,202,255,${bA})`,
-          `inset 0 0 16px 0 rgba(170,202,255,${gA})`,
-          `inset 0 -3px 12px 0 rgba(170,202,255,${boA})`,
-          '0 1px 3px 0 rgba(0,0,0,0.50)',
-          '0 4px 12px 0 rgba(0,0,0,0.45)',
-        ].join(', '),
-        transition: 'box-shadow 0.35s ease',
-        ...style,
+        position: 'fixed',
+        inset: 0,
+        zIndex: 998,
+        pointerEvents: 'none',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+        gridTemplateRows: '1fr',
       }}
     >
-      {circles.map(({ id, x, y, color, fadeState }) => (
-        <div key={id} style={{
-          position: 'absolute', width: 14, height: 14,
-          left: x, top: y, transform: 'translate(-50%, -50%)',
-          borderRadius: '50%', filter: 'blur(16px)',
-          pointerEvents: 'none', zIndex: 0, background: color,
-          opacity: fadeState === 'in' ? 0.85 : 0,
-          transition: fadeState === 'out' ? 'opacity 1.2s ease-out' : 'opacity 0.3s ease-out',
-        }} />
-      ))}
-      <div style={{ position: 'relative', zIndex: 1 }}>{children}</div>
-    </button>
+      <motion.div
+        initial={{ opacity: 0.05 }}
+        animate={{ opacity: 0 }}
+        transition={{ delay: GAUNTLET_REVEAL_DELAY, duration: 0.5, ease: 'linear' }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 1,
+          mixBlendMode: 'normal',
+          backgroundImage:
+            "url(\"https://cdn.prod.website-files.com/666b07338a0357cfca554b8f/67362371bb84787d1e1c3557_402107790_STATIC_NOISE_400.gif\")",
+          backgroundPosition: '0 0',
+          backgroundSize: 200,
+        }}
+      />
+
+      {LOADER_COLUMNS.map((column) => {
+        const centerDelay = LOADER_CENTER_ORDER.indexOf(column) * LOADER_CENTER_STAGGER
+        const collapseDelay = GAUNTLET_REVEAL_DELAY + LOADER_RANDOM_ORDER.indexOf(column) * LOADER_RANDOM_STAGGER
+
+        return (
+          <motion.div
+            key={column}
+            data-gauntlet-loader-column="true"
+            initial={{ scaleY: 1, backgroundColor: 'rgba(0,0,0,1)' }}
+            animate={{
+              scaleY: [1, 1, 0],
+              backgroundColor: [
+                'rgba(0,0,0,1)',
+                'rgba(50,50,50,0.35)',
+                'rgba(50,50,50,0.35)',
+              ],
+            }}
+            transition={{
+              scaleY: { delay: collapseDelay, duration: 0.875, ease: GAUNTLET_EASE },
+              backgroundColor: {
+                delay: centerDelay,
+                duration: 1,
+                ease: GAUNTLET_EASE,
+                times: [0, 1, 1],
+              },
+            }}
+            style={{
+              zIndex: 2,
+              marginRight: -1,
+              transformOrigin: '0 100%',
+              backdropFilter: 'blur(5vw)',
+              WebkitBackdropFilter: 'blur(5vw)',
+              willChange: 'transform, background-color',
+            }}
+          />
+        )
+      })}
+
+      <motion.div
+        initial={{ opacity: 1 }}
+        animate={{ opacity: 0 }}
+        transition={{ delay: GAUNTLET_REVEAL_DELAY, duration: 0.5, ease: 'linear' }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 3,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '2.5rem',
+        }}
+      />
+    </motion.div>
   )
 }
 
-// ─── Section navigator (Chains | Mutations) ────────────────────────────────────
+// ─── Section navigator — segmented control ────────────────────────────────────
 function HeroSectionNav({ active, onSelect }) {
   const sections = [
-    { id: 'chains',    icon: Workflow, label: 'ATTACK CHAINS',  sub: 'Multi-phase operations',       count: 3, countLabel: 'OPERATIONS', accent: '#ff6b85', accentSoft: 'rgba(255,107,133,0.14)' },
-    { id: 'mutations', icon: Zap,      label: 'MUTATION MODE',  sub: 'Adaptive defense challenges',  count: 13, countLabel: 'MUTATIONS',  accent: '#f5c46a', accentSoft: 'rgba(245,196,106,0.13)' },
+    { id: 'chains',    icon: Workflow, label: 'ATTACK CHAINS', sub: 'Multi-phase operations', count: 3,  countLabel: 'OPS'      },
+    { id: 'mutations', icon: Zap,      label: 'MUTATION MODE', sub: 'Adaptive defense',       count: 13, countLabel: 'MUTATIONS' },
   ]
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22, maxWidth: 1100, margin: '0 auto 56px' }}>
-      {sections.map((s, i) => {
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15, duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+      style={{
+        display: 'flex', maxWidth: 860, margin: '0 auto 56px',
+        background: 'rgba(8,8,12,0.72)', borderRadius: 18,
+        border: '1px solid rgba(255,21,53,0.16)',
+        padding: 5, gap: 4,
+        backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 4px 32px rgba(0,0,0,0.5)',
+      }}
+    >
+      {sections.map((s) => {
         const isAct = active === s.id
         const SecIcon = s.icon
         return (
-          <motion.div key={s.id} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 + i * 0.1, duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-            whileHover={{ y: -5 }} whileTap={{ scale: 0.985 }} style={{ display: 'flex' }}>
-            <HoverButton onClick={() => onSelect(s.id)} isActive={isAct} style={{ width: '100%', minHeight: 178, textAlign: 'left' }}>
-              <div style={{ padding: '32px 36px 30px', display: 'flex', gap: 26, alignItems: 'center', minHeight: 178 }}>
-                {/* Icon tile */}
-                <div style={{
-                  width: 86, height: 86, borderRadius: 18,
-                  border: `1.5px solid rgba(170,202,255,${isAct ? 0.4 : 0.16})`,
-                  background: isAct ? `linear-gradient(135deg, ${s.accentSoft}, rgba(58,91,191,0.06))` : 'rgba(255,255,255,0.025)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: isAct ? s.accent : '#7a8aab', flexShrink: 0,
-                  transition: 'all 0.3s',
-                  boxShadow: isAct ? `inset 0 0 18px ${s.accentSoft}, 0 0 22px ${s.accentSoft}` : 'none',
-                  filter: isAct ? `drop-shadow(0 0 18px ${s.accent}55)` : 'none',
-                }}><SecIcon size={38} strokeWidth={1.5} /></div>
-                {/* Text */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', color: isAct ? s.accent : '#4a5580', marginBottom: 8, transition: 'color 0.3s' }}>
-                    {isAct ? '● ACTIVE SECTION' : '○ SELECT'}
-                  </div>
-                  <div style={{ fontFamily: "'Rajdhani', sans-serif", fontSize: 30, fontWeight: 700, letterSpacing: '0.06em', color: isAct ? '#f4f7ff' : '#c8d0e8', lineHeight: 1.05, marginBottom: 8, textShadow: isAct ? '0 0 26px rgba(170,202,255,0.45)' : 'none', transition: 'all 0.3s' }}>
-                    {s.label}
-                  </div>
-                  <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: isAct ? '#8b9bba' : '#5a6580', letterSpacing: '0.02em' }}>{s.sub}</div>
-                </div>
-                {/* Count */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, paddingLeft: 18, borderLeft: `1px solid rgba(170,202,255,${isAct ? 0.22 : 0.08})`, transition: 'border-color 0.3s' }}>
-                  <div style={{ fontFamily: "'Rajdhani', monospace", fontSize: 56, fontWeight: 700, color: isAct ? '#e6ecf7' : '#3a4560', lineHeight: 1, letterSpacing: '-0.02em', transition: 'all 0.3s', textShadow: isAct ? `0 0 24px rgba(170,202,255,0.35), 0 0 36px ${s.accent}40` : 'none' }}>{s.count}</div>
-                  <div style={{ fontFamily: 'monospace', fontSize: 8, letterSpacing: '0.22em', color: isAct ? s.accent + 'cc' : '#2a3050', marginTop: 6, transition: 'color 0.3s' }}>{s.countLabel}</div>
-                </div>
-              </div>
-            </HoverButton>
-          </motion.div>
+          <motion.button
+            key={s.id}
+            onClick={() => onSelect(s.id)}
+            whileTap={{ scale: 0.98 }}
+            style={{
+              flex: 1, position: 'relative', padding: '16px 22px',
+              borderRadius: 13, border: 'none', background: 'transparent',
+              cursor: 'pointer', display: 'flex', alignItems: 'center',
+              gap: 14, textAlign: 'left', isolation: 'isolate',
+            }}
+          >
+            {/* Sliding active background */}
+            {isAct && (
+              <motion.div
+                layoutId="seg-active-bg"
+                style={{
+                  position: 'absolute', inset: 0, borderRadius: 13,
+                  background: 'linear-gradient(135deg, rgba(255,21,53,0.13) 0%, rgba(160,8,24,0.05) 100%)',
+                  border: '1px solid rgba(255,21,53,0.30)',
+                  boxShadow: '0 0 28px rgba(255,21,53,0.09), inset 0 1px 0 rgba(255,255,255,0.05)',
+                }}
+                transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+              />
+            )}
+
+            {/* Icon */}
+            <div style={{
+              width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+              background: isAct ? 'rgba(255,21,53,0.10)' : 'rgba(255,255,255,0.025)',
+              border: `1px solid ${isAct ? 'rgba(255,21,53,0.38)' : 'rgba(255,255,255,0.06)'}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: isAct ? '#ff4060' : '#2e3850',
+              position: 'relative', zIndex: 1,
+              boxShadow: isAct ? '0 0 16px rgba(255,21,53,0.22)' : 'none',
+              transition: 'all 0.25s ease',
+            }}>
+              <SecIcon size={18} strokeWidth={1.75} />
+            </div>
+
+            {/* Text */}
+            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
+              <div style={{
+                fontFamily: "'Rajdhani', sans-serif", fontSize: 14, fontWeight: 700,
+                letterSpacing: '0.1em', lineHeight: 1.1, marginBottom: 3,
+                color: isAct ? '#eef2ff' : '#2e3850',
+                textShadow: isAct ? '0 0 18px rgba(210,220,255,0.25)' : 'none',
+                transition: 'color 0.25s, text-shadow 0.25s',
+              }}>{s.label}</div>
+              <div style={{
+                fontFamily: "'Inter', sans-serif", fontSize: 10.5,
+                color: isAct ? '#5a6a88' : '#1e2535',
+                letterSpacing: '0.025em',
+                transition: 'color 0.25s',
+              }}>{s.sub}</div>
+            </div>
+
+            {/* Count badge */}
+            <div style={{
+              position: 'relative', zIndex: 1, flexShrink: 0,
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              background: isAct ? 'rgba(255,21,53,0.07)' : 'rgba(255,255,255,0.02)',
+              border: `1px solid ${isAct ? 'rgba(255,21,53,0.22)' : 'rgba(255,255,255,0.04)'}`,
+              borderRadius: 9, padding: '5px 11px', minWidth: 46,
+              transition: 'all 0.25s',
+            }}>
+              <div style={{
+                fontFamily: "'Rajdhani', sans-serif", fontSize: 24, fontWeight: 700,
+                lineHeight: 1, letterSpacing: '-0.02em',
+                color: isAct ? '#ff4060' : '#1a2038',
+                textShadow: isAct ? '0 0 20px rgba(255,21,53,0.5)' : 'none',
+                transition: 'all 0.25s',
+              }}>{s.count}</div>
+              <div style={{
+                fontFamily: 'monospace', fontSize: 6, letterSpacing: '0.15em',
+                color: isAct ? 'rgba(255,64,96,0.6)' : '#12182c',
+                marginTop: 2, transition: 'color 0.25s',
+              }}>{s.countLabel}</div>
+            </div>
+          </motion.button>
         )
       })}
-    </div>
+    </motion.div>
   )
 }
 
@@ -567,232 +651,113 @@ function PhaseNode({ icon: Icon, label, index, total, accentColor, active, compl
   )
 }
 
-// ─── Chain hero card ───────────────────────────────────────────────────────────
-function ChainHeroCard({ meta, index, isActive, currentPhase, isComplete, checking, chainError, onStart, onAdvance, onReset }) {
-  const [hovered, setHovered] = useState(false)
-  const ChainIcon = meta.icon
-  const cardRef = useRef(null)
-  const mouseX = useMotionValue(0)
-  const mouseY = useMotionValue(0)
-  const spotlightX = useTransform(mouseX, v => `${v}px`)
-  const spotlightY = useTransform(mouseY, v => `${v}px`)
-
-  const handleMouseMove = (e) => {
-    const rect = cardRef.current?.getBoundingClientRect()
-    if (!rect) return
-    mouseX.set(e.clientX - rect.left)
-    mouseY.set(e.clientY - rect.top)
-  }
-
-  return (
-    <motion.div
-      ref={cardRef}
-      initial={{ opacity: 0, y: 44 }} animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.12, duration: 0.65, ease: [0.23, 1, 0.32, 1] }}
-      onMouseMove={handleMouseMove}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        position: 'relative', borderRadius: 22,
-        border: `1px solid ${hovered || isActive ? meta.borderGlow : 'rgba(255,255,255,0.06)'}`,
-        background: 'rgba(10,13,20,0.78)', backdropFilter: 'blur(14px)',
-        overflow: 'hidden', marginBottom: 30,
-        boxShadow: hovered || isActive ? `0 0 90px ${meta.glowColor}, 0 28px 80px rgba(0,0,0,0.55)` : '0 4px 36px rgba(0,0,0,0.38)',
-        transition: 'border-color 0.35s, box-shadow 0.35s',
-      }}>
-
-      {/* Mouse spotlight */}
-      {hovered && (
-        <motion.div style={{
-          position: 'absolute', width: 600, height: 600, borderRadius: '50%',
-          background: `radial-gradient(circle at center, ${meta.glowColor} 0%, transparent 65%)`,
-          pointerEvents: 'none', transform: 'translate(-50%, -50%)',
-          left: spotlightX, top: spotlightY, zIndex: 0,
-        }} />
-      )}
-
-      {/* Top accent bar */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 3,
-        background: `linear-gradient(90deg, transparent 0%, ${meta.accentColor} 25%, ${meta.accentColor} 75%, transparent 100%)`,
-        opacity: hovered || isActive ? 1 : 0.45, transition: 'opacity 0.35s',
-      }} />
-
-      {/* Giant icon watermark */}
-      <div style={{
-        position: 'absolute', right: 36, top: '50%', transform: 'translateY(-50%)',
-        color: meta.accentColor, opacity: hovered || isActive ? 0.07 : 0.03,
-        lineHeight: 1, pointerEvents: 'none',
-        userSelect: 'none', transition: 'opacity 0.4s', zIndex: 0,
-      }}><ChainIcon size={210} strokeWidth={1} /></div>
-
-      <div style={{ position: 'relative', zIndex: 1, padding: '38px 44px 34px' }}>
-        {/* Header row */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 30, gap: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
-            {/* Icon tile */}
-            <motion.div
-              animate={hovered ? { boxShadow: `0 0 48px ${meta.glowColor}, 0 0 20px ${meta.glowColor}` } : { boxShadow: '0 0 0px transparent' }}
-              transition={{ duration: 0.35 }}
-              style={{
-                width: 76, height: 76, borderRadius: 20,
-                border: `2px solid ${meta.accentColor}55`,
-                background: `linear-gradient(135deg, ${meta.accentColor}22, ${meta.accentColor}08)`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: meta.accentColor, flexShrink: 0, position: 'relative',
-              }}>
-              <ChainIcon size={34} strokeWidth={1.75} />
-              <div style={{ position: 'absolute', inset: -5, borderRadius: 24, border: `1px solid ${meta.accentColor}18` }} />
-            </motion.div>
-
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.24em', color: '#4a5580' }}>{meta.threat}</span>
-                <span style={{ color: '#1e2440', fontSize: 9, fontFamily: 'monospace' }}>·</span>
-                <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.2em', color: '#4a5580' }}>{meta.steps.length} PHASES</span>
-                <span style={{ color: '#1e2440', fontSize: 9, fontFamily: 'monospace' }}>·</span>
-                <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.18em', padding: '3px 10px', borderRadius: 5, border: `1px solid ${meta.difficultyColor}55`, color: meta.difficultyColor, background: `${meta.difficultyColor}12` }}>{meta.difficulty}</span>
-              </div>
-              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontSize: 34, fontWeight: 700, letterSpacing: '0.08em', color: '#f0f4ff', lineHeight: 1.05, textShadow: hovered || isActive ? `0 0 40px ${meta.accentColor}40` : 'none', transition: 'text-shadow 0.35s' }}>
-                {meta.tagline}
-              </div>
-            </div>
-          </div>
-
-          {/* Status badge */}
-          {isActive && (
-            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 20, flexShrink: 0, border: isComplete ? '1px solid rgba(46,227,154,0.45)' : `1px solid ${meta.accentColor}60`, background: isComplete ? 'rgba(46,227,154,0.08)' : `${meta.accentColor}10` }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: isComplete ? '#2ee39a' : meta.accentColor, boxShadow: isComplete ? '0 0 10px #2ee39a' : `0 0 10px ${meta.accentColor}` }} />
-              <span style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.2em', color: isComplete ? '#2ee39a' : meta.accentColor }}>
-                {isComplete ? 'OPERATION COMPLETE' : `PHASE ${currentPhase + 1} / ${meta.steps.length}`}
-              </span>
-            </motion.div>
-          )}
-        </div>
-
-        {/* Phase timeline */}
-        <div style={{ padding: '26px 28px', borderRadius: 14, background: 'rgba(0,0,0,0.32)', border: `1px solid ${meta.accentColor}18`, marginBottom: 26, overflowX: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.3em', color: '#3a4560' }}>ATTACK PHASES</div>
-            {isActive && !isComplete && <div style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.2em', color: meta.accentColor + '90' }}>IN PROGRESS</div>}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', minWidth: 'fit-content', justifyContent: 'center' }}>
-            {meta.steps.map((step, i) => (
-              <PhaseNode key={step + i} icon={meta.stepIcons[i]} label={step} index={i} total={meta.steps.length}
-                accentColor={meta.accentColor}
-                active={isActive && !isComplete && i === currentPhase}
-                completed={isActive && (i < currentPhase || isComplete)} />
-            ))}
-          </div>
-        </div>
-
-        {/* Brief + Objective */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 28 }}>
-          <div style={{ padding: '20px 24px', borderRadius: 12, background: `${meta.accentColor}08`, border: `1px solid ${meta.accentColor}20` }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.3em', color: meta.accentColor, opacity: 0.8, marginBottom: 12 }}>OPERATION BRIEF</div>
-            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, color: '#8b9bba', lineHeight: 1.75, margin: 0 }}>{meta.description}</p>
-          </div>
-          <div style={{ padding: '20px 24px', borderRadius: 12, background: 'rgba(0,0,0,0.28)', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.3em', color: '#4a5580', marginBottom: 12 }}>OBJECTIVE</div>
-            <p style={{ fontFamily: 'monospace', fontSize: 12, color: meta.accentColor, lineHeight: 1.7, margin: 0, letterSpacing: '0.03em' }}>{meta.objective}</p>
-          </div>
-        </div>
-
-        {/* Chain error message */}
-        {chainError && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 16px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.08)', fontFamily: 'monospace', fontSize: 11, color: '#f87171', letterSpacing: '0.04em' }}>
-            <X size={13} strokeWidth={2.5} /> {chainError}
-          </motion.div>
-        )}
-
-        {/* Action bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
-          <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#2e3850', letterSpacing: '0.18em', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span>MULTI-PHASE CHAIN</span>
-            <span>·</span>
-            <span>EVIDENCE-BASED ADVANCEMENT</span>
-          </div>
-
-          {!isActive ? (
-            <motion.button onClick={onStart}
-              whileHover={{ scale: 1.04, boxShadow: `0 0 56px ${meta.glowColor}, 0 8px 36px rgba(0,0,0,0.55)` }}
-              whileTap={{ scale: 0.97 }}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 9,
-                fontFamily: 'monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.24em',
-                padding: '15px 42px', borderRadius: 11, border: `1px solid ${meta.accentColor}80`,
-                background: `linear-gradient(135deg, ${meta.accentColor} 0%, ${meta.accentColor}cc 100%)`,
-                color: meta.accentColor === '#f5c400' ? '#07090f' : '#fff', cursor: 'pointer',
-                boxShadow: `0 0 32px ${meta.glowColor}, 0 4px 24px rgba(0,0,0,0.45)`,
-                position: 'relative', overflow: 'hidden',
-              }}>
-              INITIATE OPERATION <ArrowRight size={15} strokeWidth={2.5} />
-            </motion.button>
-          ) : isComplete ? (
-            <div style={{ display: 'flex', gap: 10 }}>
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'monospace', fontSize: 11, color: '#2ee39a', letterSpacing: '0.2em', padding: '13px 30px', border: '1px solid rgba(46,227,154,0.4)', borderRadius: 11, background: 'rgba(46,227,154,0.08)' }}>
-                <Check size={14} strokeWidth={2.5} /> OPERATION COMPLETE
-              </motion.div>
-              <motion.button onClick={onReset} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', padding: '13px 22px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#8b9bba', cursor: 'pointer' }}>
-                <RotateCcw size={13} strokeWidth={2.25} /> RESET
-              </motion.button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <motion.button onClick={onReset} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', padding: '12px 22px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)', color: '#6b7fa3', cursor: 'pointer' }}>
-                ABORT
-              </motion.button>
-              <motion.button onClick={checking ? undefined : onAdvance}
-                whileHover={checking ? {} : { scale: 1.04, boxShadow: `0 0 36px ${meta.glowColor}, 0 6px 24px rgba(0,0,0,0.5)` }}
-                whileTap={checking ? {} : { scale: 0.97 }}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 9,
-                  fontFamily: 'monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em',
-                  padding: '13px 32px', borderRadius: 11, border: `1px solid ${meta.accentColor}70`,
-                  background: checking
-                    ? 'rgba(255,255,255,0.05)'
-                    : `linear-gradient(135deg, ${meta.accentColor}cc 0%, ${meta.accentColor}80 100%)`,
-                  color: checking ? '#6b7fa3' : (meta.accentColor === '#f5c400' ? '#07090f' : '#fff'),
-                  cursor: checking ? 'not-allowed' : 'pointer',
-                  boxShadow: checking ? 'none' : `0 0 24px ${meta.glowColor}`,
-                  position: 'relative', overflow: 'hidden',
-                }}>
-                {checking
-                  ? 'CHECKING PROGRESS…'
-                  : currentPhase === meta.steps.length - 1
-                    ? <>COMPLETE OPERATION <Check size={15} strokeWidth={2.5} /></>
-                    : <>NEXT PHASE <ArrowRight size={15} strokeWidth={2.5} /></>}
-              </motion.button>
-            </div>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  )
-}
-
-// ─── Attack Chains section ─────────────────────────────────────────────────────
+// ─── Attack Chains section — lukebaffait.fr/works pattern ─────────────────────
+// Left: scrollable list of chain names, items shift horizontally by distance
+// from viewport center (closest = x:0, furthest = x:80px).
+// Right: single sticky card that cross-fades when active chain changes.
 function AttackChainsSection() {
   const navigate = useNavigate()
-  // sessions: { [chainId]: { chainSessionId, phase, complete, checking, error } }
+  const [activeIdx, setActiveIdx] = useState(0)
   const [sessions, setSessions] = useState({})
+  const [launchingId, setLaunchingId] = useState(null)
+  const itemRefs = useRef([])
+  const sectionRef = useRef(null)
+  const cardRef = useRef(null)
 
+  // Scroll-driven horizontal offset + active detection.
+  // NOTE: this app scrolls inside an inner <main overflow-y:auto> container,
+  // NOT the window — so we must find that container and listen on IT.
+  useEffect(() => {
+    // Find the nearest scrollable ancestor of this section.
+    let scroller = sectionRef.current?.parentElement
+    while (scroller && scroller !== document.body) {
+      const oy = getComputedStyle(scroller).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && scroller.scrollHeight > scroller.clientHeight) break
+      scroller = scroller.parentElement
+    }
+    const target = scroller && scroller !== document.body ? scroller : window
+    const getH = () => (target === window ? window.innerHeight : target.clientHeight)
+    const getTop = () => (target === window ? 0 : target.getBoundingClientRect().top)
+
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const cy = getTop() + getH() / 2            // viewport-center of the scroll container
+        let closestIdx = 0, closestDist = Infinity
+        itemRefs.current.forEach((el, i) => {
+          if (!el) return
+          const rect = el.getBoundingClientRect()
+          const itemCy = rect.top + rect.height / 2
+          const dist = Math.abs(itemCy - cy)
+          el.style.transform = `translateX(${Math.min(dist / (getH() / 2), 1) * 80}px)`
+          if (dist < closestDist) { closestDist = dist; closestIdx = i }
+        })
+        setActiveIdx(closestIdx)
+      })
+    }
+    target.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    onScroll()
+    return () => {
+      cancelAnimationFrame(raf)
+      target.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [])
+
+  // Mouse-following 3D tilt on the sticky card (the lukebaffait "3D" feel).
+  useEffect(() => {
+    let curRX = 0, curRY = 0, tgtRX = 0, tgtRY = 0, raf = 0, hovering = false
+    const section = sectionRef.current
+    if (!section) return
+    const onMove = (e) => {
+      const card = cardRef.current
+      if (!card) return
+      const r = card.getBoundingClientRect()
+      const px = (e.clientX - (r.left + r.width / 2)) / (r.width / 2)   // -1..1
+      const py = (e.clientY - (r.top + r.height / 2)) / (r.height / 2)  // -1..1
+      tgtRY = Math.max(-1, Math.min(1, px)) * 6      // ±6deg
+      tgtRX = Math.max(-1, Math.min(1, py)) * -5     // ±5deg
+      hovering = true
+    }
+    const onLeave = () => { tgtRX = 0; tgtRY = 0; hovering = false }
+    const loop = () => {
+      curRX += (tgtRX - curRX) * 0.12
+      curRY += (tgtRY - curRY) * 0.12
+      const card = cardRef.current
+      if (card) card.style.transform = `perspective(1100px) rotateX(${curRX.toFixed(2)}deg) rotateY(${curRY.toFixed(2)}deg)`
+      raf = requestAnimationFrame(loop)
+    }
+    section.addEventListener('mousemove', onMove)
+    section.addEventListener('mouseleave', onLeave)
+    loop()
+    return () => {
+      cancelAnimationFrame(raf)
+      section.removeEventListener('mousemove', onMove)
+      section.removeEventListener('mouseleave', onLeave)
+    }
+  }, [])
+
+  // INITIATE OPERATION → launch the lab for the chain's first phase, exactly
+  // like launching a module. The chain session is registered on the backend so
+  // phase progress (measured against the shared target) is tracked; chain
+  // context is carried in the workspace URL for later phase advancement.
   const start = async (id) => {
+    if (launchingId) return
+    setLaunchingId(id)
+    const meta = CHAIN_META[id]
     try {
-      const result = await api.chains.start(id, `gauntlet-${id}-${Date.now()}`)
-      setSessions(s => ({
-        ...s,
-        [id]: { chainSessionId: result.id, phase: result.current_step_index ?? 0, complete: false, checking: false, error: null },
-      }))
+      const chain = await api.chains.start(id, `gauntlet-${id}-${Date.now()}`)
+      const phase = chain.current_step_index ?? 0
+      const moduleId = meta.stepModules[phase]
+      const session = await api.sessions.create(moduleId)
+      navigate(`/workspace/${session.session_id}?chain=${chain.id}&chainId=${id}&phase=${phase}`)
     } catch (err) {
+      setLaunchingId(null)
       setSessions(s => ({
         ...s,
-        [id]: { chainSessionId: null, phase: 0, complete: false, checking: false, error: 'Failed to start chain. Is the backend running?' },
+        [id]: { ...(s[id] || {}), error: 'Failed to launch operation. Is the backend running?' },
       }))
     }
   }
@@ -802,7 +767,6 @@ function AttackChainsSection() {
     if (!sess?.chainSessionId) return
     setSessions(s => ({ ...s, [id]: { ...s[id], checking: true, error: null } }))
     try {
-      // Evidence-based gate: verify the current step is actually complete
       const checkResult = await api.chains.check(sess.chainSessionId)
       if (!checkResult.complete) {
         const meta = CHAIN_META[id]
@@ -813,7 +777,6 @@ function AttackChainsSection() {
         }))
         return
       }
-      // Step is done — advance on the backend
       const advResult = await api.chains.advance(sess.chainSessionId)
       const newPhase = advResult.current_step_index ?? sess.phase + 1
       const isComplete = advResult.completed_at !== null && advResult.completed_at !== undefined
@@ -830,19 +793,213 @@ function AttackChainsSection() {
   const reset = (id) => setSessions(s => { const n = { ...s }; delete n[id]; return n })
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-      {CHAIN_ORDER.map((id, idx) => {
-        const meta = CHAIN_META[id]
-        const sess = sessions[id]
-        return (
-          <ChainHeroCard key={id} meta={meta} index={idx}
-            isActive={!!sess} currentPhase={sess?.phase ?? 0} isComplete={!!sess?.complete}
-            checking={!!sess?.checking} chainError={sess?.error ?? null}
-            onStart={() => start(id)}
-            onAdvance={() => advance(id)}
-            onReset={() => reset(id)} />
-        )
-      })}
+    <div ref={sectionRef} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', position: 'relative', maxWidth: 1280, margin: '0 auto', padding: '0 32px' }}>
+
+      {/* ── LEFT: scrollable list ── */}
+      <div style={{ padding: '45vh 48px 75vh 0' }}>
+        {CHAIN_ORDER.map((id, idx) => {
+          const meta = CHAIN_META[id]
+          const isAct = idx === activeIdx
+          const sess = sessions[id]
+          return (
+            <div
+              key={id}
+              ref={el => { itemRefs.current[idx] = el }}
+              style={{
+                marginBottom: idx < CHAIN_ORDER.length - 1 ? '36vh' : 0,
+                willChange: 'transform',
+                transition: 'transform 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              }}
+            >
+              <div style={{
+                fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.32em',
+                color: isAct ? meta.accentColor + 'cc' : '#1e2535',
+                marginBottom: 12,
+                transition: 'color 0.4s ease',
+              }}>
+                {String(idx + 1).padStart(2, '0')} / {meta.threat}
+              </div>
+              <div style={{
+                fontFamily: "'Rajdhani', sans-serif", fontWeight: 700,
+                fontSize: 'clamp(42px, 5.5vw, 80px)', lineHeight: 0.9, letterSpacing: '-0.01em',
+                color: isAct ? '#f4f7ff' : '#1a2030',
+                transition: 'color 0.4s ease',
+              }}>
+                {meta.tagline}
+              </div>
+              {isAct && (
+                <motion.div
+                  initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
+                  style={{ marginTop: 18, display: 'flex', flexWrap: 'wrap', gap: 8 }}
+                >
+                  {meta.steps.map((step, i) => (
+                    <span key={i} style={{
+                      fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.18em',
+                      padding: '5px 12px', borderRadius: 999,
+                      border: `1px solid ${meta.accentColor}30`,
+                      color: meta.accentColor + '99',
+                      background: `${meta.accentColor}08`,
+                    }}>{step}</span>
+                  ))}
+                  {sess && (
+                    <span style={{
+                      fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.18em',
+                      padding: '5px 12px', borderRadius: 999,
+                      border: `1px solid ${sess.complete ? '#2ee39a40' : meta.accentColor + '50'}`,
+                      color: sess.complete ? '#2ee39a' : meta.accentColor,
+                      background: sess.complete ? 'rgba(46,227,154,0.08)' : `${meta.accentColor}0f`,
+                    }}>
+                      {sess.complete ? '✓ COMPLETE' : `PHASE ${sess.phase + 1}/${meta.steps.length}`}
+                    </span>
+                  )}
+                </motion.div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ── RIGHT: sticky card ── */}
+      <div style={{ position: 'sticky', top: 0, height: '100vh', display: 'flex', alignItems: 'center', padding: '0 24px 0 40px' }}>
+        <div style={{ width: '100%', maxWidth: 480 }}>
+          <AnimatePresence mode="wait">
+            {CHAIN_ORDER.map((id, idx) => {
+              if (idx !== activeIdx) return null
+              const meta = CHAIN_META[id]
+              const sess = sessions[id]
+              const isComplete = !!sess?.complete
+              const currentPhase = sess?.phase ?? 0
+              const checking = !!sess?.checking
+              const chainError = sess?.error ?? null
+              return (
+                <motion.div
+                  key={id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1, transition: { duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] } }}
+                  exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                >
+                  {/* Visual card — mouse-tilt 3D */}
+                  <div ref={cardRef} style={{
+                    position: 'relative', borderRadius: 28, overflow: 'hidden',
+                    height: 260, marginBottom: 22,
+                    border: `1px solid ${meta.accentColor}30`,
+                    boxShadow: `0 0 80px ${meta.glowColor}, 0 24px 64px rgba(0,0,0,0.5)`,
+                    willChange: 'transform', transformStyle: 'preserve-3d',
+                  }}>
+                    {/* Real photo */}
+                    <img
+                      src={meta.cardImage}
+                      alt={meta.name}
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
+                    />
+                    {/* Light vignette only at the corners so the photo stays visible
+                        but the "01/03" and difficulty labels remain readable. */}
+                    <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 120% 100% at 50% 45%, transparent 40%, rgba(4,6,12,0.72) 100%)' }} />
+                    {/* Accent colour tint */}
+                    <div style={{ position: 'absolute', inset: 0, mixBlendMode: 'overlay', background: `linear-gradient(145deg, ${meta.accentColor}55 0%, transparent 60%)` }} />
+                    {/* Subtle grid */}
+                    <div style={{ position: 'absolute', inset: 0, opacity: 0.035, backgroundImage: `repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 44px),repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 44px)` }} />
+                    <div style={{ position: 'absolute', top: 18, right: 22, fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.28em', color: meta.accentColor + 'cc' }}>
+                      {String(idx + 1).padStart(2, '0')} / 03
+                    </div>
+                    <div style={{ position: 'absolute', bottom: 18, left: 22, fontFamily: "'Rajdhani', sans-serif", fontStyle: 'italic', fontSize: 15, fontWeight: 600, color: meta.difficultyColor, letterSpacing: '0.04em', textShadow: `0 0 20px ${meta.difficultyColor}55` }}>
+                      {meta.difficulty}
+                    </div>
+                  </div>
+
+                  {/* Category */}
+                  <div style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.28em', color: '#3a4560', marginBottom: 10 }}>
+                    {meta.threat}
+                  </div>
+
+                  {/* Description */}
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, lineHeight: 1.72, color: '#8a98b8', margin: '0 0 18px' }}>
+                    {meta.description}
+                  </p>
+
+                  {/* Active phase tracker */}
+                  {sess && !isComplete && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', overflowX: 'auto', marginBottom: 18 }}>
+                      {meta.steps.map((step, i) => (
+                        <PhaseNode key={step + i} icon={meta.stepIcons[i]} label={step} index={i} total={meta.steps.length}
+                          accentColor={meta.accentColor}
+                          active={!isComplete && i === currentPhase}
+                          completed={i < currentPhase || isComplete} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Error */}
+                  {chainError && (
+                    <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.08)', fontFamily: 'monospace', fontSize: 11, color: '#f87171', letterSpacing: '0.04em' }}>
+                      <X size={13} strokeWidth={2.5} /> {chainError}
+                    </motion.div>
+                  )}
+
+                  {/* Actions */}
+                  {!sess ? (
+                    <motion.button onClick={launchingId ? undefined : () => start(id)}
+                      whileHover={launchingId ? {} : { scale: 1.03, boxShadow: `0 0 40px ${meta.glowColor}` }}
+                      whileTap={launchingId ? {} : { scale: 0.97 }}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 8,
+                        fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.22em',
+                        padding: '13px 30px', borderRadius: 11, border: `1px solid ${meta.accentColor}80`,
+                        background: `linear-gradient(135deg, ${meta.accentColor} 0%, ${meta.accentColor}cc 100%)`,
+                        color: meta.accentColor === '#f5c400' ? '#07090f' : '#fff',
+                        cursor: launchingId ? 'wait' : 'pointer',
+                        opacity: launchingId === id ? 0.7 : 1,
+                        boxShadow: `0 0 24px ${meta.glowColor}`,
+                      }}>
+                      {launchingId === id
+                        ? 'LAUNCHING LAB…'
+                        : <>INITIATE OPERATION <ArrowRight size={14} strokeWidth={2.5} /></>}
+                    </motion.button>
+                  ) : isComplete ? (
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'monospace', fontSize: 11, color: '#2ee39a', letterSpacing: '0.18em', padding: '12px 22px', border: '1px solid rgba(46,227,154,0.4)', borderRadius: 11, background: 'rgba(46,227,154,0.08)' }}>
+                        <Check size={14} strokeWidth={2.5} /> OPERATION COMPLETE
+                      </motion.div>
+                      <motion.button onClick={() => reset(id)} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', padding: '12px 18px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#8b9bba', cursor: 'pointer' }}>
+                        <RotateCcw size={12} strokeWidth={2.25} /> RESET
+                      </motion.button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <motion.button onClick={() => reset(id)} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                        style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', padding: '12px 18px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)', color: '#6b7fa3', cursor: 'pointer' }}>
+                        ABORT
+                      </motion.button>
+                      <motion.button onClick={checking ? undefined : () => advance(id)}
+                        whileHover={checking ? {} : { scale: 1.03, boxShadow: `0 0 30px ${meta.glowColor}` }}
+                        whileTap={checking ? {} : { scale: 0.97 }}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 8,
+                          fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.18em',
+                          padding: '12px 24px', borderRadius: 11, border: `1px solid ${meta.accentColor}70`,
+                          background: checking ? 'rgba(255,255,255,0.05)' : `linear-gradient(135deg, ${meta.accentColor}cc 0%, ${meta.accentColor}80 100%)`,
+                          color: checking ? '#6b7fa3' : (meta.accentColor === '#f5c400' ? '#07090f' : '#fff'),
+                          cursor: checking ? 'not-allowed' : 'pointer',
+                          boxShadow: checking ? 'none' : `0 0 20px ${meta.glowColor}`,
+                        }}>
+                        {checking
+                          ? 'CHECKING…'
+                          : currentPhase === meta.steps.length - 1
+                            ? <>COMPLETE <Check size={13} strokeWidth={2.5} /></>
+                            : <>NEXT PHASE <ArrowRight size={13} strokeWidth={2.5} /></>}
+                      </motion.button>
+                    </div>
+                  )}
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1254,7 +1411,6 @@ function MutationModeSection() {
 // ─── GauntletTitle — per-letter roll-up reveal, staggered from center ─────────
 function GauntletTitle() {
   const letters = 'GAUNTLET'.split('')
-  const mid = (letters.length - 1) / 2
   return (
     <h1 aria-label="GAUNTLET" style={{
       display: 'flex', justifyContent: 'center', flexWrap: 'nowrap',
@@ -1264,21 +1420,11 @@ function GauntletTitle() {
     }}>
       {letters.map((ch, i) => (
         <span key={i} aria-hidden="true" style={{
-          display: 'inline-block', overflow: 'hidden',
-          padding: '0.14em 0', margin: '-0.14em 0',
-        }}>
-          <motion.span
-            initial={{ y: '120%' }}
-            animate={{ y: '0%' }}
-            transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1], delay: 0.2 + Math.abs(i - mid) * 0.05 }}
-            style={{
-              display: 'inline-block',
-              background: 'linear-gradient(180deg, #ffffff 0%, #d4dcf0 42%, #8190b0 100%)',
-              WebkitBackgroundClip: 'text', backgroundClip: 'text',
-              WebkitTextFillColor: 'transparent', color: 'transparent',
-            }}
-          >{ch}</motion.span>
-        </span>
+          display: 'inline-block',
+          background: 'linear-gradient(180deg, #ffffff 0%, #d4dcf0 42%, #8190b0 100%)',
+          WebkitBackgroundClip: 'text', backgroundClip: 'text',
+          WebkitTextFillColor: 'transparent', color: 'transparent',
+        }}>{ch}</span>
       ))}
     </h1>
   )
@@ -1286,29 +1432,32 @@ function GauntletTitle() {
 
 export default function Gauntlet() {
   const [section, setSection] = useState('chains')
+  // Driven by the entrance preloader (GauntletIntro) finishing its panel wipe.
+  const [entranceDone, setEntranceDone] = useState(false)
+
+  const sectionRevealDelay = entranceDone ? 0 : GAUNTLET_REVEAL_DELAY + 0.06
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh', width: '100%', color: '#fff' }}>
       <AuroraFlow />
+      {!entranceDone && <GauntletIntro onDone={() => setEntranceDone(true)} />}
 
-      <div style={{ position: 'relative', zIndex: 1, padding: '0 24px 80px' }}>
+      <motion.div
+        initial={{ opacity: 0, y: '-1.5rem' }}
+        animate={{ opacity: 1, y: '0rem' }}
+        transition={{ delay: GAUNTLET_REVEAL_DELAY, duration: 0.9, ease: GAUNTLET_EASE }}
+        style={{ position: 'relative', zIndex: 1, padding: '0 24px 80px' }}
+      >
 
         {/* Hero header */}
         <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
           style={{ textAlign: 'center', paddingTop: 72, paddingBottom: 14 }}>
 
-          {/* Pill badge */}
-          <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.15 }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '8px 18px', borderRadius: 24, border: '1px solid rgba(255,21,53,0.35)', background: 'rgba(255,21,53,0.08)', marginBottom: 28, backdropFilter: 'blur(8px)' }}>
-            <span style={{ display: 'flex', color: '#ff4060', filter: 'drop-shadow(0 0 6px rgba(255,64,96,0.55))' }}><Zap size={14} strokeWidth={2.25} /></span>
-            <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.3em', color: '#ff6080', fontWeight: 700 }}>ADVANCED OPERATIONS CENTER</span>
-          </motion.div>
-
           {/* Title — letters roll up from a clipped baseline, staggered from center */}
           <GauntletTitle />
 
           {/* Subtitle */}
-          <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}
+          <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: GAUNTLET_REVEAL_DELAY + 0.38 }}
             style={{ fontFamily: "'Inter', sans-serif", fontSize: 15, color: '#5a6a88', letterSpacing: '0.04em', margin: '0 0 56px' }}>
             Advanced scenarios. No hints. Adapt or fail.
           </motion.p>
@@ -1320,16 +1469,16 @@ export default function Gauntlet() {
         {/* Section content */}
         <AnimatePresence mode="wait">
           {section === 'chains' ? (
-            <motion.div key="chains" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.4 }}>
+            <motion.div key="chains" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ delay: sectionRevealDelay, duration: 0.4 }}>
               <AttackChainsSection />
             </motion.div>
           ) : (
-            <motion.div key="mutations" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.4 }}>
+            <motion.div key="mutations" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ delay: sectionRevealDelay, duration: 0.4 }}>
               <MutationModeSection />
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </motion.div>
     </div>
   )
 }

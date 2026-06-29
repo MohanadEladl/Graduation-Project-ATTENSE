@@ -144,13 +144,26 @@ def _gather_evidence_text(progress: dict, timeline: list) -> str:
 
 
 def _ai_coach(progress: dict, variant: dict, timeline: list, vuln: dict) -> Dict[str, Any]:
-    """Call Ollama for personalised coaching; fall back to rule-based on any error."""
+    """Return personalised coaching.
+
+    Ollama coaching is OFF by default: it blocks report generation for 13–18s
+    (cold) while llama3.2:3b generates, and the coaching UI section was removed
+    from MissionReport, so the latency buys nothing for the learner. Cached
+    reports are ~4ms; the cold LLM path was the entire cost. Set
+    REPORT_AI_COACH=1 to re-enable the Ollama call (e.g. if the UI is restored).
+    """
+    if os.getenv("REPORT_AI_COACH", "0") != "1":
+        return {"coaching": None, "model": "rule-based-fallback"}
+
     import json as _json
     import urllib.request as _ur
     import urllib.error as _ue
 
     ollama_url = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
     model      = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+    # When opted in, keep the timeout tight so a slow/cold model can't hang the
+    # report for half a minute — fall back to rule-based coaching quickly.
+    _ai_timeout = int(os.getenv("REPORT_AI_TIMEOUT", "8"))
 
     evidence_text = _gather_evidence_text(progress, timeline)
     variant_name  = variant.get("name") or progress.get("variant_name") or "default"
@@ -184,7 +197,7 @@ def _ai_coach(progress: dict, variant: dict, timeline: list, vuln: dict) -> Dict
         headers={"Content-Type": "application/json"},
     )
     try:
-        with _ur.urlopen(req, timeout=35) as resp:
+        with _ur.urlopen(req, timeout=_ai_timeout) as resp:
             body    = _json.loads(resp.read().decode("utf-8"))
             coaching = (body.get("response") or "").strip()
             if len(coaching) > 40:

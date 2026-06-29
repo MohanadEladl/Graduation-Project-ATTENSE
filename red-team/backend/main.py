@@ -279,6 +279,15 @@ async def list_module_variants(module_id: str) -> dict:
     return {"module_id": module_id, "variants": lab_progress.list_variants(module_id)}
 
 
+@app.get("/api/modules/{module_id}/walkthrough")
+async def get_module_walkthrough(module_id: str, variant_id: Optional[str] = None) -> dict:
+    """Full guided-room walkthrough for a (module, variant): overview, MITRE-
+    mapped teaching sections, and references. Loads WITHOUT a started session
+    so Guided Mode can render the TryHackMe-style room immediately."""
+    from backend import lab_progress
+    return lab_progress.build_walkthrough(module_id, variant_id)
+
+
 @app.post("/api/sessions/{sid}/variant")
 async def set_session_variant(sid: str, body: dict) -> dict:
     """Set the active attack variant for a session.  Body: {variant_id: str}."""
