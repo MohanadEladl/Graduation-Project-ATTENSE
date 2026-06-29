@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 import docker
+import httpx
 
 from core import company_store, port_pool, user_store
 
@@ -18,6 +19,29 @@ TEMP_PATH = os.getenv("ATTENSE_TEMP_PATH", "/attense/temp")
 ROOMS_DIR = Path(TEMP_PATH) / "rooms"
 BLUETEAM_IMAGE = "attense-app-blueteam"
 DOCKER_NETWORK = "attense_net"
+SIGNAL_STORE_URL = os.getenv("SIGNAL_STORE_URL", "http://signal-store:8000")
+SIGNAL_STORE_CONFIG_SECRET = os.getenv("SIGNAL_STORE_CONFIG_SECRET", "")
+
+
+def _configure_signal_store_incident(incident_id: Optional[str]) -> None:
+    """Tell the long-lived signal-store which active room owns new alerts.
+
+    Wazuh alerts do not contain ATTENSE room IDs.  Without this handoff they
+    keep using the static container INCIDENT_ID and cannot join the red-team
+    event stream for a room created after compose startup.
+    """
+    if not SIGNAL_STORE_CONFIG_SECRET:
+        raise RuntimeError("SIGNAL_STORE_CONFIG_SECRET is not configured")
+    try:
+        response = httpx.put(
+            f"{SIGNAL_STORE_URL.rstrip('/')}/configuration/active-incident",
+            json={"incident_id": incident_id},
+            headers={"X-Signal-Store-Secret": SIGNAL_STORE_CONFIG_SECRET},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Failed to configure signal-store incident: {exc}") from exc
 
 
 def _room_path(room_id: str) -> Path:
@@ -192,6 +216,7 @@ def spin_up_blueteam(room_id: str) -> dict:
             time.sleep(2)
         else:
             raise RuntimeError("Blue Team container did not become healthy within 90 seconds")
+        _configure_signal_store_incident((room.get("incidents") or [room["incident_id"]])[0])
         room["status"] = "active"
         _save_room(room)
     except Exception as exc:
@@ -246,6 +271,12 @@ def spin_down_room(room_id: str) -> dict:
     if room.get("port") is not None:  # Legacy rooms created before ports were internal-only.
         port_pool.release(room["port"])
     room["status"] = "closed"
+    try:
+        _configure_signal_store_incident(None)
+    except RuntimeError:
+        # The room is already safely closed.  Keep teardown idempotent, but
+        # retain a clear operational signal that the mapper needs attention.
+        logger.exception("Failed to clear active signal-store incident for room %s", room_id)
     _generate_final_reports(room)
     _save_room(room)
     return room

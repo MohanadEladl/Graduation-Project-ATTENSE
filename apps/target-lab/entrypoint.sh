@@ -42,7 +42,10 @@ fi
 
 # ── 3. Start Wazuh agent ──────────────────────────────────────────────────────
 log "Starting Wazuh agent..."
-/var/ossec/bin/wazuh-control start || log "WARN: wazuh-control returned non-zero"
+# Some Wazuh agent images can wait indefinitely for their manager during
+# enrollment. The target web application must remain available even when
+# telemetry enrollment is delayed.
+timeout 30 /var/ossec/bin/wazuh-control start || log "WARN: Wazuh agent startup timed out or returned non-zero"
 sleep 3
 /var/ossec/bin/wazuh-control status || true
 

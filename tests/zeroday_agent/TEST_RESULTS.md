@@ -1,10 +1,10 @@
 # Zero-Day Agent Test Results
 
+## Latest Automated Test Run
+
 Date executed: 2026-06-27  
 Branch: `refactor/restructure-and-pipeline-integration`  
 Commit: `f81fef9`
-
-## Automated test run
 
 Command:
 
@@ -24,7 +24,7 @@ Summary:
 - MITRE ATT&CK keyword scanner tests passed.
 - Report generation test passed after running pytest with an explicit writable base temp directory.
 
-## Runtime benchmark
+## Runtime Benchmark
 
 Command:
 
@@ -46,7 +46,7 @@ Result:
 Runtime note:
 
 ```text
-No Gemini credentials — falling back to offline MITRE analysis
+No Gemini credentials - falling back to offline MITRE analysis
 ```
 
 Credential configuration check:
@@ -58,6 +58,17 @@ apps\zeroday-agent\.env: missing
 zeroday-agent\.env: missing
 ```
 
-Conclusion:
+## Previous Environment-Limited Run
 
-The zero-day automated test suite passes on the latest refactored branch. The runtime benchmark also executes successfully against the current container logs, but Gemini timing was not measured because Gemini credentials were not configured in the environment.
+Executed: 2026-06-26
+Status: blocked by the execution environment
+
+```powershell
+py -m pytest tests/zeroday_agent/ tests/integration/signal-mapper/test_mapper_suitability.py -v
+```
+
+Result: 17 tests passed; 1 setup error. `test_generate_report` required pytest's `tmp_path` fixture, but the workspace sandbox denied creation of the required temporary directory. No application assertion failed.
+
+## Conclusion
+
+The zero-day automated test suite passes on the latest refactored branch when pytest is given a writable base temp directory. The runtime benchmark also executes successfully against the current container logs, but Gemini timing was not measured because Gemini credentials were not configured in the environment.

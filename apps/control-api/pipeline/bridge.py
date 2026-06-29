@@ -107,7 +107,7 @@ def _load_rule_data(scenario_id: str) -> dict:
     path = os.path.join(_RULE_DATA_DIR, filename)
     if not os.path.isfile(path):
         raise ValueError(
-            f"Rule file for attack type '{attack_type}' not found on disk: {path}"
+            f"Rule file for scenario_id '{scenario_id}' not found on disk: {path}"
         )
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)

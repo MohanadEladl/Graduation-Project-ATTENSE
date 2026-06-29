@@ -22,7 +22,7 @@ from tenacity import (
 )
 
 from app.config import settings
-from ATTENSE_app.events.event import Event
+from attense_core.models.event import Event
 
 logger = logging.getLogger("signal-mapper.output")
 

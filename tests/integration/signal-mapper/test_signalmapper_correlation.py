@@ -69,6 +69,11 @@ class MapAlertCorrelationTests(unittest.TestCase):
         self.assertEqual(event.incident_id, "exercise-incident-001")
         self.assertNotEqual(event.incident_id, "wazuh-1778258112.30741")
 
+    def test_runtime_room_incident_overrides_static_environment(self):
+        event = map_alert(ALERT, incident_id_override="room-incident-123")
+        self.assertIsNotNone(event)
+        self.assertEqual(event.incident_id, "room-incident-123")
+
     def test_wazuh_alert_id_preserved_as_source_event_id(self):
         event = map_alert(ALERT)
         self.assertEqual(event.metadata["source_event_id"], "1778258112.30741")
