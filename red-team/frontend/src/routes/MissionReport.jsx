@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { api } from '../api/client.js'
@@ -268,6 +268,93 @@ function MutationTimelineSection({ report }) {
   )
 }
 
+function MitreAnalysisSection({ report }) {
+  const techniques = report.mitre_techniques || []
+  const analysis   = report.mitre_analysis || report.ai_coaching
+  const tactics    = report.mitre_tactics || []
+  if (!analysis && techniques.length === 0) return null
+
+  const model = report.ai_model || ''
+  const isAI  = model.startsWith('ollama/')
+  const paras = (analysis || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+  const exercised = techniques.filter(t => t.exercised).length
+  const techUrl = (id) => `https://attack.mitre.org/techniques/${String(id).replace('.', '/')}/`
+
+  return (
+    <motion.section {...fadeUp(0.07)} className="mb-5">
+      <SectionTitle title="MITRE ATT&CK Analysis" subtitle="How your actions map to real adversary tradecraft" color="#a78bfa" />
+      <div className="rounded-2xl p-5"
+        style={{ background: 'rgba(139,47,255,0.04)', border: '1px solid rgba(139,47,255,0.22)' }}>
+
+        {/* Tactic chain */}
+        {tactics.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            {tactics.map((t, i) => (
+              <Fragment key={i}>
+                <span className="font-mono text-[9.5px] tracking-[0.1em] px-2 py-1 rounded"
+                  style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#c4b5fd' }}>
+                  {t}
+                </span>
+                {i < tactics.length - 1 && <span style={{ color: '#6d5da0', fontSize: 12 }}>→</span>}
+              </Fragment>
+            ))}
+          </div>
+        )}
+
+        {/* AI threat-analysis narrative */}
+        {paras.length > 0 && (
+          <div className="rounded-xl p-4 mb-4"
+            style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex items-center gap-2 mb-2.5">
+              <span className="font-mono text-[8.5px] tracking-[0.24em]" style={{ color: '#a78bfa' }}>
+                {isAI ? 'AI THREAT ANALYSIS' : 'THREAT ANALYSIS'}
+              </span>
+              <span className="font-mono text-[8px] tracking-[0.08em] px-1.5 py-0.5 rounded"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#7a8699' }}>
+                {isAI ? '⬡ ' + model.replace('ollama/', '') : 'rule-based'}
+              </span>
+            </div>
+            {paras.map((p, i) => (
+              <p key={i} className="text-[12.5px] leading-relaxed" style={{ color: '#cdd3e8', marginBottom: i < paras.length - 1 ? 8 : 0 }}>{p}</p>
+            ))}
+          </div>
+        )}
+
+        {/* Technique coverage mapping */}
+        {techniques.length > 0 && (
+          <div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="font-mono text-[8.5px] tracking-[0.24em]" style={{ color: '#7a8699' }}>TECHNIQUE COVERAGE</span>
+              <span className="font-mono text-[9px]" style={{ color: '#a78bfa' }}>{exercised}/{techniques.length} exercised</span>
+            </div>
+            <div className="space-y-1.5">
+              {techniques.map((t, i) => (
+                <a key={i} href={techUrl(t.id)} target="_blank" rel="noreferrer"
+                  title={t.note}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors hover:brightness-125"
+                  style={{
+                    background: t.exercised ? 'rgba(46,227,154,0.05)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${t.exercised ? 'rgba(46,227,154,0.22)' : 'rgba(255,255,255,0.06)'}`,
+                  }}>
+                  <span className="shrink-0 font-mono text-[9px] flex items-center justify-center rounded-full"
+                    style={{
+                      width: 18, height: 18,
+                      background: t.exercised ? 'rgba(46,227,154,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: t.exercised ? '#2ee39a' : '#6a7488',
+                    }}>{t.exercised ? '✓' : '○'}</span>
+                  <span className="shrink-0 font-mono text-[10.5px] font-bold" style={{ color: t.exercised ? '#7dd3fc' : '#94a3b8' }}>{t.id}</span>
+                  <span className="text-[11.5px] flex-1 min-w-0 truncate" style={{ color: '#c9d4e8' }}>{t.name}</span>
+                  <span className="shrink-0 font-mono text-[9px] tracking-[0.08em] hidden sm:block" style={{ color: '#7a8699' }}>{t.tactic}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.section>
+  )
+}
+
 export default function MissionReport() {
   const { sid } = useParams()
   const navigate = useNavigate()
@@ -397,6 +484,9 @@ export default function MissionReport() {
         </div>
       </motion.div>
 
+
+      {/* ── MITRE ATT&CK ANALYSIS ── */}
+      <MitreAnalysisSection report={report} />
 
       {/* ── TASK RESULTS ── */}
       <motion.section {...fadeUp(0.1)} className="mb-5">

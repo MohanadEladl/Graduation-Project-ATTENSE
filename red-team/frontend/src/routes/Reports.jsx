@@ -182,8 +182,8 @@ export default function Reports() {
       <div className="flex flex-col gap-3">
         {sessions.map(s => {
           const r = s.result || {}
-          const done  = s.learning_completed_tasks?.length ?? s.completed_steps?.length ?? r.successful_steps ?? 0
-          const total = s.learning_total_tasks || s.total_steps || r.total_steps || 0
+          const done  = r.successful_steps ?? s.learning_completed_tasks?.length ?? s.completed_steps?.length ?? 0
+          const total = r.total_steps ?? s.learning_total_tasks ?? s.total_steps ?? 0
           const durSecs = s.learning_duration_s
           const dur = durSecs != null
             ? (durSecs < 60 ? `${durSecs}s` : `${Math.floor(durSecs / 60)}m ${durSecs % 60}s`)

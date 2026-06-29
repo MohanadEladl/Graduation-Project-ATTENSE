@@ -15,7 +15,6 @@ Endpoints:
   POST   /api/sessions/{sid}/execute        – execute the attack
   GET    /api/sessions/{sid}/logs           – full log history
   WS     /ws/sessions/{sid}                 – live log stream
-  WS     /ws/shell                          – legacy single-tab shell
 
   Lab Mode (AttackBox):
   GET    /api/operator/attackbox/status      – AttackBox container status
@@ -48,7 +47,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from core.module_loader import discover_modules    # noqa: E402
-from backend.shell.router import ShellRouter       # noqa: E402
 from backend.session_manager import SessionManager # noqa: E402
 from backend.detections import DetectionBroker     # noqa: E402
 from backend import operator_api                   # noqa: E402
@@ -76,8 +74,7 @@ app.add_middleware(
 _MODULES = discover_modules("modules")
 
 # Process-wide session store. Each guided mission (one per browser workspace)
-# owns a SessionRecord here; the legacy /ws/shell path is separate and uses
-# ShellRouter.
+# owns a SessionRecord here.
 _SESSIONS = SessionManager(_MODULES, DEFAULT_HOST, DEFAULT_PORT)
 
 # Detection broker: polls signal-store, fans Wazuh alerts out to WS subscribers.
@@ -88,6 +85,11 @@ _DETECTIONS = DetectionBroker()
 @app.on_event("startup")
 async def _boot() -> None:
     _DETECTIONS.start()
+    # Warm the MITRE analyst model in the background so the first mission report
+    # isn't the one that pays Ollama's cold-load cost. Never blocks boot.
+    import threading
+    from backend import report_agent
+    threading.Thread(target=report_agent.warm_up_model, daemon=True).start()
 
 
 @app.on_event("shutdown")
@@ -824,97 +826,6 @@ def zap_repeater(body: RepeaterBody) -> dict:
         method=body.method, path=body.path,
         headers=body.headers, body=body.body,
     )
-
-
-# ── WebSocket shell ───────────────────────────────────────────────────────────
-@app.websocket("/ws/shell")
-async def shell_ws(ws: WebSocket) -> None:
-    """
-    One persistent shell per browser tab.
-
-    Protocol (JSON lines):
-      client → server:  {"type": "input", "data": "use brute_force"}
-      server → client:  {"type": "output", "data": "some line"}
-      server → client:  {"type": "prompt", "data": "attense(brute_force) > "}
-      server → client:  {"type": "snapshot", "data": {...}}
-    """
-    await ws.accept()
-    loop = asyncio.get_running_loop()
-
-    # Bridge: engine code is synchronous and emits via callbacks; we must
-    # get those lines onto the event loop's send queue without blocking.
-    send_q: asyncio.Queue = asyncio.Queue()
-
-    def emit(line: str) -> None:
-        # Called from the sync engine thread during attacks, and from the
-        # event-loop thread during command handling. Use call_soon_threadsafe
-        # so both paths are safe.
-        try:
-            loop.call_soon_threadsafe(
-                send_q.put_nowait, {"type": "output", "data": line}
-            )
-        except RuntimeError:
-            # loop closed — connection gone
-            pass
-
-    router = ShellRouter(emit, default_host=DEFAULT_HOST, default_port=DEFAULT_PORT)
-
-    async def sender() -> None:
-        """Forward everything from send_q → websocket."""
-        try:
-            while True:
-                msg = await send_q.get()
-                await ws.send_json(msg)
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            return
-
-    sender_task = asyncio.create_task(sender())
-
-    async def send_prompt() -> None:
-        await ws.send_json({"type": "prompt", "data": router.prompt()})
-
-    async def send_snapshot() -> None:
-        await ws.send_json({"type": "snapshot", "data": router.snapshot()})
-
-    # Initial banner + prompt
-    router.start()
-    await asyncio.sleep(0.05)    # let banner flush first
-    await send_prompt()
-    await send_snapshot()
-
-    try:
-        while True:
-            msg = await ws.receive_json()
-            if msg.get("type") != "input":
-                continue
-            line = str(msg.get("data", ""))
-
-            # Attacks are synchronous and may take seconds → run in executor
-            await loop.run_in_executor(None, router.handle_line, line)
-
-            # After every command: flush output, then prompt + snapshot
-            # A tiny sleep lets all queued emit() calls drain to the client
-            # before we send the next prompt marker.
-            await asyncio.sleep(0.02)
-            await send_prompt()
-            await send_snapshot()
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as exc:  # noqa: BLE001
-        try:
-            await ws.send_json({"type": "output",
-                                "data": f"[!] Server error: {exc}"})
-        except Exception:
-            pass
-    finally:
-        sender_task.cancel()
-        try:
-            await sender_task
-        except (asyncio.CancelledError, Exception):
-            pass
 
 
 # ── Attack Chains ──────────────────────────────────────────────────────────────

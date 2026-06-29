@@ -17,13 +17,23 @@ It returns a structured coaching report:
     defensive_controls: [...],
     evidence_timeline:  [...],
     task_results:       [...],
-    ai_coaching:        "free-form coaching paragraph from Ollama (or fallback)",
+    mitre_tactics:      ["TA0001 Initial Access", ...],
+    mitre_techniques:   [{id, name, tactic, exercised, note}, ...],
+    mitre_analysis:     "MITRE-grounded threat narrative from Ollama (or fallback)",
+    ai_coaching:        same string as mitre_analysis (kept for back-compat),
     ai_model:           "ollama/<model>" | "rule-based-fallback",
   }
 
+The MITRE analysis is grounded: the real ATT&CK technique IDs each attack
+module declares (module.mitre) are fed to the model, and a deterministic
+technique-mapping is computed from the operator's evidence so the structured
+ATT&CK table still renders even when the model is unreachable.
+
 Priority chain:
-  1. Ollama (local Docker container — free, offline, no API key needed)
-  2. Rules-based fallback (if Ollama container is not reachable)
+  1. attense-analyst Ollama model (MITRE-specialised — see
+     red-team/ollama/Modelfile.attense-analyst; falls back to llama3.2:3b if
+     the derived model hasn't been built)
+  2. Rules-based fallback (if no Ollama container is reachable)
 """
 from __future__ import annotations
 import json
@@ -143,69 +153,281 @@ def _gather_evidence_text(progress: dict, timeline: list) -> str:
     return "\n".join(lines)
 
 
-def _ai_coach(progress: dict, variant: dict, timeline: list, vuln: dict) -> Dict[str, Any]:
-    """Return personalised coaching.
+def _attack_evidence_lines(session) -> List[str]:
+    """Pull the concrete attack-outcome lines from the session log — the ACTUAL
+    payloads/commands the operator fired and their per-step result markers
+    (REFLECTED / EXECUTED / DISCLOSED / ACCEPTED / CREDENTIAL FOUND / ...).
 
-    Ollama coaching is OFF by default: it blocks report generation for 13–18s
-    (cold) while llama3.2:3b generates, and the coaching UI section was removed
-    from MissionReport, so the latency buys nothing for the learner. Cached
-    reports are ~4ms; the cold LLM path was the entire cost. Set
-    REPORT_AI_COACH=1 to re-enable the Ollama call (e.g. if the UI is restored).
+    The lab evidence timeline only carries vague descriptions ("a script-like
+    payload was submitted"); the real specifics that let the model cite
+    evidence verbatim live in the execution log. This is the grounding the
+    'be specific to their evidence' instruction depends on.
     """
-    if os.getenv("REPORT_AI_COACH", "0") != "1":
-        return {"coaching": None, "model": "rule-based-fallback"}
+    try:
+        with session.log_lock:
+            raw = [str(e.get("line", "")) for e in session.logs]
+    except Exception:
+        raw = []
+
+    import re as _re
+    markers = (
+        "REFLECTED", "EXECUTED", "DISCLOSED", "ACCEPTED", "STATE CHANGED",
+        "CREDENTIAL FOUND", "Summary:",
+    )
+    out: List[str] = []
+    seen: set = set()
+    for ln in raw:
+        s = ln.strip()
+        if not s:
+            continue
+        marker = next((m for m in markers if m in s), None)
+        if not marker:
+            continue
+        # Keep the payload/command (text after a '|', '→' or '->' separator) and
+        # the marker; drop timestamps, step counters, leading tick glyphs and
+        # internal "[variant-label]" tokens so the model never quotes engine
+        # internals.
+        parts = _re.split(r"\s*(?:\||→|->)\s*", s, maxsplit=1)
+        payload = parts[1].strip() if len(parts) > 1 else _re.sub(r"\[[^\]]*\]", "", s).strip()
+        payload = _re.sub(r"^[✓✗\-–—\s]+", "", payload)
+        clean = f"{marker}: {payload}" if marker != "Summary:" else payload
+        clean = _re.sub(r"\s{2,}", " ", clean).strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            out.append(clean)
+        if len(out) >= 12:
+            break
+    return out
+
+
+def _mitre_from_module(session) -> Dict[str, Any]:
+    """Pull the module's declared MITRE ATT&CK metadata (tactics + techniques).
+
+    Every attack module declares a class-level `mitre = {tactics, techniques}`.
+    This is the ground truth we feed the model so it never invents technique IDs.
+    """
+    module = getattr(session, "module", None)
+    mitre  = getattr(module, "mitre", None) or {}
+    tactics = [str(t) for t in (mitre.get("tactics") or [])]
+    techniques: List[Dict[str, str]] = []
+    for t in (mitre.get("techniques") or []):
+        techniques.append({
+            "id":     t.get("id", ""),
+            "name":   t.get("name", ""),
+            "tactic": t.get("tactic", ""),
+        })
+    return {"tactics": tactics, "techniques": techniques}
+
+
+def _mitre_technique_mapping(mitre: dict, progress: dict, task_results: list) -> List[Dict[str, Any]]:
+    """Mark which ATT&CK techniques the operator actually exercised.
+
+    Evidence-grounded heuristic (the technique chain is authored in execution
+    order, kill-chain first):
+      • success  → the whole chain was exercised.
+      • partial  → credit the first N techniques, N scaled by completed-task ratio.
+      • none     → nothing exercised.
+    Deterministic, so this table renders even when the model is unreachable.
+    """
+    techniques = mitre.get("techniques", [])
+    if not techniques:
+        return []
+    n      = len(techniques)
+    done   = sum(1 for t in task_results if t.get("completed"))
+    total  = len(task_results) or 1
+    if progress.get("success"):
+        credited = n
+    else:
+        credited = round((done / total) * n)
+    rows: List[Dict[str, Any]] = []
+    for i, t in enumerate(techniques):
+        exercised = i < credited
+        rows.append({
+            **t,
+            "exercised": exercised,
+            "note": ("Exercised — your evidence demonstrates this technique."
+                     if exercised else
+                     "Not reached — part of the chain you didn't complete."),
+        })
+    return rows
+
+
+def _sanitize_narrative(text: str) -> str:
+    """Deterministic clean-up of the model's prose. The local 3B model owns the
+    substance; this guarantees the formatting it can't reliably self-enforce:
+    no leaked engine tokens or echoed prompt labels, cited payloads kept inline
+    (not split into their own paragraph), and at most three paragraphs.
+    """
+    import re
+    if not text:
+        return text
+    t = text.strip()
+
+    # 1. Drop meta-labels the model sometimes echoes back from the prompt.
+    t = re.sub(
+        r"(?i)\b(approved defensive controls?|operator (?:task-?ladder )?evidence|"
+        r"concrete attack evidence|task-?ladder)\b\s*:?", "", t)
+    # 2. Remove leaked internal event identifiers and bracketed engine tokens.
+    t = re.sub(r"\[(?:e|evidence)\]", "", t)
+    t = re.sub(r"\[[A-Za-z0-9 _\-/]+\]", "", t)          # [relative-basic], [1/5]
+    t = re.sub(r"`?\b[a-z]+(?:_[a-z]+)+\b`?", "", t)     # csrf_lure_submitted, file_viewer_used
+    # 3. Strip inline outcome-marker labels the model copies from the evidence
+    #    block (e.g. "REFLECTED: <script>" -> "<script>").
+    t = re.sub(r"(?i)\b(reflected|executed|disclosed|accepted|state changed|"
+               r"credential found)\s*:\s*", "", t)
+    # 4. Tidy punctuation/whitespace left behind by the removals.
+    t = re.sub(r"`\s*`", "", t)                           # empty code spans
+    t = re.sub(r"\(\s+", "(", t)
+    t = re.sub(r"\s+\)", ")", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"\s+([,.;:])", r"\1", t)
+
+    # 4. Re-flow paragraphs: merge short fragments (e.g. a payload left on its
+    #    own line) into the previous paragraph, then hard-cap at three.
+    paras = [re.sub(r"\s*\n\s*", " ", p).strip()
+             for p in re.split(r"\n\s*\n", t) if p.strip()]
+    merged: List[str] = []
+    for p in paras:
+        if merged and len(p.split()) < 8:
+            merged[-1] = (merged[-1] + " " + p).strip()
+        else:
+            merged.append(p)
+    if len(merged) > 3:
+        merged = merged[:2] + [" ".join(merged[2:])]
+    merged = [re.sub(r"\s{2,}", " ", p).strip(" -–—:") for p in merged if p.strip()]
+    return "\n\n".join(merged).strip()
+
+
+def _ai_mitre_analysis(progress: dict, timeline: list, vuln: dict,
+                       mitre: dict, grade: str, score: int,
+                       session=None) -> Dict[str, Any]:
+    """MITRE-grounded threat-analysis narrative from the local analyst model.
+
+    ON by default (set REPORT_AI_COACH=0 to disable). The caller caches the
+    finished report on the session, so this cold-model latency is paid ONCE per
+    session — not on every report view. Grounds the model on the module's real
+    ATT&CK technique IDs; falls back to the base model, then to rule-based prose.
+    """
+    if os.getenv("REPORT_AI_COACH", "1") != "1":
+        return {"analysis": None, "model": "rule-based-fallback"}
 
     import json as _json
     import urllib.request as _ur
     import urllib.error as _ue
 
     ollama_url = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
-    model      = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-    # When opted in, keep the timeout tight so a slow/cold model can't hang the
-    # report for half a minute — fall back to rule-based coaching quickly.
-    _ai_timeout = int(os.getenv("REPORT_AI_TIMEOUT", "8"))
+    primary    = os.getenv("OLLAMA_MODEL", "attense-analyst")
+    fallback   = os.getenv("OLLAMA_FALLBACK_MODEL", "llama3.2:3b")
+    # CPU inference is slow: a cold 3B load + ~400-token generation runs ~30-50s.
+    # The report is cached after first generation and the UI shows a spinner, so a
+    # generous one-time budget is the right trade for a real MITRE narrative.
+    timeout    = int(os.getenv("REPORT_AI_TIMEOUT", "90"))
 
     evidence_text = _gather_evidence_text(progress, timeline)
-    variant_name  = variant.get("name") or progress.get("variant_name") or "default"
-    difficulty    = variant.get("difficulty", "Unknown")
+    tactics_line  = ", ".join(mitre.get("tactics", [])) or "—"
+    tech_lines    = "; ".join(
+        f"{t['id']} {t['name']} ({t['tactic']})" for t in mitre.get("techniques", [])
+    ) or "—"
+
+    # Concrete payloads/commands the operator actually fired — the specifics the
+    # model must cite. Without this the narrative can only paraphrase technique names.
+    attack_lines = _attack_evidence_lines(session) if session is not None else []
+    attack_block = (
+        "Concrete attack evidence — the exact payloads/commands the operator "
+        "fired and their outcomes (CITE at least one of these verbatim):\n"
+        + "\n".join(f"  {ln}" for ln in attack_lines) + "\n\n"
+    ) if attack_lines else ""
+
+    # The CORRECT, curated defenses for THIS vulnerability. Feeding them at
+    # request time (instead of letting the model recall from memory) is what
+    # stops a small model from bleeding in another vuln class's mitigations.
+    defenses = vuln.get("defenses", []) or []
+    defense_block = (
+        "Approved defensive controls for THIS vulnerability — recommend ONLY "
+        "from this list, never a control for a different vulnerability:\n"
+        + "\n".join(f"  - {d.get('control','')}: {d.get('implementation','')}" for d in defenses)
+        + "\n\n"
+    ) if defenses else ""
 
     prompt = (
-        "You are a cybersecurity instructor reviewing a student's lab session. "
-        "Be concise, specific, and honest — do NOT be generically positive.\n\n"
-        f"Vulnerability: {vuln.get('name', 'Unknown')}\n"
-        f"Variant: {variant_name} (difficulty: {difficulty})\n\n"
-        f"{evidence_text}\n\n"
-        "Write 3-4 sentences of coaching:\n"
-        "1. One sentence on what the student did right (be specific to their evidence).\n"
-        "2. One sentence on the most important gap or risk they should address next.\n"
-        "3. One sentence connecting this attack to real-world attacker behaviour.\n"
-        "4. One concrete next-step command or technique to level up.\n"
-        "Do not repeat the task list. Do not use bullet points. Plain prose only."
+        f"Vulnerability: {vuln.get('name', 'Unknown')}.\n"
+        f"Grade: {grade} ({score}/100), success={progress.get('success', False)}.\n"
+        f"ATT&CK tactics in play: {tactics_line}.\n"
+        f"ATT&CK technique IDs in play: {tech_lines}.\n"
+        f"{attack_block}"
+        f"{defense_block}"
+        f"Operator task-ladder evidence:\n{evidence_text}\n\n"
+        "Write the threat-analysis section now. Ground it strictly on the "
+        "technique IDs above; reference at least one concrete payload or command "
+        "from the attack evidence; and for the defense, recommend ONLY a control "
+        "from the approved list — do not mention any other vulnerability's defense."
     )
 
-    payload = _json.dumps({
-        "model":   model,
-        "prompt":  prompt,
-        "stream":  False,
-        "options": {"temperature": 0.45, "num_predict": 220},
-    }).encode()
+    def _try(model: str) -> Optional[str]:
+        payload = _json.dumps({
+            "model":   model,
+            "prompt":  prompt,
+            "stream":  False,
+            # Keep the model resident for 30 min so back-to-back reports don't
+            # each pay the cold-load cost.
+            "keep_alive": "30m",
+            "options": {"temperature": 0.3, "num_predict": 320},
+        }).encode()
+        req = _ur.Request(
+            ollama_url + "/api/generate",
+            data=payload, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            body = _json.loads(resp.read().decode("utf-8"))
+            text = (body.get("response") or "").strip()
+            if len(text) <= 60:
+                return None
+            return _sanitize_narrative(text)
 
+    # 1. Specialised analyst model. On 404 (not built yet) fall back to base.
+    for model in (primary, fallback):
+        try:
+            text = _try(model)
+            if text:
+                return {"analysis": text, "model": f"ollama/{model}"}
+        except _ue.HTTPError:
+            continue  # model missing / server error → try the next one
+        except (_ue.URLError, OSError, TimeoutError, ValueError):
+            break     # container unreachable → stop, use rule-based fallback
+
+    return {"analysis": None, "model": "rule-based-fallback"}
+
+
+def warm_up_model() -> None:
+    """Best-effort: load the analyst model into Ollama's memory at boot so the
+    operator's first report doesn't pay the cold-load cost. Safe to call in a
+    daemon thread — swallows every error and returns quickly.
+    """
+    if os.getenv("REPORT_AI_COACH", "1") != "1":
+        return
+    import json as _json
+    import urllib.request as _ur
+
+    ollama_url = os.getenv("OLLAMA_URL", "http://ollama:11434").rstrip("/")
+    model      = os.getenv("OLLAMA_MODEL", "attense-analyst")
+    payload = _json.dumps({
+        "model": model,
+        "prompt": "ok",
+        "stream": False,
+        "keep_alive": "30m",
+        "options": {"num_predict": 1},
+    }).encode()
     req = _ur.Request(
         ollama_url + "/api/generate",
-        data=payload,
-        method="POST",
+        data=payload, method="POST",
         headers={"Content-Type": "application/json"},
     )
     try:
-        with _ur.urlopen(req, timeout=_ai_timeout) as resp:
-            body    = _json.loads(resp.read().decode("utf-8"))
-            coaching = (body.get("response") or "").strip()
-            if len(coaching) > 40:
-                return {"coaching": coaching, "model": f"ollama/{model}"}
-    except (_ue.URLError, _ue.HTTPError, OSError, TimeoutError, ValueError):
+        with _ur.urlopen(req, timeout=120):
+            pass
+    except Exception:
         pass
-
-    return {"coaching": None, "model": "rule-based-fallback"}
 
 
 def _rule_based_coaching(progress: dict, vuln: dict) -> str:
@@ -463,10 +685,14 @@ def generate(session, events: list, timeline: list,
         if last_ts and started_at:
             duration = int(round(last_ts - started_at))
 
-    # AI coaching — Claude or fallback
-    coach = _ai_coach(progress, variant, timeline, vuln)
-    if not coach.get("coaching"):
-        coach["coaching"] = _rule_based_coaching(progress, vuln)
+    # MITRE ATT&CK — module ground truth + which techniques the operator exercised
+    mitre            = _mitre_from_module(session)
+    mitre_techniques = _mitre_technique_mapping(mitre, progress, task_results)
+
+    # AI MITRE-grounded threat analysis — attense-analyst model or rule-based fallback
+    coach = _ai_mitre_analysis(progress, timeline, vuln, mitre, grade, score, session=session)
+    if not coach.get("analysis"):
+        coach["analysis"] = _rule_based_coaching(progress, vuln)
 
     mutation_eval = _mutation_adaptability(session, progress, timeline)
 
@@ -490,7 +716,10 @@ def generate(session, events: list, timeline: list,
         "success":      bool(progress.get("success")),
 
         "summary":            summary,
-        "ai_coaching":        coach["coaching"],
+        "mitre_tactics":      mitre.get("tactics", []),
+        "mitre_techniques":   mitre_techniques,
+        "mitre_analysis":     coach["analysis"],
+        "ai_coaching":        coach["analysis"],   # back-compat alias
         "ai_model":           coach["model"],
 
         "what_you_did_right": did_right,
