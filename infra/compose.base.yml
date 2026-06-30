@@ -300,6 +300,28 @@ services:
       start_period: 10s
     networks:
       - attense_net
+
+  # ATTENSE Portal: fortress entrypoint that routes to Red/Blue login flows
+  attense-portal:
+    build:
+      context: ../frontends/portal
+    container_name: attense_portal
+    hostname: attense-portal
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - red-team-frontend
+      - blue-team-frontend
+    ports:
+      - "127.0.0.1:5173:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - attense_net
   # Blue Team endpoints provided by attense-app (embedded API; frontend added above)
   # â”€â”€ Watcher Agent: SOC analyst terminal monitor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   # Tails the host audit log, classifies analyst commands via Ollama, and posts
@@ -352,3 +374,4 @@ volumes:
   # Declared here so wazuh-manager (compose.security.yml) and signal-store
   # (this file, read-only) can share it regardless of -f file order.
   wazuh_alerts:
+

@@ -98,7 +98,7 @@
 (function(){
   const roleNames = { ciso: 'CISO', soc: 'SOC Analyst', ir: 'IR Lead', th: 'Threat Hunter' };
   const scenarioNames = { phishing: 'Phishing escalation', ransomware: 'Ransomware containment', insider: 'Insider threat', web: 'Web intrusion' };
-  const BLUE_UI_URL = 'http://127.0.0.1:3101/';
+  const BLUE_UI_URL = 'http://127.0.0.1:3100/';
   const getProfile = () => {
     try { return JSON.parse(localStorage.getItem('attense_blue_profile') || '{}'); }
     catch (_) { return {}; }
@@ -267,3 +267,4 @@
 </script>
 </body>
 </html>
+
