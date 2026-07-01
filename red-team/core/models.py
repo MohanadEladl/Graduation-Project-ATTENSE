@@ -27,6 +27,7 @@ class Category(str, Enum):
     AUTH = "Authentication"
     INJECTION = "Injection"
     FILE = "File System"
+    FREESTYLE = "Freestyle"
 
 
 @dataclass
