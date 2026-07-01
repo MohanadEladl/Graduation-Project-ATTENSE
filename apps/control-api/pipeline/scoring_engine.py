@@ -61,7 +61,12 @@ class ScoringResult:
     penalty_total: int
     ttc_factor: float
     ttc_actual_sec: Optional[float]
-    response_difficulty_bonus: float
+    response_difficulty_bonus: float    # the EFFECTIVE bonus actually applied
+                                         # (raw bonus * compliance_ratio -- see
+                                         # _compliance_ratio below)
+    raw_difficulty_bonus: float         # the bonus before compliance scaling,
+                                         # used to derive each member's own
+                                         # effective bonus in score_members()
     rules: list[RuleResult]
 
 
@@ -412,6 +417,26 @@ def _determine_verdict(score: float, verdict_bands: dict) -> str:
     return "failed"
 
 
+def _compliance_ratio(rules: list[RuleResult]) -> float:
+    """Fraction of APPLICABLE rules (excluding not_applicable) that passed.
+
+    Used to scale response_difficulty_bonus so a fast-but-incomplete response
+    can no longer fully mask triggered-rule penalties: previously the bonus
+    (up to +25) was added after the penalty and before the final clamp(0,100),
+    so e.g. a -20 penalty plus a +25 bonus both clamped to the same 100 as a
+    perfect response with the same bonus -- the penalty became invisible in
+    the headline score even though it's still listed in the rule breakdown.
+    Scaling the bonus by how much of the response was actually compliant
+    keeps it as a genuine speed/skill reward without letting it erase process
+    gaps. 1.0 when there are no applicable rules (nothing could have failed).
+    """
+    applicable = [r for r in rules if r.status != "not_applicable"]
+    if not applicable:
+        return 1.0
+    passed = sum(1 for r in applicable if r.status == "passed")
+    return passed / len(applicable)
+
+
 # ── Public entry point ─────────────────────────────────────────────────────────
 
 def score_incident(
@@ -495,11 +520,16 @@ def score_incident(
     ttc_factor = _compute_ttc_factor(ttc_actual, ttc_expected, ttc_max)
 
     # ── Difficulty bonus ──────────────────────────────────────────────────────
-    bonus = _compute_difficulty_bonus(
+    # Raw bonus is scaled by how many of the APPLICABLE rules actually passed
+    # (see _compliance_ratio) so a triggered rule's penalty can't be fully
+    # masked by a large speed/difficulty bonus before the final clamp.
+    raw_bonus = _compute_difficulty_bonus(
         idx.get("containment_succeeded"),
         difficulty,
         idx.get("alert_investigation_started"),
     )
+    compliance_ratio = _compliance_ratio(rule_results)
+    bonus = raw_bonus * compliance_ratio
 
     # ── Final score: clamp(round((100 + penalty) * ttc_factor + bonus, 2), 0, 100)
     raw   = (100 + penalty_total) * ttc_factor + bonus
@@ -512,5 +542,132 @@ def score_incident(
         ttc_factor                = ttc_factor,
         ttc_actual_sec            = ttc_actual,
         response_difficulty_bonus = bonus,
+        raw_difficulty_bonus      = raw_bonus,
         rules                     = rule_results,
     )
+
+
+# ── Per-member scoring ───────────────────────────────────────────────────────
+#
+# The 9 rules are evaluated against the whole incident timeline above -- they
+# describe one shared incident lifecycle, not one person's. To produce a fair
+# personal scorecard per analyst, we reuse that same whole-team evaluation
+# (so timing/ordering checks see the real, complete timeline) and then
+# re-attribute each rule's outcome by WHO performed its qualifying action:
+#
+#   - this analyst performed it      -> keep the team-wide status/penalty
+#   - a teammate performed it        -> not_applicable for this analyst
+#   - nobody performed it on the team -> not_applicable for everyone
+#     (a step the whole team skipped isn't one person's personal failure)
+#
+# TTC factor and difficulty bonus are inherently incident-level (how fast the
+# TEAM closed the incident, not one person), so every member's score applies
+# the SAME team-wide ttc_factor/response_difficulty_bonus on top of their own
+# personalized penalty_total.
+
+# rule suffix -> the event_type whose first-occurrence actor "owns" that
+# rule's outcome. R02 is handled separately (confirmed OR dismissal, same
+# priority order _r02 itself uses).
+_RULE_RESPONSIBLE_EVENT: dict[str, str] = {
+    "R01": "alert_investigation_started",
+    "R03": "evidence_preserved",
+    "R04": "containment_initiated",
+    "R05": "containment_succeeded",
+    "R06": "eradication_completed",
+    "R07": "recovery_validated",
+    "R08": "lessons_learned_recorded",
+    "R09": "alert_denied",
+}
+
+
+def _build_actor_index(events: list[Event]) -> dict[str, str]:
+    """First-occurrence actor_id per event_type -- parallel to
+    _build_event_index, used to attribute which analyst's action satisfied
+    (or triggered) each rule."""
+    index: dict[str, str] = {}
+    for ev in events:
+        if ev.event_type not in index:
+            index[ev.event_type] = ev.actor_id
+    return index
+
+
+def _responsible_actor(suffix: str, idx_actor: dict[str, str]) -> Optional[str]:
+    """The actor_id who owns rule *suffix*'s outcome, or None if no one on
+    the team performed the qualifying action at all."""
+    if suffix == "R02":
+        return idx_actor.get("incident_confirmed") or idx_actor.get("dismissal_approved")
+    event_type = _RULE_RESPONSIBLE_EVENT.get(suffix)
+    return idx_actor.get(event_type) if event_type else None
+
+
+def score_members(
+    incident: Incident,
+    events: list[Event],
+    rule_data: dict,
+    scoring_started_at: Optional[datetime] = None,
+) -> dict[str, ScoringResult]:
+    """
+    Score each individual Blue Team analyst's personal contribution to the
+    incident response. See module note above for the attribution rules.
+
+    Returns {} if the incident has no blue_team-actor events.
+    """
+    team_result = score_incident(incident, events, rule_data, scoring_started_at)
+    idx_actor = _build_actor_index(events)
+
+    members = sorted({ev.actor_id for ev in events if ev.actor_type == "blue_team"})
+    if not members:
+        return {}
+
+    verdict_bands = rule_data["scoring"]["verdict_bands"]
+
+    results: dict[str, ScoringResult] = {}
+    for member in members:
+        member_rules: list[RuleResult] = []
+        penalty_total = 0
+
+        for rule in team_result.rules:
+            if rule.status == "not_applicable":
+                member_rules.append(rule)
+                continue
+
+            suffix = rule.rule_id.split("-")[-1]
+            owner = _responsible_actor(suffix, idx_actor)
+
+            if owner == member:
+                member_rules.append(rule)
+                penalty_total += rule.penalty_points
+            else:
+                attribution = f"performed by {owner}" if owner else "not performed by anyone on the team"
+                member_rules.append(RuleResult(
+                    rule_id        = rule.rule_id,
+                    description    = rule.description,
+                    penalty_points = 0,
+                    status         = "not_applicable",
+                    evidence       = [f"Not this analyst's action ({attribution})."],
+                ))
+
+        # This member's OWN bonus, scaled by THEIR OWN compliance ratio (rules
+        # they personally own and passed, out of rules they personally own and
+        # were applicable) -- not the team's. A member who did everything asked
+        # of them keeps their full bonus even if a teammate triggered a rule
+        # elsewhere; a member who personally triggers an owned rule sees their
+        # own bonus shrink, same fix as score_incident(), applied per-person.
+        member_compliance = _compliance_ratio(member_rules)
+        member_bonus = team_result.raw_difficulty_bonus * member_compliance
+
+        raw   = (100 + penalty_total) * team_result.ttc_factor + member_bonus
+        score = max(0.0, min(100.0, round(raw, 2)))
+
+        results[member] = ScoringResult(
+            final_score               = score,
+            verdict                   = _determine_verdict(score, verdict_bands),
+            penalty_total             = penalty_total,
+            ttc_factor                = team_result.ttc_factor,
+            ttc_actual_sec            = team_result.ttc_actual_sec,
+            response_difficulty_bonus = member_bonus,
+            raw_difficulty_bonus      = team_result.raw_difficulty_bonus,
+            rules                     = member_rules,
+        )
+
+    return results

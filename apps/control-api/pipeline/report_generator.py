@@ -122,6 +122,19 @@ def _outcome_explanation(outcome: str) -> str:
     }.get(outcome, outcome)
 
 
+def _fmt_member_scores(member_scores: dict) -> str:
+    """Render the per-analyst score table for the TEAM report's prompt, so
+    Gemini can state that the team score is the average of these individual
+    scores. Empty when the incident has no blue_team analysts."""
+    if not member_scores:
+        return ""
+    lines = ["", "Individual Analyst Scores (team score above is the AVERAGE of these):"]
+    for analyst_id in sorted(member_scores):
+        m = member_scores[analyst_id]
+        lines.append(f"  {analyst_id}: {m['final_score']}/100 ({m['verdict']})")
+    return "\n".join(lines)
+
+
 def _analyst_action_lines(events: list[Event]) -> str:
     lines = []
     for ev in events:
@@ -179,22 +192,31 @@ def _call_gemini(prompt: str) -> Optional[str]:
 
 # ── Fallback plain formatter ──────────────────────────────────────────────────
 
-def _plain_report(report: dict, events: list[Event]) -> str:
+def _plain_report(report: dict, events: list[Event], member_id: Optional[str] = None) -> str:
     outcome = report["outcome"]
+    title = f"{report['incident_id']} — {member_id}" if member_id else report['incident_id']
+    score_label = "Individual Score" if member_id else "Score"
     lines = [
-        f"# Incident Report: {report['incident_id']}",
+        f"# Incident Report: {title}",
         f"**Scenario:** {report['scenario_id']}",
         f"**Status:** {report['status']}",
         f"**Outcome:** {outcome} — {_outcome_explanation(outcome)}",
-        f"**Score:** {report.get('final_score', 'N/A')} / 100  "
+        f"**{score_label}:** {report.get('final_score', 'N/A')} / 100  "
         f"(**Verdict:** {report.get('verdict', 'N/A')})",
         f"**Penalty:** {report.get('penalty_total', 'N/A')} pts",
+    ]
+    if not member_id and report.get("member_scores"):
+        lines.append(
+            f"_Team score is the average of {len(report['member_scores'])} "
+            f"individual analyst score(s)._"
+        )
+    lines += [
         "",
         "## Timing",
         f"- Time to Detect (TTD): {_fmt_td(report['ttd'])}",
         f"- Time to Contain (TTC): {_fmt_td(report['ttc'])}",
         "",
-        "## Analyst Actions",
+        "## Analyst Actions" if member_id else "## Team Analyst Actions",
         _analyst_action_lines(events),
         "",
         "## Score Breakdown",
@@ -205,10 +227,18 @@ def _plain_report(report: dict, events: list[Event]) -> str:
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
-def generate(report: dict, events: list[Event]) -> str:
+def generate(report: dict, events: list[Event], member_id: Optional[str] = None) -> str:
     """
     Produce a markdown incident report.
     Tries Gemini first; falls back to plain formatter if the call fails.
+
+    member_id — when set, this is an individual analyst's personal report:
+    the prompt is scoped to "this analyst" instead of "the team", and the
+    caller is responsible for passing in *report*'s final_score/verdict/
+    penalty_total/scoring_rules already swapped to that analyst's own
+    ScoringResult (see pipeline.bridge.member_events + score_members) and
+    *events* already filtered to that analyst's own actions
+    (pipeline.bridge.member_events). generate() itself only controls wording.
     """
     outcome        = report["outcome"]
     ttd            = report["ttd"]
@@ -217,7 +247,45 @@ def generate(report: dict, events: list[Event]) -> str:
     rule_block     = _fmt_scoring_rules(report.get("scoring_rules", []))
     attack_context = _fmt_attack_context(report)
 
+    if member_id:
+        subject       = f"Analyst {member_id}'s individual contribution"
+        title         = f"{report['incident_id']} — {member_id}"
+        score_label   = "Individual Score"
+        member_scores_block = ""
+        summary_instr = (
+            f"2-3 sentences: what attack type occurred, what analyst {member_id} personally "
+            f"did in response, and what their individual score ({report['final_score']}/100, "
+            f"verdict: {report['verdict']}) reflects about their contribution. Do not describe "
+            f"actions taken by other analysts — this report covers {member_id} only."
+        )
+        assessment_instr = (
+            "one paragraph that narrates and explains this analyst's individual score. "
+            "Reference specific rule IDs for the rules THIS analyst owns (e.g. \"R02 was "
+            "triggered because...\"). Rules marked [N/A] because a teammate handled that step "
+            "are not this analyst's responsibility — do not penalize or praise them for it."
+        )
+    else:
+        subject       = "The team's overall response"
+        title         = report['incident_id']
+        score_label   = "Team Score"
+        member_scores_block = _fmt_member_scores(report.get("member_scores", {}))
+        summary_instr = (
+            f"2-3 sentences: what attack type occurred, how the team responded, and what the "
+            f"final score ({report['final_score']}/100, verdict: {report['verdict']}) reflects "
+            f"about their performance. If Individual Analyst Scores are listed below, state in "
+            f"one sentence that the team score is the average of those individual scores."
+        )
+        assessment_instr = (
+            "one paragraph that narrates and explains the computed result. Reference specific "
+            "rule IDs (e.g. \"R02 was triggered because...\") to justify the score. Do NOT form "
+            "an independent judgment of the response quality — your role is to translate the "
+            "rule engine's output into plain English. A high score means explain why the rules "
+            "passed; a low score means explain what the triggered rules reveal about the "
+            "response gaps."
+        )
+
     prompt = f"""You are a senior SOC analyst writing a formal incident response report in markdown.
+This report covers {subject} to incident {report['incident_id']}.
 Use the structured data below. Output ONLY the markdown — no commentary before or after.
 
 ---
@@ -229,9 +297,10 @@ Outcome:       {outcome} — {_outcome_explanation(outcome)}
 Time to Detect (TTD):  {_fmt_td(ttd)}
 Time to Contain (TTC): {_fmt_td(ttc)}
 
-Score:         {report['final_score']} / 100
+{score_label}: {report['final_score']} / 100
 Verdict:       {report['verdict']}
 Penalty Total: {report['penalty_total']} pts
+{member_scores_block}
 
 Attack Context (cite verbatim — do not elaborate beyond what is written here):
 {attack_context}
@@ -245,9 +314,9 @@ Analyst Actions (chronological):
 
 Write a markdown report with these exact sections:
 
-1. `# Incident Report: {report['incident_id']}`
+1. `# Incident Report: {title}`
 
-2. `## Summary` — 2-3 sentences: what attack type occurred, how the team responded, and what the final score ({report['final_score']}/100, verdict: {report['verdict']}) reflects about their performance.
+2. `## Summary` — {summary_instr}
 
 3. `## Timeline` — bullet list of analyst actions in plain English (who did what, when).
 
@@ -257,10 +326,10 @@ Write a markdown report with these exact sections:
 
 6. `## Attack Context` — one short paragraph citing the ATT&CK techniques and response framework VERBATIM from the Attack Context block above. Copy the technique IDs, names, and notes exactly as written. Do NOT add interpretation, external knowledge, or detail beyond what appears in ATT&CK Mapping Note and Framework Note above.
 
-7. `## Assessment` — one paragraph that narrates and explains the computed result. Reference specific rule IDs (e.g. "R02 was triggered because...") to justify the score. Do NOT form an independent judgment of the response quality — your role is to translate the rule engine's output into plain English. A high score means explain why the rules passed; a low score means explain what the triggered rules reveal about the response gaps.
+7. `## Assessment` — {assessment_instr}
 """
 
     md = _call_gemini(prompt)
     if md:
         return md.strip()
-    return _plain_report(report, events)
+    return _plain_report(report, events, member_id=member_id)

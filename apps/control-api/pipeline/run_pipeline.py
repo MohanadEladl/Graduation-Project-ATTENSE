@@ -25,7 +25,7 @@ for _p in (_APP, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from pipeline.bridge           import run_bridge
+from pipeline.bridge           import member_events, run_bridge
 from pipeline.report_generator import generate
 
 ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
@@ -36,8 +36,16 @@ def build_and_write_report(
     incident_id: str, actions_dir: Optional[str] = None
 ) -> Optional[dict]:
     """Run the evaluation pipeline for one incident, write its markdown report
-    to ``<actions_dir>/<incident_id>_report.md``, and return a result dict — or
-    None if there are no events to score (run_bridge raises ValueError).
+    to ``<actions_dir>/<incident_id>_report.md``, plus one additional
+    ``<actions_dir>/<incident_id>_<analyst_id>_report.md`` per Blue Team
+    analyst who took part (their own actions only — see
+    pipeline.bridge.member_events). Returns a result dict, or None if there
+    are no events to score (run_bridge raises ValueError).
+
+    The team report's final_score/verdict are the AVERAGE of the individual
+    member scores when the incident has at least one analyst (see
+    pipeline.bridge.run_bridge / pipeline.scoring_engine.score_members) —
+    falls back to the whole-incident score when nobody ever responded.
 
     Shared by the CLI (main, below) and the auto-on-exercise-end hook
     (core.room_manager.spin_down_room). No VERTEX env is required: the report
@@ -48,21 +56,49 @@ def build_and_write_report(
     except ValueError:
         return None
 
-    markdown = generate(report, events)
     out_dir = actions_dir or ACTIONS_DIR
     os.makedirs(out_dir, exist_ok=True)
+
+    markdown = generate(report, events)
     out_path = os.path.join(out_dir, f"{incident_id}_report.md")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(markdown)
 
+    member_reports = []
+    for analyst_id, scoring in (report.get("member_scores") or {}).items():
+        member_report = dict(report)
+        member_report.update({
+            "final_score":               scoring["final_score"],
+            "verdict":                   scoring["verdict"],
+            "penalty_total":             scoring["penalty_total"],
+            "ttc_factor":                scoring["ttc_factor"],
+            "ttc_actual_sec":            scoring["ttc_actual_sec"],
+            "response_difficulty_bonus": scoring["response_difficulty_bonus"],
+            "scoring_rules":             scoring["scoring_rules"],
+        })
+        member_markdown = generate(
+            member_report, member_events(analyst_id, events), member_id=analyst_id
+        )
+        safe_id = analyst_id.replace("/", "-").replace("\\", "-")
+        member_path = os.path.join(out_dir, f"{incident_id}_{safe_id}_report.md")
+        with open(member_path, "w", encoding="utf-8") as f:
+            f.write(member_markdown)
+        member_reports.append({
+            "analyst_id":   analyst_id,
+            "final_score":  scoring["final_score"],
+            "verdict":      scoring["verdict"],
+            "report_path":  member_path,
+        })
+
     return {
-        "incident_id":  incident_id,
-        "final_score":  report.get("final_score"),
-        "verdict":      report.get("verdict"),
-        "outcome":      report.get("outcome"),
-        "status":       report.get("status"),
-        "report_path":  out_path,
-        "markdown":     markdown,
+        "incident_id":    incident_id,
+        "final_score":    report.get("final_score"),
+        "verdict":        report.get("verdict"),
+        "outcome":        report.get("outcome"),
+        "status":         report.get("status"),
+        "report_path":    out_path,
+        "markdown":       markdown,
+        "member_reports": member_reports,
         "event_counts": {
             "total":   len(events),
             "wazuh":   sum(1 for e in events if e.actor_type == "system"),

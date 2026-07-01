@@ -62,6 +62,29 @@ def _write_analyst_actions(actions_dir: str) -> None:
             }) + "\n")
 
 
+def _write_two_analyst_actions(actions_dir: str) -> None:
+    """analyst-a only investigates+confirms; analyst-b only contains. Splits
+    ownership across the 9 rules so the member-scoring/averaging path has
+    something real to differentiate."""
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    path_a = os.path.join(actions_dir, f"analyst-a_{date_str}.jsonl")
+    path_b = os.path.join(actions_dir, f"analyst-b_{date_str}.jsonl")
+    with open(path_a, "w", encoding="utf-8") as fh:
+        for et, t in (("investigation_started", 60), ("incident_confirmed", 120)):
+            fh.write(json.dumps({
+                "analyst_id": "analyst-a", "incident_id": INCIDENT,
+                "scenario_id": "APP-01", "event_type": et, "t_offset_sec": t,
+                "detail": f"fixture {et}", "timestamp": 1.0 * t, "stored_at": 1.0 * t,
+            }) + "\n")
+    with open(path_b, "w", encoding="utf-8") as fh:
+        for et, t in (("containment_initiated", 180), ("containment_succeeded", 240)):
+            fh.write(json.dumps({
+                "analyst_id": "analyst-b", "incident_id": INCIDENT,
+                "scenario_id": "APP-01", "event_type": et, "t_offset_sec": t,
+                "detail": f"fixture {et}", "timestamp": 1.0 * t, "stored_at": 1.0 * t,
+            }) + "\n")
+
+
 class ScoredReportWiringTests(unittest.TestCase):
     def setUp(self):
         base_tmp = os.environ.get("ATTENSE_TEST_TMPDIR")
@@ -220,6 +243,51 @@ class ScoredReportWiringTests(unittest.TestCase):
         self.assertIn("wz-1", ids)
         # start_time = attack (t0); detection = alert (t0+120s) => real TTD.
         self.assertEqual(report["ttd"], timedelta(seconds=120))
+
+    def test_run_bridge_team_score_is_average_of_member_scores(self):
+        _write_alert(bridge.MAPPED_EVENTS)
+        _write_two_analyst_actions(self.actions)
+
+        report, _events = run_bridge(INCIDENT)
+
+        self.assertEqual(report["team_score_basis"], "average_of_members")
+        self.assertEqual(set(report["member_scores"]), {"analyst-a", "analyst-b"})
+        expected_avg = round(
+            sum(m["final_score"] for m in report["member_scores"].values()) / 2, 2
+        )
+        self.assertEqual(report["final_score"], expected_avg)
+        # team-wide rule breakdown (full incident context) is untouched —
+        # still 9 rules, still reflects the whole timeline, not the average.
+        self.assertEqual(len(report["scoring_rules"]), 9)
+
+    def test_run_bridge_falls_back_to_whole_incident_score_with_no_analysts(self):
+        # No analyst-*.jsonl written at all -> system-only incident.
+        _write_alert(bridge.MAPPED_EVENTS)
+
+        report, _events = run_bridge(INCIDENT)
+
+        self.assertEqual(report["team_score_basis"], "whole_incident")
+        self.assertEqual(report["member_scores"], {})
+
+    def test_build_and_write_report_writes_one_file_per_member(self):
+        from pipeline.run_pipeline import build_and_write_report
+
+        _write_alert(bridge.MAPPED_EVENTS)
+        _write_two_analyst_actions(self.actions)
+
+        result = build_and_write_report(INCIDENT, actions_dir=self.actions)
+
+        self.assertEqual(len(result["member_reports"]), 2)
+        analyst_ids = {m["analyst_id"] for m in result["member_reports"]}
+        self.assertEqual(analyst_ids, {"analyst-a", "analyst-b"})
+        for member in result["member_reports"]:
+            self.assertTrue(os.path.isfile(member["report_path"]))
+            with open(member["report_path"], encoding="utf-8") as fh:
+                markdown = fh.read()
+            # member report is scoped to that analyst -- title carries their id
+            self.assertIn(member["analyst_id"], markdown)
+        # team file still written too, at the original path/name
+        self.assertTrue(os.path.isfile(result["report_path"]))
 
     def test_durable_store_dedups_overlapping_event_ids(self):
         # The store also contains the Wazuh alert_raised (it passes through

@@ -306,11 +306,12 @@ def _generate_final_reports(room: dict) -> None:
         if result is None:
             continue
         reports.append({
-            "incident_id": result["incident_id"],
-            "final_score": result["final_score"],
-            "verdict":     result["verdict"],
-            "outcome":     result["outcome"],
-            "report_path": result["report_path"],
+            "incident_id":    result["incident_id"],
+            "final_score":    result["final_score"],
+            "verdict":        result["verdict"],
+            "outcome":        result["outcome"],
+            "report_path":    result["report_path"],
+            "member_reports": result.get("member_reports", []),
         })
     if reports:
         room["final_reports"] = reports

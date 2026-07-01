@@ -61,7 +61,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from attense_core.models.event import Event
 from attense_core.models.incident import Incident
 from attense_core.evaluation.reports import generate_report
-from pipeline.scoring_engine import ScoringResult, score_incident
+from pipeline.scoring_engine import (
+    ScoringResult,
+    _determine_verdict,
+    score_incident,
+    score_members,
+)
 from ATTENSE_app.AI.live_thresholds import compute_live_thresholds
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -402,6 +407,17 @@ def _load_analyst_events(incident_id: str) -> list[Event]:
     return events
 
 
+def member_events(member_actor_id: str, events: list[Event]) -> list[Event]:
+    """Events scoped to one analyst's personal report: every non-blue_team
+    event (system/red-team — needed for timing context and incident
+    narrative) plus ONLY this analyst's own blue_team actions, not a
+    teammate's. Used to build the per-member markdown report's event list."""
+    return [
+        ev for ev in events
+        if ev.actor_type != "blue_team" or ev.actor_id == member_actor_id
+    ]
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
@@ -472,6 +488,38 @@ def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
         scoring_started_at=scoring_started_at,
     )
     report.update(_scoring_to_dict(scoring))
+
+    # Per-member scoring. Each Blue Team analyst's personal contribution is
+    # scored against the same 9 rules, attributed by who actually performed
+    # each rule's qualifying action (see scoring_engine.score_members). When
+    # the incident has at least one analyst, the team's headline final_score
+    # and verdict become the AVERAGE of the individual members' scores —
+    # per-rule penalty_total/scoring_rules/ttc_factor/response_difficulty_bonus
+    # above stay as the whole-incident breakdown (still useful context for
+    # what happened), only the headline score/verdict are replaced.
+    # Incidents with no blue_team actor at all (e.g. nobody ever responded)
+    # keep today's whole-incident score — there is nothing to average.
+    member_results = score_members(
+        incident,
+        all_events,
+        rule_data,
+        scoring_started_at=scoring_started_at,
+    )
+    if member_results:
+        member_avg = round(
+            sum(r.final_score for r in member_results.values()) / len(member_results), 2
+        )
+        report["final_score"] = member_avg
+        report["verdict"]     = _determine_verdict(member_avg, rule_data["scoring"]["verdict_bands"])
+        report["team_score_basis"] = "average_of_members"
+        report["member_scores"] = {
+            analyst_id: _scoring_to_dict(result)
+            for analyst_id, result in member_results.items()
+        }
+    else:
+        report["team_score_basis"] = "whole_incident"
+        report["member_scores"] = {}
+
     report["scoring_started_at"] = scoring_started_at.isoformat() if scoring_started_at else None
     report["room_timing"] = {
         "room_id": room.get("room_id"),

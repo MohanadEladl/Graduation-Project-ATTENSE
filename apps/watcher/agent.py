@@ -90,44 +90,28 @@ def _write_raw_log(
     incident_id: str,
     batch: list[tuple[int, str]],
     reason: str,
-    ollama_events: Optional[list[dict]] = None,
 ) -> None:
-    """Append unclassified commands to RAW_LOG as JSONL rows."""
+    """Append commands that failed classification to RAW_LOG as JSONL rows.
+
+    Every command that doesn't come out of _classify_command() as a validated
+    event_type lands here -- a request failure, an unparseable response, or an
+    event_type Ollama invented that isn't in _VALID_EVENT_TYPES. There is no
+    silent-drop path: a command is either posted to BlueTeam, recognised as
+    "none" (not a tracked SOC action -- correctly skipped), or logged here.
+    """
     ts = time.time()
-    entries: list[dict] = []
-
-    if ollama_events:
-        # Ollama returned events but event_type wasn't in _VALID_EVENT_TYPES
-        for ev in ollama_events:
-            entries.append({
-                "ts":           ts,
-                "analyst_id":   analyst_id,
-                "incident_id":  incident_id,
-                "t_offset_sec": ev.get("t_offset_sec", 0),
-                "command":      None,
-                "ollama_label": ev.get("event_type"),
-                "detail":       ev.get("detail", ""),
-                "reason":       reason,
-            })
-    else:
-        # Ollama failed or returned nothing — log every raw command in the batch
-        for t_offset, cmd in batch:
-            entries.append({
-                "ts":           ts,
-                "analyst_id":   analyst_id,
-                "incident_id":  incident_id,
-                "t_offset_sec": t_offset,
-                "command":      cmd,
-                "ollama_label": None,
-                "detail":       None,
-                "reason":       reason,
-            })
-
     try:
         with open(RAW_LOG, "a", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(json.dumps(entry) + "\n")
-        logger.info("[raw-log] wrote %d unclassified row(s) -- reason=%s", len(entries), reason)
+            for t_offset, cmd in batch:
+                f.write(json.dumps({
+                    "ts":           ts,
+                    "analyst_id":   analyst_id,
+                    "incident_id":  incident_id,
+                    "t_offset_sec": t_offset,
+                    "command":      cmd,
+                    "reason":       reason,
+                }) + "\n")
+        logger.info("[raw-log] wrote %d unclassified row(s) -- reason=%s", len(batch), reason)
     except OSError as exc:
         logger.warning("[raw-log] could not write to %s: %s", RAW_LOG, exc)
 
@@ -208,55 +192,118 @@ def _tail_thread(path: str, session_start: float) -> None:
 
 # ── Ollama classification ─────────────────────────────────────────────────────
 
-def _classify_with_ollama(
-    analyst_id: str,
-    commands: list[tuple[int, str]],
-) -> tuple[list[dict], list[dict]]:
-    """Send a batch of (t_offset_sec, command) pairs to Ollama for classification.
+_CLASSIFY_PROMPT_TEMPLATE = (
+    "You are a SOC event classifier. Classify ONE terminal command run by a "
+    "security analyst into exactly one category.\n\n"
+    "Command: {command}\n\n"
+    "Categories (match what the command DOES, not the file name it touches):\n"
+    "  investigation_started  - reads or searches logs/system state: cat, less, more, head, tail, grep, find, ls, strings, file, stat, lsof, ps, netstat, ss\n"
+    "  evidence_preserved     - copies or hashes an artifact: cp, mv, tar, zip, sha256sum, md5sum, sha1sum, tcpdump -w, dd\n"
+    "  containment_initiated  - blocks or kills something: iptables, ufw, firewall-cmd, kill, pkill, ifconfig down, ip link set down, service stop\n"
+    "  containment_succeeded  - verifies a block is already active: iptables -L, ufw status, netstat check after block\n"
+    "  incident_confirmed     - analyst explicitly states the attack/incident is confirmed real\n"
+    "  alert_denied           - analyst explicitly dismisses the alert as a false positive\n"
+    "  eradication_completed  - removes the threat: rm, shred, userdel, apt remove, systemctl disable\n"
+    "  recovery_validated     - confirms a service is back up: curl health check, ping, systemctl status, wget\n"
+    "  none                   - the command does not match any category above\n\n"
+    "Examples:\n"
+    "  cat /var/log/auth.log              -> investigation_started\n"
+    "  less /var/log/nginx/access.log     -> investigation_started\n"
+    "  grep 'Failed' /var/log/auth.log    -> investigation_started\n"
+    "  ls -la /tmp                        -> investigation_started\n"
+    "  sha256sum /var/log/auth.log        -> evidence_preserved\n"
+    "  cp /var/log/auth.log /tmp/evidence -> evidence_preserved\n"
+    "  iptables -A INPUT -s 1.2.3.4 -j DROP -> containment_initiated\n"
+    "  kill -9 1234                       -> containment_initiated\n"
+    "  rm /tmp/malware.sh                 -> eradication_completed\n"
+    "  curl http://service/health         -> recovery_validated\n\n"
+    "Reply with ONLY this JSON object and nothing else:\n"
+    '{{"event_type": "<one category from the list above>"}}'
+)
 
-    Returns (validated, unclassified):
-      validated     — events with a recognised action_type, ready to POST
-      unclassified  — events Ollama returned but whose action_type is unknown
-    On Ollama failure both lists are empty and the caller writes the raw batch.
+# Deterministic first-token (verb) classification for well-known, unambiguous
+# SOC command verbs. Built from the same command-to-category mapping the LLM
+# prompt uses above. The model is unreliable even on textbook commands like
+# `cat` and `sha256sum` (confirmed by direct testing -- with temperature=0 it
+# consistently mislabels them without few-shot examples, and is still not
+# perfectly consistent with them). Verbs in this table never touch the model:
+# zero ambiguity, zero latency, 100% reproducible. Ollama is reserved for the
+# long tail of commands that don't match any verb here.
+_VERB_RULES: dict[str, str] = {
+    # investigation_started — reads or searches logs/system state
+    "cat": "investigation_started", "less": "investigation_started", "more": "investigation_started",
+    "head": "investigation_started", "tail": "investigation_started", "grep": "investigation_started",
+    "find": "investigation_started", "ls": "investigation_started", "strings": "investigation_started",
+    "file": "investigation_started", "stat": "investigation_started", "lsof": "investigation_started",
+    "ps": "investigation_started", "netstat": "investigation_started", "ss": "investigation_started",
+    # evidence_preserved — copies or hashes an artifact
+    "sha256sum": "evidence_preserved", "sha1sum": "evidence_preserved", "md5sum": "evidence_preserved",
+    "cp": "evidence_preserved", "mv": "evidence_preserved", "tar": "evidence_preserved",
+    "zip": "evidence_preserved", "dd": "evidence_preserved",
+    # eradication_completed — removes the threat
+    "rm": "eradication_completed", "shred": "eradication_completed", "userdel": "eradication_completed",
+    # recovery_validated — confirms a service is back up
+    "curl": "recovery_validated", "ping": "recovery_validated", "wget": "recovery_validated",
+    # containment_initiated — blocks or kills something (no flag-dependent meaning)
+    "pkill": "containment_initiated", "firewall-cmd": "containment_initiated",
+}
+
+
+def _classify_by_verb(command: str) -> Optional[str]:
+    """Deterministically classify well-known SOC command verbs without
+    consulting the model. Returns None for commands not covered here (the
+    caller falls back to Ollama), or for verbs whose category genuinely
+    depends on flags/sub-arguments rather than the verb alone.
     """
-    if not commands:
-        return [], []
+    parts = command.strip().split()
+    if not parts:
+        return None
+    verb = parts[0].lower()
+    rest = [p.lower() for p in parts[1:]]
 
-    numbered = "\n".join(
-        f"{i+1}. [t=+{t}s] {cmd}"
-        for i, (t, cmd) in enumerate(commands)
-    )
+    if verb == "iptables":
+        return "containment_succeeded" if "-l" in rest else "containment_initiated"
+    if verb == "ufw":
+        return "containment_succeeded" if "status" in rest else "containment_initiated"
+    if verb == "kill":
+        return "containment_initiated"
+    if verb == "systemctl":
+        if "disable" in rest:
+            return "eradication_completed"
+        if "status" in rest:
+            return "recovery_validated"
+        if "stop" in rest:
+            return "containment_initiated"
+        return None
+    if verb == "apt" and "remove" in rest:
+        return "eradication_completed"
+    if verb == "tcpdump":
+        return "evidence_preserved" if "-w" in rest else None
 
-    prompt = (
-        f"Analyst: {analyst_id}\n"
-        f"Commands observed:\n{numbered}\n\n"
-        "You are a SOC event classifier. For each command, decide which SOC action it represents.\n"
-        "Return ONLY a JSON object — no explanation, no markdown.\n\n"
-        "CLASSIFICATION RULES (match the command, not the file name):\n"
-        "  investigation_started  = analyst READ a file or searched logs: cat, less, more, head, tail, grep, find, ls, strings, file, stat, lsof, ps, netstat, ss\n"
-        "  evidence_preserved     = analyst COPIED or HASHED an artifact: cp, mv, tar, zip, sha256sum, md5sum, sha1sum, tcpdump -w, dd\n"
-        "  containment_initiated  = analyst BLOCKED or KILLED something: iptables, ufw, firewall-cmd, kill, pkill, ifconfig down, ip link set down, service stop\n"
-        "  containment_succeeded  = analyst VERIFIED a block is active: iptables -L, ufw status, netstat check after block\n"
-        "  incident_confirmed     = analyst explicitly confirmed attack is real\n"
-        "  alert_denied           = analyst dismissed alert as false positive\n"
-        "  eradication_completed  = analyst REMOVED threat: rm, shred, userdel, apt remove, systemctl disable\n"
-        "  recovery_validated     = analyst confirmed service is back: curl health check, ping, systemctl status, wget\n\n"
-        "EXAMPLES:\n"
-        "  cat /var/log/auth.log              -> investigation_started\n"
-        "  less /var/log/nginx/access.log     -> investigation_started\n"
-        "  grep 'Failed' /var/log/auth.log    -> investigation_started\n"
-        "  tail -f /var/log/syslog            -> investigation_started\n"
-        "  sha256sum /var/log/auth.log        -> evidence_preserved\n"
-        "  cp /var/log/auth.log /tmp/evidence -> evidence_preserved\n"
-        "  tar czf /tmp/ev.tar.gz /var/log    -> evidence_preserved\n"
-        "  iptables -A INPUT -s 1.2.3.4 -j DROP -> containment_initiated\n"
-        "  kill -9 1234                       -> containment_initiated\n"
-        "  rm /tmp/malware.sh                 -> eradication_completed\n"
-        "  curl http://service/health         -> recovery_validated\n\n"
-        "Classify EVERY command. Return one event per command in order.\n"
-        "Skip only commands that are clearly noise (auditd internals, cron, systemd).\n"
-        'Output format: {"events": [{"event_type": "<type>", "t_offset_sec": <int>, "detail": "<one sentence>"}]}'
-    )
+    return _VERB_RULES.get(verb)
+
+
+def _classify_command(command: str) -> Optional[str]:
+    """Classify a single command, deterministically where possible and via
+    Ollama otherwise.
+
+    Returns a validated event_type, "none" if the command matches no tracked
+    SOC action, or None on failure (request error, unparseable response, or
+    an event_type Ollama invented that isn't in _VALID_EVENT_TYPES).
+
+    One Ollama call per command, not one call for the whole batch: asking a
+    small local model to enumerate, order, and echo back offsets for N
+    commands in a single structured response is unreliable -- it drops,
+    merges, and hallucinates entries under that load. Classifying one command
+    in isolation is a far simpler task for the model, and we already own
+    t_offset_sec and the literal command text ourselves, so the model's only
+    job is picking one label -- nothing for it to fabricate.
+    """
+    rule_match = _classify_by_verb(command)
+    if rule_match is not None:
+        return rule_match
+
+    prompt = _CLASSIFY_PROMPT_TEMPLATE.format(command=command)
 
     try:
         resp = requests.post(
@@ -265,9 +312,10 @@ def _classify_with_ollama(
                 "model":   OLLAMA_MODEL,
                 "prompt":  prompt,
                 "stream":  False,
+                "format":  "json",   # constrains decoding to syntactically valid JSON
                 "options": {
-                    # Each event is ~40 tokens; 2048 covers batches up to ~50 commands.
-                    "num_predict": 2048,
+                    "num_predict": 24,   # one short label -- no room to ramble or invent detail
+                    "temperature": 0,    # deterministic classification
                 },
             },
             timeout=_OLLAMA_TIMEOUT,
@@ -275,74 +323,23 @@ def _classify_with_ollama(
         resp.raise_for_status()
         raw_text = resp.json().get("response", "")
     except requests.RequestException as exc:
-        logger.error("[ollama] request failed: %s", exc)
-        return [], []
+        logger.error("[ollama] request failed for command=%r: %s", command, exc)
+        return None
 
-    # ── Full parse (happy path) ───────────────────────────────────────────────
-    json_match = re.search(r'\{.*"events"\s*:.*\}', raw_text, re.DOTALL)
-    events: list = []
-    if json_match:
-        try:
-            parsed = json.loads(json_match.group(0))
-            if isinstance(parsed.get("events"), list):
-                events = parsed["events"]
-        except json.JSONDecodeError:
-            pass
+    try:
+        parsed = json.loads(raw_text)
+        event_type = parsed.get("event_type", "")
+    except (json.JSONDecodeError, AttributeError):
+        logger.warning("[ollama] invalid JSON for command=%r: %s", command, raw_text[:200])
+        return None
 
-    # ── Partial recovery (truncated or structurally broken JSON) ─────────────
-    # Walk the raw text character by character and extract every complete {...}
-    # block that looks like an event object. This salvages events from responses
-    # where the outer array was cut off or a leading '{' was missing.
-    if not events:
-        logger.warning("[ollama] full parse failed — attempting partial recovery: %s", raw_text[:200])
-        events = _recover_events(raw_text)
-        if events:
-            logger.info("[ollama] partial recovery salvaged %d event(s)", len(events))
-        else:
-            logger.warning("[ollama] partial recovery found nothing — batch goes to raw log")
-            return [], []
+    if event_type == "none":
+        return "none"
+    if event_type in _VALID_EVENT_TYPES:
+        return event_type
 
-    validated = []
-    unclassified = []
-    for ev in events:
-        et = ev.get("event_type", "")
-        if et in _VALID_EVENT_TYPES and isinstance(ev.get("t_offset_sec"), (int, float)):
-            validated.append({
-                "event_type":   et,
-                "t_offset_sec": int(ev["t_offset_sec"]),
-                "detail":       str(ev.get("detail", ""))[:300],
-            })
-        else:
-            unclassified.append(ev)
-    return validated, unclassified
-
-
-def _recover_events(raw_text: str) -> list[dict]:
-    """Extract individual event objects from malformed or truncated Ollama output.
-
-    Walks the text brace-by-brace so it works even when the outer array
-    is broken or a leading '{' was dropped for some objects.
-    """
-    recovered = []
-    depth = 0
-    start = None
-    for i, ch in enumerate(raw_text):
-        if ch == "{":
-            if depth == 0:
-                start = i
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0 and start is not None:
-                candidate = raw_text[start : i + 1]
-                try:
-                    obj = json.loads(candidate)
-                    if isinstance(obj, dict) and "event_type" in obj:
-                        recovered.append(obj)
-                except json.JSONDecodeError:
-                    pass
-                start = None
-    return recovered
+    logger.warning("[ollama] unrecognised event_type=%r for command=%r", event_type, command)
+    return None
 
 
 # ── BlueTeam poster ───────────────────────────────────────────────────────────
@@ -380,7 +377,7 @@ def _post_action(
 # ── Batch thread ──────────────────────────────────────────────────────────────
 
 def _flush(analyst_id: str, incident_id: str, scenario_id: str, session_start: float) -> None:
-    """Drain _cmd_queue, classify with Ollama, post each event."""
+    """Drain _cmd_queue, classify each command with Ollama, post the matched ones."""
     batch: list[tuple[int, str]] = []
     while True:
         try:
@@ -392,26 +389,29 @@ def _flush(analyst_id: str, incident_id: str, scenario_id: str, session_start: f
         return
 
     logger.info("[batch] classifying %d command(s) with Ollama", len(batch))
-    events, unclassified = _classify_with_ollama(analyst_id, batch)
 
-    if not events and not unclassified:
-        # Ollama completely failed — log every raw command
-        _write_raw_log(analyst_id, incident_id, batch, reason="ollama_failed")
+    failed: list[tuple[int, str]] = []
+    for t_offset, cmd in batch:
+        event_type = _classify_command(cmd)
 
-    if unclassified:
-        _write_raw_log(analyst_id, incident_id, batch, reason="unknown_event_type", ollama_events=unclassified)
+        if event_type is None:
+            failed.append((t_offset, cmd))
+            continue
+        if event_type == "none":
+            continue  # not a tracked SOC action — correctly skipped, not a failure
 
-    for ev in events:
-        detail = ev["detail"].strip() or (f"Analyst ran: {batch[-1][1]}" if batch else "Action recorded")
         _post_action(
             analyst_id=analyst_id,
             incident_id=incident_id,
             scenario_id=scenario_id,
-            event_type=ev["event_type"],
-            t_offset_sec=ev["t_offset_sec"],
-            detail=detail,
-            timestamp=session_start + ev["t_offset_sec"],
+            event_type=event_type,
+            t_offset_sec=t_offset,
+            detail=f"Analyst ran: {cmd}",
+            timestamp=session_start + t_offset,
         )
+
+    if failed:
+        _write_raw_log(analyst_id, incident_id, failed, reason="ollama_classification_failed")
 
 
 def _batch_thread(

@@ -292,3 +292,87 @@ class TestXSSS3:
 
     def test_all_rules_present(self, s3_result):
         assert len(s3_result.rules) == 9
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Regression: difficulty_bonus must not be able to fully mask triggered-rule
+# penalties before the final clamp(0,100). Reuses XSS-S1's thresholds with a
+# fast, mostly-clean response missing incident_confirmed (R02) and
+# lessons_learned_recorded (R08) -- 2 of 7 applicable rules triggered (-20),
+# same shape as the live 4-analyst test that surfaced the bug: a +25 raw
+# bonus used to fully absorb the -20 penalty and clamp to 100.0, identical to
+# a perfect response with the same bonus -- making the penalty invisible.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBonusCannotMaskPenalty:
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def fast_but_incomplete(rule_data):
+        incident, events = _build({
+            "scenario_id": "XSS-S1",
+            "event_log": [
+                {"event_type": "alert_raised", "actor_type": "system", "t_offset_sec": 0, "outcome": "detected"},
+                {"event_type": "alert_investigation_started", "actor_type": "blue_team", "t_offset_sec": 60, "outcome": "success"},
+                # no incident_confirmed -> R02 triggered
+                {"event_type": "containment_initiated", "actor_type": "blue_team", "t_offset_sec": 300, "outcome": "success"},
+                {"event_type": "containment_succeeded", "actor_type": "blue_team", "t_offset_sec": 360, "outcome": "success"},
+                {"event_type": "eradication_completed", "actor_type": "blue_team", "t_offset_sec": 420, "outcome": "success"},
+                {"event_type": "recovery_validated", "actor_type": "blue_team", "t_offset_sec": 480, "outcome": "success"},
+                # no lessons_learned_recorded -> R08 triggered
+            ],
+        })
+        return score_incident(incident, events, rule_data)
+
+    def test_two_rules_triggered(self, fast_but_incomplete):
+        triggered = {r.rule_id for r in fast_but_incomplete.rules if r.status == "triggered"}
+        assert triggered == {"XSS-R02", "XSS-R08"}
+
+    def test_penalty_total_is_twenty(self, fast_but_incomplete):
+        assert fast_but_incomplete.penalty_total == -20
+
+    def test_raw_bonus_alone_would_have_masked_the_penalty(self, fast_but_incomplete):
+        # The pre-fix bug: (100-20)*1.0 + raw_bonus would clamp to 100 here.
+        unmasked_score_under_old_formula = max(0.0, min(
+            100.0,
+            round((100 + fast_but_incomplete.penalty_total) * fast_but_incomplete.ttc_factor
+                  + fast_but_incomplete.raw_difficulty_bonus, 2),
+        ))
+        assert unmasked_score_under_old_formula == 100.0, (
+            "fixture no longer reproduces the original masking bug -- adjust offsets"
+        )
+
+    def test_final_score_is_no_longer_masked_to_100(self, fast_but_incomplete):
+        # The fix: bonus is scaled by compliance ratio (5/7 applicable rules
+        # passed), so the penalty now visibly reduces the final score below 100.
+        assert fast_but_incomplete.final_score == pytest.approx(97.86)
+        assert fast_but_incomplete.final_score < 100.0
+
+    def test_effective_bonus_is_scaled_down_from_raw(self, fast_but_incomplete):
+        assert fast_but_incomplete.response_difficulty_bonus < fast_but_incomplete.raw_difficulty_bonus
+        expected_ratio = 5 / 7  # 5 passed of 7 applicable (R03, R09 not_applicable)
+        assert fast_but_incomplete.response_difficulty_bonus == pytest.approx(
+            fast_but_incomplete.raw_difficulty_bonus * expected_ratio
+        )
+
+    def test_clean_response_still_scores_100(self, rule_data):
+        # Same timings, but WITH incident_confirmed and lessons_learned_recorded
+        # added -- compliance_ratio=1.0 -> bonus unscaled -> still clamps to 100.
+        # Proves the fix doesn't penalize genuinely clean fast responses.
+        incident, events = _build({
+            "scenario_id": "XSS-S1",
+            "event_log": [
+                {"event_type": "alert_raised", "actor_type": "system", "t_offset_sec": 0, "outcome": "detected"},
+                {"event_type": "alert_investigation_started", "actor_type": "blue_team", "t_offset_sec": 60, "outcome": "success"},
+                {"event_type": "incident_confirmed", "actor_type": "blue_team", "t_offset_sec": 90, "outcome": "success"},
+                {"event_type": "evidence_preserved", "actor_type": "blue_team", "t_offset_sec": 150, "outcome": "success"},
+                {"event_type": "containment_initiated", "actor_type": "blue_team", "t_offset_sec": 300, "outcome": "success"},
+                {"event_type": "containment_succeeded", "actor_type": "blue_team", "t_offset_sec": 360, "outcome": "success"},
+                {"event_type": "eradication_completed", "actor_type": "blue_team", "t_offset_sec": 420, "outcome": "success"},
+                {"event_type": "recovery_validated", "actor_type": "blue_team", "t_offset_sec": 480, "outcome": "success"},
+                {"event_type": "lessons_learned_recorded", "actor_type": "blue_team", "t_offset_sec": 540, "outcome": "success"},
+            ],
+        })
+        result = score_incident(incident, events, rule_data)
+        assert result.penalty_total == 0
+        assert result.final_score == 100.0
+        assert result.response_difficulty_bonus == result.raw_difficulty_bonus
