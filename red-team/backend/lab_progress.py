@@ -431,15 +431,15 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["brute_force_pattern", "credential_found"],
             "ideal_commands": [
-                "# Build a username list (top 6 common admin names)",
-                "printf 'admin\\noperator\\nguest\\nalice\\nbob\\nservice\\n' > /lab/users.txt",
-                "# Spray a single common password across all users",
-                "for u in $(cat /lab/users.txt); do",
-                "  curl -s -o /dev/null -w '%{http_code} '$u'\\n' \\",
-                "       -X POST http://target-agent/auth/login \\",
-                "       -d \"username=$u&password=password123\"",
-                "done",
-                "# Successful spray: one user returns 302 (redirect to /profile/)",
+                "# ── Password spraying · ZAP Fuzzer (Lab Tools → ZAP → Fuzzer) ──",
+                "# Sniper attack: ONE common password, MANY usernames.",
+                "# 1. POSITIONS →  username=§&password=password123   (§ on the username)",
+                "# 2. PAYLOADS  →  preset 'Common usernames'  →  START ATTACK",
+                "# 3. RESULTS   →  sort by STATUS. The 302 row is the account that",
+                "#                 reuses this common password (here: admin).",
+                "# 4. CONFIRM   →  Repeater: username=admin&password=password123 → 302 /profile/.",
+                "# Optional terminal fallback (only if you prefer the CLI):",
+                "curl -i -X POST http://target-agent/auth/login -d 'username=admin&password=password123'",
             ],
         },
         "credential_stuffing": {
@@ -465,19 +465,31 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["brute_force_pattern", "credential_found"],
             "ideal_commands": [
-                "# Use a leaked-password mini wordlist (preinstalled in AttackBox)",
-                "WORDS=/wordlists/rockyou-mini.txt",
-                "# Hammer username=admin with each password",
-                "while read -r pw; do",
-                "  curl -s -o /dev/null -w '%{http_code} '$pw'\\n' \\",
-                "       -X POST http://target-agent/auth/login \\",
-                "       -d \"username=admin&password=$pw\"",
-                "done < $WORDS | grep '^302'",
+                "# ── Two-phase attack · ZAP Fuzzer — the PortSwigger method ──",
+                "#   (Lab Tools → ZAP → Fuzzer.  Attack type: Sniper.)",
+                "#",
+                "# PHASE 1 — enumerate a valid USERNAME (Sniper on the username):",
+                "#   Click '① Enumerate username'   →  username=§&password=x",
+                "#   PAYLOADS: 'Common usernames'   →  START ATTACK",
+                "#   GREP-MATCH is auto-set to 'Incorrect password'. Every row is 401,",
+                "#   but valid users return that message (invalid users say 'Account",
+                "#   not found'). The ✓ rows in the MATCH column are real accounts → admin.",
+                "#",
+                "# PHASE 2 — brute that user's PASSWORD (Sniper on the password):",
+                "#   Click '② Brute password'       →  username=admin&password=§",
+                "#   PAYLOADS: 'Leaked mini-list'   →  START ATTACK",
+                "#   Read the STATUS column: the 302 row is the password → password123.",
+                "#",
+                "# CONFIRM — Repeater: username=admin&password=password123 → 302 /profile/.",
+                "# Optional terminal fallback (only if you prefer the CLI):",
+                "curl -i -X POST http://target-agent/auth/login -d 'username=admin&password=password123'",
             ],
         },
         "hydra_targeted": {
             "name":        "Targeted Hydra Attack",
-            "description": "Form-aware brute force using hydra with a curated wordlist. Hardest.",
+            "description": "Form-aware brute force using hydra with a curated wordlist. Hardest technique. "
+                           "(Lab note: this target has no rate-limit/lockout, so the simpler variants also succeed — "
+                           "do this one to practise real tooling you'd need against a defended login.)",
             "difficulty":  "Hard",
             "techniques":  ["hydra", "form-template", "parallel-threads"],
             "tasks": [
@@ -498,6 +510,8 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["brute_force_pattern", "credential_found"],
             "ideal_commands": [
+                "# Advanced track — real CLI tooling. For the GUI-only path, use the",
+                "# ZAP Fuzzer instead (Password Spraying / Credential Stuffing variants).",
                 "# Hydra form-template: path:body:failure-string",
                 "hydra -L /lab/users.txt -P /wordlists/rockyou-mini.txt \\",
                 "      target-agent http-post-form \\",
@@ -561,7 +575,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "stored_attempt": {
             "name":        "Stored XSS Probe",
-            "description": "Save a payload via the profile bio field — see if it persists. (Harder.)",
+            "description": "Save a payload via the profile bio field — see if it persists. Hardest technique. "
+                           "(Lab note: the reflected variant already succeeds here; do this one to learn stored/persistent "
+                           "XSS, which is what matters on apps that filter reflected input.)",
             "difficulty":  "Hard",
             "techniques":  ["persistence", "profile-update", "double-trigger"],
             "tasks": [
@@ -638,7 +654,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "subshell": {
             "name":        "Subshell Substitution",
-            "description": "Use $() or backticks to inject output. Stealthy — no obvious separator.",
+            "description": "Use $() or backticks to inject output. Stealthy — no obvious separator. Hardest technique. "
+                           "(Lab note: the semicolon variant already works here; do this one to learn a bypass that "
+                           "survives filters which only block ; and |.)",
             "difficulty":  "Hard",
             "techniques":  ["subshell", "backtick", "dollar-paren"],
             "tasks": [
@@ -707,7 +725,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "absolute": {
             "name":        "Absolute Path",
-            "description": "Skip the traversal — just send /etc/passwd directly.",
+            "description": "Skip the traversal — just send /etc/passwd directly. Hardest technique. "
+                           "(Lab note: plain ../ already works here; do this one to learn the bypass for apps that "
+                           "strip ../ sequences but forget to block absolute paths.)",
             "difficulty":  "Hard",
             "techniques":  ["absolute-path", "null-byte"],
             "tasks": [
@@ -778,7 +798,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "polyglot": {
             "name":        "Polyglot File",
-            "description": "Valid image AND valid script in the same file. Bypasses content-sniffing.",
+            "description": "Valid image AND valid script in the same file. Bypasses content-sniffing. Hardest technique. "
+                           "(Lab note: a plain .php already uploads here; do this one to learn the bypass for servers "
+                           "that validate magic bytes / MIME.)",
             "difficulty":  "Hard",
             "techniques":  ["polyglot", "magic-bytes", "double-format"],
             "tasks": [
@@ -857,7 +879,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "json_bypass": {
             "name":        "Content-Type Bypass",
-            "description": "Send the request as JSON — many anti-CSRF filters only check form posts.",
+            "description": "Send the request as JSON — many anti-CSRF filters only check form posts. Hardest technique. "
+                           "(Lab note: basic form forgery already works here; do this one to learn the bypass for apps "
+                           "that add CSRF protection but only enforce it on form-encoded posts.)",
             "difficulty":  "Hard",
             "techniques":  ["content-type-confusion", "json-body"],
             "tasks": [
@@ -937,7 +961,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "comment_hunting": {
             "name":        "HTML Comment Hunting",
-            "description": "Read source HTML/JS for developer mistakes — comments, version banners.",
+            "description": "Read source HTML/JS for developer mistakes — comments, version banners. Hardest technique. "
+                           "(Lab note: manual/wordlist recon already maps the app; do this one to practise spotting "
+                           "leaked hints in source that automated tools skip over.)",
             "difficulty":  "Hard",
             "techniques":  ["html-comment-grep", "version-disclosure"],
             "tasks": [

@@ -23,6 +23,7 @@ Endpoints:
   GET    /api/operator/zap/status            – ZAP service status
   GET    /api/operator/zap/history           – ZAP proxy history
   POST   /api/operator/zap/repeater/send     – send request through ZAP
+  POST   /api/operator/zap/fuzzer/send       – fuzz a wordlist through ZAP (Intruder-style)
 
 Modes:
   guided   – rich walkthrough; browser interactions count as evidence
@@ -825,6 +826,25 @@ def zap_repeater(body: RepeaterBody) -> dict:
     return operator_api.zap_repeater_send(
         method=body.method, path=body.path,
         headers=body.headers, body=body.body,
+    )
+
+
+class FuzzerBody(BaseModel):
+    method: str = "POST"
+    path: str = "/"
+    body_template: str = ""
+    marker: str = "§"
+    payloads: list[str] = []
+    headers: Optional[dict] = None
+    grep: Optional[str] = None
+
+
+@app.post("/api/operator/zap/fuzzer/send")
+def zap_fuzzer(body: FuzzerBody) -> dict:
+    return operator_api.zap_fuzzer_send(
+        method=body.method, path=body.path,
+        body_template=body.body_template, marker=body.marker,
+        payloads=body.payloads, headers=body.headers, grep=body.grep,
     )
 
 

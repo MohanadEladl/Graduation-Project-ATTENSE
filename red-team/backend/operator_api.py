@@ -470,3 +470,96 @@ def zap_repeater_send(method: str, path: str, headers: Optional[Dict] = None,
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as e:
         return {"status": "error", "detail": str(e)}
 
+
+# Cap the wordlist so the Fuzzer can't be turned into a real flood against the
+# lab target. 200 is plenty for the planted credentials + a mini leaked list.
+FUZZER_MAX_PAYLOADS = 200
+
+
+def _parse_zap_response(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Pull status code, body length, and body text out of a ZAP sendRequest reply."""
+    try:
+        msg = (data.get("sendRequest") or [{}])[0]
+    except (AttributeError, IndexError, TypeError):
+        msg = {}
+    resp_header = msg.get("responseHeader", "") or ""
+    body = msg.get("responseBody", "") or ""
+    parts = resp_header.split(" ")
+    status_code = parts[1] if len(parts) > 1 else "0"
+    return {"status_code": status_code, "length": len(body), "_body": body}
+
+
+def zap_fuzzer_send(method: str, path: str, body_template: str,
+                    marker: str = "§", payloads: Optional[List[str]] = None,
+                    headers: Optional[Dict] = None,
+                    grep: Optional[str] = None) -> Dict[str, Any]:
+    """ZAP Intruder-style fuzzer: replace `marker` in body_template with each
+    payload and replay through ZAP, one request per payload (target-agent only).
+
+    `grep` is Burp Intruder's "Grep - Match": if set, each row reports whether
+    the response body contains that string (used for username enumeration, where
+    matching "Incorrect password" is far more reliable than eyeballing length).
+
+    Returns [{payload, status_code, length, grep_match, status_hit, length_hit,
+    grep_hit, hit}]. `hit` is the anomaly worth highlighting.
+    """
+    payloads = [p for p in (payloads or []) if p != ""]
+    if not payloads:
+        return {"status": "error", "detail": "No payloads supplied"}
+    if marker not in body_template:
+        return {"status": "error",
+                "detail": f"Marker '{marker}' not found in the request body"}
+    if len(payloads) > FUZZER_MAX_PAYLOADS:
+        payloads = payloads[:FUZZER_MAX_PAYLOADS]
+
+    # Default the form Content-Type when the caller didn't set one and the body
+    # isn't JSON. Without it Flask never parses request.form, so every login
+    # 401s and the valid credential never stands out — the whole point here.
+    headers = dict(headers or {})
+    has_ct = any(k.lower() == "content-type" for k in headers)
+    if not has_ct and body_template and not body_template.lstrip().startswith("{"):
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+
+    grep_l = grep.lower() if grep else None
+    results: List[Dict[str, Any]] = []
+    for payload in payloads:
+        body = body_template.replace(marker, payload)
+        r = zap_repeater_send(method=method, path=path, headers=headers, body=body)
+        if r.get("status") == "ok":
+            parsed = _parse_zap_response(r.get("response", {}))
+            resp_body = parsed.pop("_body", "")
+            grep_match = bool(grep_l and grep_l in resp_body.lower())
+            results.append({"payload": payload, "grep_match": grep_match, **parsed})
+        else:
+            results.append({"payload": payload, "status_code": "ERR",
+                            "length": 0, "grep_match": False,
+                            "detail": r.get("detail", "")})
+
+    # Anomaly detection — matching how Burp Intruder is read:
+    #   • GREP MATCH → username enumeration: the response for a valid user
+    #                  contains "Incorrect password"; invalid users don't. This
+    #                  is the reliable tell (length is noisy when the app
+    #                  reflects the username, so we don't flag on length here).
+    #   • STATUS outlier → password brute force: one login returns 302, rest 401.
+    ok_rows = [r for r in results if r["status_code"] not in ("ERR", "0")]
+    codes = [r["status_code"] for r in ok_rows]
+    lengths = [r["length"] for r in ok_rows]
+    modal_status = max(set(codes), key=codes.count) if codes else None
+    modal_length = max(set(lengths), key=lengths.count) if lengths else None
+    grep_used = grep_l is not None
+    for row in results:
+        sc = row["status_code"]
+        valid = sc not in ("ERR", "0")
+        status_hit = valid and (sc.startswith("3") or (modal_status is not None and sc != modal_status))
+        length_hit = valid and (modal_length is not None and row["length"] != modal_length)
+        grep_hit = bool(row.get("grep_match"))
+        row["status_hit"] = bool(status_hit)
+        row["length_hit"] = bool(length_hit)
+        row["grep_hit"] = grep_hit
+        # When a grep string is supplied it is the authoritative tell (username
+        # enumeration); otherwise fall back to status/length outliers.
+        row["hit"] = grep_hit if grep_used else bool(status_hit or length_hit)
+
+    return {"status": "ok", "modal_status": modal_status,
+            "modal_length": modal_length, "grep": grep, "results": results}
+

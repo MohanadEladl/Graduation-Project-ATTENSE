@@ -19,7 +19,36 @@ const TABS = [
   { id: 'history',   label: 'Proxy History' },
   { id: 'inspector', label: 'Request Inspector' },
   { id: 'repeater',  label: 'Repeater' },
+  { id: 'fuzzer',    label: 'Fuzzer' },
 ]
+
+// Preset payload lists for the Fuzzer — mirrors the wordlists a beginner would
+// reach for in Burp Intruder, but built-in so there's no file to manage.
+const FUZZER_PRESETS = {
+  passwords: {
+    label: 'Common passwords',
+    items: ['password', '123456', 'admin', 'letmein', 'password123',
+            'lab2024', 'qwerty', 'welcome', 'changeme', 'guest'],
+  },
+  usernames: {
+    label: 'Common usernames',
+    items: ['admin', 'operator', 'guest', 'root', 'user', 'test',
+            'alice', 'bob', 'service'],
+  },
+  leaked: {
+    label: 'Leaked mini-list',
+    items: ['123456', 'password', '12345678', 'qwerty', 'abc123',
+            'monkey', 'letmein', 'dragon', 'password123', 'iloveyou'],
+  },
+}
+
+// Put a § payload marker on the last field value of a form body, so "Send to
+// Fuzzer" arrives with a sensible default position (e.g. username=admin&password=§).
+function markLastValue(body) {
+  if (!body || body.includes('§')) return body
+  const idx = body.lastIndexOf('=')
+  return idx === -1 ? body + '§' : body.slice(0, idx + 1) + '§'
+}
 
 export default function ZapPanel({ minimized, onToggleMinimize }) {
   const [status, setStatus] = useState('checking')
@@ -34,6 +63,17 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
   const [repBody, setRepBody] = useState('')
   const [repResult, setRepResult] = useState(null)
   const [repLoading, setRepLoading] = useState(false)
+
+  // Fuzzer (Intruder-style) state
+  const [fuzMethod, setFuzMethod] = useState('POST')
+  const [fuzPath, setFuzPath] = useState('/auth/login')
+  const [fuzBody, setFuzBody] = useState('username=§&password=x')
+  const [fuzPreset, setFuzPreset] = useState('usernames')
+  const [fuzList, setFuzList] = useState(FUZZER_PRESETS.usernames.items.join('\n'))
+  const [fuzResult, setFuzResult] = useState(null)
+  const [fuzLoading, setFuzLoading] = useState(false)
+  const [fuzSort, setFuzSort] = useState('order')   // 'order' | 'status' | 'length'
+  const [fuzGrep, setFuzGrep] = useState('')        // Burp "Grep - Match" string
 
   // Check status on mount + every 15s
   useEffect(() => {
@@ -73,6 +113,55 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
       setRepResult({ status: 'error', detail: e.message })
     }
     setRepLoading(false)
+  }
+
+  const handleSelectPreset = (key) => {
+    setFuzPreset(key)
+    if (FUZZER_PRESETS[key]) setFuzList(FUZZER_PRESETS[key].items.join('\n'))
+  }
+
+  // Two-phase Sniper setup (mirrors PortSwigger: enumerate the username first,
+  // then brute the password). Phase 1 marks the username and loads usernames;
+  // phase 2 marks the password and loads passwords.
+  const setFuzzerPhase = (phase) => {
+    if (phase === 'username') {
+      // Phase 1: enumerate the username. Grep "Incorrect password" — valid
+      // users return that message; invalid users return "Account not found".
+      setFuzBody('username=§&password=x')
+      handleSelectPreset('usernames')
+      setFuzGrep('Incorrect password')
+    } else {
+      // Phase 2: brute the password. The tell is the 302 status, no grep needed.
+      setFuzBody('username=admin&password=§')
+      handleSelectPreset('passwords')
+      setFuzGrep('')
+    }
+    setFuzResult(null)
+    setFuzSort('order')
+  }
+
+  // "Send to Fuzzer" (mirrors Burp's "Send to Intruder"). Marks the last field
+  // value with § as a sensible default payload position.
+  const handleSendToFuzzer = (method, path, body) => {
+    setFuzMethod(method || 'POST')
+    setFuzPath(path || '/')
+    setFuzBody(markLastValue(body || ''))
+    setFuzResult(null)
+    setActiveTab('fuzzer')
+  }
+
+  const handleRunFuzzer = async () => {
+    setFuzLoading(true)
+    setFuzResult(null)
+    setFuzSort('order')
+    try {
+      const payloads = fuzList.split('\n').map(s => s.trim()).filter(Boolean)
+      const r = await api.zap.fuzzer(fuzMethod, fuzPath, fuzBody, payloads, '§', fuzGrep || null)
+      setFuzResult(r)
+    } catch (e) {
+      setFuzResult({ status: 'error', detail: e.message })
+    }
+    setFuzLoading(false)
   }
 
   const s = STATUS_STYLES[status] || STATUS_STYLES.error
@@ -172,14 +261,28 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
             </div>
           </div>
         ) : activeTab === 'history' ? (
-          <HistoryTab messages={messages} onSelect={m => { setSelectedMsg(m); setActiveTab('inspector') }} />
+          <HistoryTab
+            messages={messages}
+            onSelect={m => { setSelectedMsg(m); setActiveTab('inspector') }}
+            onSendToFuzzer={m => handleSendToFuzzer(m.method, m.url, m.method === 'POST' ? 'username=admin&password=x' : '')}
+          />
         ) : activeTab === 'inspector' ? (
           <InspectorTab message={selectedMsg} />
-        ) : (
+        ) : activeTab === 'repeater' ? (
           <RepeaterTab
             method={repMethod} path={repPath} body={repBody}
             onMethodChange={setRepMethod} onPathChange={setRepPath} onBodyChange={setRepBody}
             onSend={handleSendRepeater} loading={repLoading} result={repResult}
+            onSendToFuzzer={() => handleSendToFuzzer(repMethod, repPath, repBody)}
+          />
+        ) : (
+          <FuzzerTab
+            method={fuzMethod} path={fuzPath} body={fuzBody}
+            preset={fuzPreset} list={fuzList} sort={fuzSort} grep={fuzGrep}
+            onMethodChange={setFuzMethod} onPathChange={setFuzPath} onBodyChange={setFuzBody}
+            onSelectPreset={handleSelectPreset} onListChange={setFuzList}
+            onSetPhase={setFuzzerPhase} onSort={setFuzSort} onGrepChange={setFuzGrep}
+            onRun={handleRunFuzzer} loading={fuzLoading} result={fuzResult}
           />
         )}
       </div>
@@ -189,7 +292,7 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
 
 /* ── Sub-components ──────────────────────────────────────────────────────── */
 
-function HistoryTab({ messages, onSelect }) {
+function HistoryTab({ messages, onSelect, onSendToFuzzer }) {
   if (!messages.length) {
     return (
       <div className="font-mono text-[11px] text-attense-dim">
@@ -202,25 +305,32 @@ function HistoryTab({ messages, onSelect }) {
   return (
     <div>
       <div className="font-mono text-[9px] tracking-[0.3em] text-attense-dim mb-2">
-        PROXY HISTORY ({messages.length} requests)
+        PROXY HISTORY ({messages.length} requests) · hover a row to send it to the Fuzzer
       </div>
       <div className="space-y-px">
         {messages.map((m, i) => (
-          <button
+          <div
             key={m.id || i}
-            onClick={() => onSelect(m)}
-            className="w-full text-left flex items-center gap-3 px-3 py-1.5 rounded transition-colors font-mono text-[10.5px] hover:bg-white/[0.03]"
+            className="group w-full flex items-center gap-3 px-3 py-1.5 rounded transition-colors font-mono text-[10.5px] hover:bg-white/[0.03]"
             style={{ color: '#c8d0e8' }}
           >
-            <span className="w-12 shrink-0 font-semibold" style={{
-              color: m.method === 'POST' ? '#fbbf24' : '#7dd3fc'
-            }}>{m.method}</span>
-            <span className="flex-1 truncate text-attense-dim">{m.url}</span>
-            <span className="w-10 text-right shrink-0" style={{
-              color: (m.status_code + '').startsWith('2') ? '#2ee39a'
-                : (m.status_code + '').startsWith('4') ? '#fbbf24' : '#f87171'
-            }}>{m.status_code}</span>
-          </button>
+            <button onClick={() => onSelect(m)} className="flex-1 min-w-0 text-left flex items-center gap-3">
+              <span className="w-12 shrink-0 font-semibold" style={{
+                color: m.method === 'POST' ? '#fbbf24' : '#7dd3fc'
+              }}>{m.method}</span>
+              <span className="flex-1 truncate text-attense-dim">{m.url}</span>
+              <span className="w-10 text-right shrink-0" style={{
+                color: (m.status_code + '').startsWith('2') ? '#2ee39a'
+                  : (m.status_code + '').startsWith('4') ? '#fbbf24' : '#f87171'
+              }}>{m.status_code}</span>
+            </button>
+            <button
+              onClick={() => onSendToFuzzer?.(m)}
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity font-mono text-[8.5px] tracking-[0.1em] px-1.5 py-0.5 rounded"
+              style={{ color: '#7dd3fc', border: '1px solid rgba(125,211,252,0.3)' }}
+              title="Send to Fuzzer"
+            >→ FUZZER</button>
+          </div>
         ))}
       </div>
     </div>
@@ -251,11 +361,19 @@ function InspectorTab({ message }) {
   )
 }
 
-function RepeaterTab({ method, path, body, onMethodChange, onPathChange, onBodyChange, onSend, loading, result }) {
+function RepeaterTab({ method, path, body, onMethodChange, onPathChange, onBodyChange, onSend, loading, result, onSendToFuzzer }) {
   return (
     <div>
-      <div className="font-mono text-[9px] tracking-[0.3em] text-attense-dim mb-3">
-        REPEATER · target-agent only
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-mono text-[9px] tracking-[0.3em] text-attense-dim">
+          REPEATER · target-agent only
+        </div>
+        <button
+          onClick={onSendToFuzzer}
+          className="font-mono text-[8.5px] tracking-[0.12em] px-2 py-1 rounded"
+          style={{ color: '#7dd3fc', border: '1px solid rgba(125,211,252,0.3)' }}
+          title="Send this request to the Fuzzer"
+        >→ SEND TO FUZZER</button>
       </div>
       <div className="flex items-center gap-2 mb-3">
         <select
@@ -310,6 +428,249 @@ function RepeaterTab({ method, path, body, onMethodChange, onPathChange, onBodyC
           <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 200, overflow: 'auto' }}>
             {result.status === 'ok' ? JSON.stringify(result.response, null, 2) : `Error: ${result.detail || 'unknown'}`}
           </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FuzzerTab({
+  method, path, body, preset, list, sort, grep,
+  onMethodChange, onPathChange, onBodyChange,
+  onSelectPreset, onListChange, onSetPhase, onSort, onGrepChange, onRun, loading, result,
+}) {
+  const rows = result?.status === 'ok' ? (result.results || []) : []
+  const count = list.split('\n').map(s => s.trim()).filter(Boolean).length
+  const markerOk = body.includes('§')
+  const grepUsed = Boolean(result?.grep)
+
+  // Which phase is set up right now — infer from where the § sits.
+  const phase = /username=§/.test(body) ? 'username'
+    : /password=§/.test(body) ? 'password' : null
+
+  // Sortable results (Burp lets you sort by Status or Length to surface the
+  // outlier). 'order' keeps request order.
+  const sorted = [...rows]
+  if (sort === 'status') sorted.sort((a, b) => (a.status_code + '').localeCompare(b.status_code + ''))
+  else if (sort === 'length') sorted.sort((a, b) => a.length - b.length)
+
+  const hasStatusHit = rows.some(r => r.status_hit)
+  const hasGrepHit = rows.some(r => r.grep_hit)
+
+  const SectionLabel = ({ n, children }) => (
+    <div className="font-mono text-[9px] tracking-[0.28em] mb-2 flex items-center gap-2" style={{ color: '#7dd3fc' }}>
+      <span className="rounded-full w-4 h-4 inline-flex items-center justify-center text-[8px]"
+        style={{ background: 'rgba(125,211,252,0.12)', border: '1px solid rgba(125,211,252,0.35)' }}>{n}</span>
+      {children}
+    </div>
+  )
+
+  const Header = ({ col, label, w }) => (
+    <button
+      onClick={() => onSort?.(sort === col ? 'order' : col)}
+      className={`${w} text-right font-mono text-[9px] tracking-[0.16em]`}
+      style={{ color: sort === col ? '#7dd3fc' : '#5a6680', cursor: 'pointer' }}
+      title="Click to sort"
+    >{label}{sort === col ? ' ▲' : ''}</button>
+  )
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-mono text-[9px] tracking-[0.3em] text-attense-dim">
+          FUZZER · target-agent only
+        </div>
+        <span className="font-mono text-[8.5px] tracking-[0.18em] px-2 py-0.5 rounded"
+          style={{ color: '#c9a5ff', background: 'rgba(168,120,255,0.08)', border: '1px solid rgba(168,120,255,0.3)' }}>
+          ATTACK TYPE · SNIPER
+        </span>
+      </div>
+
+      {/* Two-phase quick setup (PortSwigger: enumerate the username, then brute the password) */}
+      <div className="rounded-lg p-2.5 mb-4" style={{ background: 'rgba(125,211,252,0.04)', border: '1px solid rgba(125,211,252,0.15)' }}>
+        <div className="font-mono text-[9px] tracking-[0.2em] text-attense-dim mb-1.5">TWO-PHASE ATTACK · pick a phase</div>
+        <div className="flex items-center gap-2">
+          {[
+            ['username', '① Enumerate username', 'grep "Incorrect password" · read MATCH'],
+            ['password', '② Brute password', 'read the STATUS column (302)'],
+          ].map(([key, label, hint]) => (
+            <button
+              key={key}
+              onClick={() => onSetPhase?.(key)}
+              className="flex-1 font-mono text-[10px] px-2 py-1.5 rounded text-left transition-colors"
+              style={{
+                background: phase === key ? 'rgba(125,211,252,0.14)' : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${phase === key ? 'rgba(125,211,252,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                color: phase === key ? '#7dd3fc' : '#a8b0cc',
+              }}
+            >
+              <div className="font-bold">{label}</div>
+              <div className="text-[8.5px] text-attense-dim mt-0.5">→ {hint}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── 1 · POSITIONS ── */}
+      <SectionLabel n="1">POSITIONS · mark the value to attack with §</SectionLabel>
+      <div className="flex items-center gap-2 mb-2">
+        <select
+          value={method}
+          onChange={e => onMethodChange(e.target.value)}
+          className="font-mono text-[11px] px-2 py-1.5 rounded"
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#d0d8e8', outline: 'none' }}
+        >
+          {['POST', 'GET', 'PUT', 'PATCH'].map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <div className="flex-1 flex items-center gap-0 rounded overflow-hidden"
+          style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
+          <span className="font-mono text-[10px] px-2 py-1.5 shrink-0" style={{ color: '#5a6680', background: 'rgba(255,255,255,0.02)' }}>
+            http://target-agent
+          </span>
+          <input
+            value={path}
+            onChange={e => onPathChange(e.target.value)}
+            className="flex-1 font-mono text-[11px] px-2 py-1.5 bg-transparent outline-none"
+            style={{ color: '#d0d8e8' }}
+            placeholder="/auth/login"
+          />
+        </div>
+      </div>
+      <textarea
+        value={body}
+        onChange={e => onBodyChange(e.target.value)}
+        rows={2}
+        className="w-full font-mono text-[11px] px-3 py-2 rounded mb-1 resize-y"
+        style={{
+          background: 'rgba(255,255,255,0.02)',
+          border: `1px solid ${markerOk ? 'rgba(255,255,255,0.08)' : 'rgba(248,113,113,0.4)'}`,
+          color: '#d0d8e8', outline: 'none',
+        }}
+        placeholder="username=§&password=x"
+      />
+      {!markerOk && (
+        <div className="font-mono text-[9.5px] mb-2" style={{ color: '#f87171' }}>
+          Add a § where the payload should go, e.g. username=§
+        </div>
+      )}
+
+      {/* ── 2 · PAYLOADS ── */}
+      <div className="mt-4"><SectionLabel n="2">PAYLOADS · simple list</SectionLabel></div>
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        {Object.entries(FUZZER_PRESETS).map(([key, p]) => (
+          <button
+            key={key}
+            onClick={() => onSelectPreset(key)}
+            className="font-mono text-[9px] tracking-[0.1em] px-2 py-1 rounded transition-colors"
+            style={{
+              background: preset === key ? 'rgba(125,211,252,0.12)' : 'rgba(255,255,255,0.03)',
+              color: preset === key ? '#7dd3fc' : '#8a92a8',
+              border: `1px solid ${preset === key ? 'rgba(125,211,252,0.35)' : 'rgba(255,255,255,0.08)'}`,
+              cursor: 'pointer',
+            }}
+          >{p.label}</button>
+        ))}
+      </div>
+      <textarea
+        value={list}
+        onChange={e => onListChange(e.target.value)}
+        rows={4}
+        className="w-full font-mono text-[11px] px-3 py-2 rounded mb-3 resize-y"
+        style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', color: '#d0d8e8', outline: 'none' }}
+        placeholder="one payload per line"
+      />
+
+      {/* Grep - Match (Burp Intruder). For username enumeration, matching a
+          string in the response is far more reliable than eyeballing Length. */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="font-mono text-[9px] tracking-[0.16em] shrink-0" style={{ color: '#5a6680' }}>GREP · MATCH</span>
+        <input
+          value={grep}
+          onChange={e => onGrepChange(e.target.value)}
+          className="flex-1 font-mono text-[11px] px-2 py-1.5 rounded bg-transparent outline-none"
+          style={{ border: '1px solid rgba(255,255,255,0.1)', color: '#d0d8e8' }}
+          placeholder="optional — e.g. Incorrect password  (flags rows whose response contains it)"
+        />
+      </div>
+
+      <button
+        onClick={onRun}
+        disabled={loading || !markerOk || count === 0}
+        className="font-mono text-[10px] font-bold tracking-[0.12em] px-4 py-2 rounded-md transition-all"
+        style={{
+          background: (loading || !markerOk || count === 0) ? 'rgba(125,211,252,0.06)' : 'rgba(125,211,252,0.12)',
+          border: '1px solid rgba(125,211,252,0.35)',
+          color: '#7dd3fc',
+          cursor: (loading || !markerOk || count === 0) ? 'not-allowed' : 'pointer',
+        }}
+      >{loading ? `ATTACKING ${count} PAYLOADS…` : `START ATTACK · ${count} payloads`}</button>
+
+      {/* ── 3 · RESULTS ── */}
+      {result?.status === 'error' && (
+        <div className="font-mono text-[10.5px] mt-3" style={{ color: '#f87171' }}>
+          Error: {result.detail || 'unknown'}
+        </div>
+      )}
+      {rows.length > 0 && (
+        <div className="mt-5">
+          <SectionLabel n="3">RESULTS · sort by Status or Length to find the outlier</SectionLabel>
+          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex items-center px-3 py-1.5"
+              style={{ background: 'rgba(255,255,255,0.03)' }}>
+              <span className="flex-1 font-mono text-[9px] tracking-[0.16em]" style={{ color: '#5a6680' }}>PAYLOAD</span>
+              <Header col="status" label="STATUS" w="w-16" />
+              <Header col="length" label="LENGTH" w="w-20" />
+              {grepUsed && <span className="w-16 text-right font-mono text-[9px] tracking-[0.16em]" style={{ color: '#5a6680' }}>MATCH</span>}
+            </div>
+            <div style={{ maxHeight: 220, overflow: 'auto' }}>
+              {sorted.map((row, i) => (
+                <div
+                  key={i}
+                  className="flex items-center font-mono text-[10.5px] px-3 py-1.5"
+                  style={{
+                    background: row.hit ? 'rgba(46,227,154,0.10)' : 'transparent',
+                    borderTop: '1px solid rgba(255,255,255,0.04)',
+                    color: row.hit ? '#2ee39a' : '#c8d0e8',
+                  }}
+                >
+                  <span className="flex-1 truncate">{row.hit ? '★ ' : ''}{row.payload}</span>
+                  <span className="w-16 text-right font-semibold" style={{
+                    color: row.status_hit ? '#2ee39a'
+                      : (row.status_code + '').startsWith('2') ? '#7dd3fc'
+                      : (row.status_code + '').startsWith('4') ? '#fbbf24' : '#f87171'
+                  }}>{row.status_code}</span>
+                  <span className="w-20 text-right" style={{ color: '#5a6680' }}>{row.length}</span>
+                  {grepUsed && (
+                    <span className="w-16 text-right font-semibold" style={{ color: row.grep_match ? '#2ee39a' : '#5a6680' }}>
+                      {row.grep_match ? '✓' : '·'}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          {hasStatusHit && (
+            <div className="font-mono text-[10px] mt-2" style={{ color: '#2ee39a' }}>
+              ★ The 302 row is a valid login — that payload is the password. Confirm it in the Repeater tab.
+            </div>
+          )}
+          {grepUsed && hasGrepHit && !hasStatusHit && (
+            <div className="font-mono text-[10px] mt-2" style={{ color: '#2ee39a' }}>
+              ★ Every response is 401, but the ✓ rows contain "{result.grep}" — those usernames exist
+              (invalid users say "Account not found"). Pick one and run phase ② against it.
+            </div>
+          )}
+          {grepUsed && !hasGrepHit && !hasStatusHit && (
+            <div className="font-mono text-[10px] mt-2" style={{ color: '#fbbf24' }}>
+              No response matched "{result.grep}". Try a different wordlist or grep string.
+            </div>
+          )}
+          {!grepUsed && !hasStatusHit && (
+            <div className="font-mono text-[10px] mt-2" style={{ color: '#fbbf24' }}>
+              No status outlier. For username enumeration, add a GREP match like "Incorrect password"
+              (length alone is unreliable here — the app reflects the username).
+            </div>
+          )}
         </div>
       )}
     </div>

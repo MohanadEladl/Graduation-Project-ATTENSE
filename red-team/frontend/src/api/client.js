@@ -94,6 +94,8 @@ export const api = {
     history:  (limit = 50)    => get(`/api/operator/zap/history?limit=${limit}`),
     repeater: (method, path, headers, body) =>
       post('/api/operator/zap/repeater/send', { method, path, headers, body }),
+    fuzzer: (method, path, body_template, payloads, marker = '§', grep = null) =>
+      post('/api/operator/zap/fuzzer/send', { method, path, body_template, payloads, marker, grep }),
   },
 
   skills: {

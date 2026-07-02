@@ -39,7 +39,7 @@ export function targetUrlFor(moduleId, mode = 'tutorial') {
 // the local ATTENSE AttackBox / OWASP ZAP container, never external targets.
 export const LAB_REQUIRED_TOOLS = {
   recon:         ['Terminal', 'Nmap', 'Gobuster/ffuf', 'ZAP'],
-  brute_force:   ['Terminal', 'ZAP', 'Hydra', 'Wordlists'],
+  brute_force:   ['ZAP Repeater', 'ZAP Fuzzer', 'curl (optional)'],
   xss:           ['ZAP', 'Repeater', 'curl'],
   cmd_injection: ['Terminal', 'ZAP', 'curl'],
   dir_traversal: ['Terminal', 'ZAP', 'curl'],
