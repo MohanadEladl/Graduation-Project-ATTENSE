@@ -34,12 +34,12 @@ _CORE_ROOT = os.path.join(_REPO_ROOT, "packages", "attense-core")
 if _CORE_ROOT not in sys.path:
     sys.path.insert(0, _CORE_ROOT)
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.events.event_store import EventStore
-from ATTENSE_app.incidents.incident import Incident
-from ATTENSE_app.matrics.metrics import TTC_calculation, TTD_calculation
-from ATTENSE_app.Outcomes.outcome import classify_outcome, is_false_positive
-from ATTENSE_app.reports.report import generate_report
+from attense_core.models.event import Event
+from attense_core.models.event_store import EventStore
+from attense_core.models.incident import Incident
+from attense_core.evaluation.metrics import TTC_calculation, TTD_calculation
+from attense_core.evaluation.outcome import classify_outcome, is_false_positive
+from attense_core.evaluation.reports import generate_report
 
 # Fixed UTC anchor for deterministic TTD/TTC arithmetic (report Phase 1, item 2).
 T0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
@@ -164,7 +164,7 @@ class IncidentStateMachineTests(unittest.TestCase):
         # start_time, but does NOT advance status (it stays NOT_STARTED).
         self.inc.apply_event(make_event("alert_raised", ts=T0))
         self.assertEqual(self.inc.detection_time, T0)
-        self.assertEqual(self.inc.start_time, T0)  # phase-2 fallback fired
+        self.assertEqual(self.inc.start_time, T0) # phase-2 fallback fired
         self.assertEqual(self.inc.status, "NOT_STARTED")
 
     def test_alert_raised_after_malicious_does_not_overwrite_start(self):
@@ -280,7 +280,7 @@ class DuplicateAndOutOfOrderTests(unittest.TestCase):
 
 
 class MetricsTests(unittest.TestCase):
-    """Report Phase 1, item 2 — TTD/TTC against fixed UTC timestamps."""
+    """Report Phase 1, item 2 - TTD/TTC against fixed UTC timestamps."""
 
     def _incident_with(self, start=None, detection=None, containment=None):
         inc = Incident("INC-1", "SCN-1")
@@ -381,7 +381,7 @@ class EventStoreTests(unittest.TestCase):
 
 
 class IntegrationHappyPathTest(unittest.TestCase):
-    """Report Phase 1, item 4 — the full realistic lifecycle, end to end,
+    """Report Phase 1, item 4 - the full realistic lifecycle, end to end,
     asserted at the report level with fixed UTC timestamps."""
 
     def test_full_lifecycle_report(self):
@@ -420,3 +420,4 @@ class IntegrationHappyPathTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

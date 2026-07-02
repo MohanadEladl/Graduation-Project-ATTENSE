@@ -1,5 +1,5 @@
 """
-process_controller.py — Process Controller
+process_controller.py - Process Controller
 ============================================
 Handles process-level containment actions.
 Used for Command Injection attacks where a malicious process must be killed
@@ -31,7 +31,7 @@ class ProcessController:
         """
         Kill a malicious or compromised process on the target.
 
-        Used for: Command Injection — terminate spawned shell/process.
+        Used for: Command Injection - terminate spawned shell/process.
         """
         logger.info("[ProcessController] Killing process on target: %s", target_id)
         return self.connector.execute_containment(target_id, "kill_process")
@@ -40,7 +40,7 @@ class ProcessController:
         """
         Disable a vulnerable or compromised service on the target.
 
-        Used for: Command Injection — stop the service exploited by the attacker.
+        Used for: Command Injection - stop the service exploited by the attacker.
         """
         logger.info("[ProcessController] Disabling service on target: %s", target_id)
         return self.connector.execute_containment(target_id, "disable_service")

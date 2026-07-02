@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import hmac
 import logging
 import os
 
@@ -20,6 +23,61 @@ ADMIN_LOGIN = os.getenv("THEHIVE_ADMIN_LOGIN", "admin@thehive.local")
 # rotated off the stock default; empty here fails loudly instead of silently
 # authenticating with a known password if ever run outside that gate.
 ADMIN_PASSWORD = os.getenv("THEHIVE_ADMIN_PASSWORD", "")
+
+
+def derive_password(login: str) -> str:
+    """Deterministically derive a TheHive web-login password for a user.
+
+    Derived (not stored) so the same credential can be recomputed and shown to
+    the analyst on every room entry without persisting a plaintext password.
+    Keyed by a server secret; the fixed prefix guarantees TheHive's password
+    complexity (upper, lower, digit, symbol).
+    """
+    secret = os.getenv("THEHIVE_USER_PASSWORD_SECRET") or ADMIN_PASSWORD or "attense-range"
+    digest = hmac.new(secret.encode("utf-8"), login.lower().encode("utf-8"), hashlib.sha256).digest()
+    token = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:16]
+    return f"At1!{token}"
+
+
+_alert_org_cache: str | None = None
+
+
+def alert_org() -> str:
+    """The TheHive organisation the Blue Team alert pipeline writes into.
+
+    The pipeline raises every alert with a single global API key
+    (``HIVE_API_KEY``), so alerts land in that key's org. Room members must be
+    provisioned into this same org or they'd log into an empty org and see zero
+    alerts. Resolved once from the key (overridable via ``HIVE_ALERT_ORG``),
+    falling back to ``blue-team``.
+    """
+    global _alert_org_cache
+    if _alert_org_cache:
+        return _alert_org_cache
+    override = os.getenv("HIVE_ALERT_ORG")
+    if override:
+        _alert_org_cache = override
+        return override
+    gkey = os.getenv("HIVE_API_KEY", "")
+    if gkey:
+        try:
+            response = httpx.get(
+                f"{HIVE_URL}/api/v1/user/current",
+                headers={"Authorization": f"Bearer {gkey}"},
+                timeout=15,
+            )
+            response.raise_for_status()
+            org = response.json().get("organisation")
+            if org:
+                _alert_org_cache = org
+                return org
+        except (httpx.HTTPError, ValueError):
+            logger.warning(
+                "Could not resolve alert org from HIVE_API_KEY; using fallback",
+                exc_info=True,
+            )
+    _alert_org_cache = "blue-team"
+    return _alert_org_cache
 
 
 def _admin_client() -> httpx.Client:
@@ -64,7 +122,7 @@ def create_org(company_name: str) -> str:
 
 def _return_last_response(retry_state):
     """When the retry budget is exhausted, return the final response instead of
-    raising tenacity's RetryError — the caller then runs raise_for_status() on
+    raising tenacity's RetryError - the caller then runs raise_for_status() on
     it, exactly as the original loop did: the HTTP error is raised AFTER the
     retry completes, never inside an attempt."""
     return retry_state.outcome.result()
@@ -98,8 +156,32 @@ def _renew_user_key(client: httpx.Client, username: str, org_name: str) -> httpx
     )
 
 
-def create_user_in_org(org_name: str, username: str, attense_role: str) -> str:
-    """Create an org-scoped user and return a newly generated API key."""
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(1),
+    retry=retry_if_result(lambda r: r.status_code == 404),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    retry_error_callback=_return_last_response,
+)
+def _set_user_password(client: httpx.Client, username: str, org_name: str, password: str) -> httpx.Response:
+    # As with key/renew, the freshly-created user can 404 until visible.
+    return client.post(
+        f"/api/user/{username}/password/set",
+        json={"password": password},
+        headers={"X-Organisation": org_name},
+    )
+
+
+def create_user_in_org(org_name: str, username: str, attense_role: str, renew_key: bool = True):
+    """Ensure an org-scoped user exists with a web-login password.
+
+    Idempotent: creates the user if missing, always (re)sets the derived
+    web-login password. When ``renew_key`` is True a fresh API key is generated
+    and returned; when False (a re-entry that only needs the human able to log
+    in) key generation is skipped - avoiding needless key churn that would
+    invalidate the key the Blue Team automation is already using - and None is
+    returned.
+    """
     profiles = {
         "soc_manager": "admin",
         "soc_l2": "analyst",
@@ -129,15 +211,30 @@ def create_user_in_org(org_name: str, username: str, attense_role: str) -> str:
         else:
             existing.raise_for_status()
 
-        key_response = _renew_user_key(client, username, org_name)
-        key_response.raise_for_status()
+        key = None
+        if renew_key:
+            key_response = _renew_user_key(client, username, org_name)
+            key_response.raise_for_status()
+            try:
+                key = key_response.json().get("key", "")
+            except ValueError:
+                key = key_response.text
+            key = key.strip().strip('"')
+            if not key:
+                raise RuntimeError("TheHive returned an empty API key")
+
+        # Give the account a web-login password so a human analyst can actually
+        # sign in to TheHive (not just the automation via the API key).
+        # Best-effort: the API key already works, so a password-set failure is
+        # logged rather than aborting provisioning.
         try:
-            key = key_response.json().get("key", "")
-        except ValueError:
-            key = key_response.text
-        key = key.strip().strip('"')
-        if not key:
-            raise RuntimeError("TheHive returned an empty API key")
+            pw_response = _set_user_password(client, username, org_name, derive_password(username))
+            pw_response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Failed to set TheHive web password for '%s' in '%s': %s",
+                username, org_name, exc,
+            )
         return key
     except httpx.HTTPError as exc:
         raise RuntimeError(

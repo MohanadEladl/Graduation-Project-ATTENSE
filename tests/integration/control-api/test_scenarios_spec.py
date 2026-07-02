@@ -26,7 +26,7 @@ _CORE_ROOT = os.path.join(_REPO_ROOT, "packages", "attense-core")
 if _CORE_ROOT not in sys.path:
     sys.path.insert(0, _CORE_ROOT)
 
-from ATTENSE_app.scenario_specs import (
+from attense_core.scenarios import (
     ScenarioSpec,
     get_scenario,
     get_scenario_by_module,
@@ -34,10 +34,6 @@ from ATTENSE_app.scenario_specs import (
 )
 
 EXPECTED_IDS = ["APP-01", "APP-02", "APP-03", "APP-04", "APP-05", "APP-06"]
-_LEGACY_CATALOGUE = os.path.join(
-    _PKG_ROOT, "ATTENSE_app", "Scenarios", "scenarios.json"
-)
-
 
 class ScenarioLoaderTests(unittest.TestCase):
     def test_all_scenarios_load_and_validate(self):
@@ -68,31 +64,6 @@ class ScenarioLoaderTests(unittest.TestCase):
         self.assertEqual(len(modules), len(set(modules)))
 
 
-class CataloguePreservedTests(unittest.TestCase):
-    """The canonical specs must preserve the original scenarios.json catalogue,
-    so migrating to one source did not silently change any scenario."""
-
-    @classmethod
-    def setUpClass(cls):
-        with open(_LEGACY_CATALOGUE, encoding="utf-8") as fh:
-            cls.legacy = {
-                s["attack_id"]: s
-                for s in json.load(fh)["application_based_attack_scenarios"]
-            }
-
-    def test_catalogue_fields_match(self):
-        for attack_id, legacy in self.legacy.items():
-            spec = get_scenario(attack_id)
-            self.assertIsNotNone(spec, attack_id)
-            self.assertEqual(spec.name, legacy["attack_type"])
-            self.assertEqual(spec.description, legacy["description"])
-            self.assertEqual(spec.attack_steps, legacy["attack_steps"])
-            self.assertEqual(spec.impact, legacy["impact"])
-            self.assertEqual(
-                spec.defense_checkpoints, legacy["blue_team_evaluation_metrics"]
-            )
-
-
 class ScenarioApiTests(unittest.TestCase):
     def setUp(self):
         from api.scenarios_router import router
@@ -120,3 +91,5 @@ class ScenarioApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

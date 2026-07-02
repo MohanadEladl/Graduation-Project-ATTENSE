@@ -1,4 +1,4 @@
-"""Quick Cortex bootstrap — runs inside the Cortex container."""
+"""Quick Cortex bootstrap - runs inside the Cortex container."""
 import urllib.request, json, http.cookiejar, sys
 
 BASE = "http://localhost:9001"

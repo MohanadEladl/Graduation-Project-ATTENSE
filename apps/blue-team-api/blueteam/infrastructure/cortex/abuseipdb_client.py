@@ -1,9 +1,9 @@
 """
-abuseipdb_client.py — AbuseIPDB API v2 Client
+abuseipdb_client.py - AbuseIPDB API v2 Client
 ===============================================
 Performs IP reputation lookups against AbuseIPDB.
 
-Returns the abuse confidence score (0–100 %), total reports,
+Returns the abuse confidence score (0-100 %), total reports,
 country, ISP, usage type, and a computed risk label.
 
 Graceful degradation: if ABUSEIPDB_API_KEY is empty or the API is
@@ -30,15 +30,15 @@ class AbuseIPResult:
     ip: str = ""
     found: bool = False
     is_public: bool = True
-    abuse_confidence_score: int = 0     # 0–100 %
+    abuse_confidence_score: int = 0 # 0-100 %
     total_reports: int = 0
     num_distinct_users: int = 0
     country_code: str = ""
     isp: str = ""
     domain: str = ""
-    usage_type: str = ""                # "Data Center/Web Hosting", "Fixed Line ISP", …
+    usage_type: str = "" # "Data Center/Web Hosting", "Fixed Line ISP", ...
     is_whitelisted: bool = False
-    error: str = ""                     # set if lookup failed
+    error: str = "" # set if lookup failed
 
     @property
     def risk_label(self) -> str:
@@ -86,11 +86,11 @@ class AbuseIPDBClient:
         self._max_age = max_age_in_days
         self._enabled = bool(self._api_key)
         if not self._enabled:
-            logger.info("[AbuseIPDB] No API key configured — IP lookups disabled.")
+            logger.info("[AbuseIPDB] No API key configured - IP lookups disabled.")
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # Public interface
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     def lookup(self, ip: str) -> AbuseIPResult:
         """
@@ -107,7 +107,7 @@ class AbuseIPDBClient:
         if not self._enabled:
             return AbuseIPResult(ip=ip, error="no_api_key")
 
-        # Skip obviously private/local addresses — AbuseIPDB won't know them
+        # Skip obviously private/local addresses - AbuseIPDB won't know them
         if self._is_private(ip):
             logger.debug("[AbuseIPDB] Skipping private IP: %s", ip)
             return AbuseIPResult(ip=ip, is_public=False, found=False)
@@ -128,9 +128,9 @@ class AbuseIPDBClient:
             logger.warning("[AbuseIPDB] Lookup failed for %s: %s", ip, exc)
             return AbuseIPResult(ip=ip, error=str(exc))
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # Internal helpers
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     @staticmethod
     def _parse(data: dict, ip: str) -> AbuseIPResult:

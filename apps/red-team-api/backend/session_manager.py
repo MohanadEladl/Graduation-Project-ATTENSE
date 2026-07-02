@@ -1,17 +1,17 @@
 """
-backend/session_manager.py — REST-facing session store on top of AttackSession.
+backend/session_manager.py - REST-facing session store on top of AttackSession.
 
 Each mission the UI opens becomes a SessionRecord: the existing AttackSession
 drives the engine; we wrap it to keep the run logic (synchronous, blocking
 `engine.run_module`) exactly the same while exposing a clean REST + WS surface
 for the tutorial/lab workspace.
 
-Nothing here duplicates attack logic — every path ends up calling the same
+Nothing here duplicates attack logic - every path ends up calling the same
 engine.run_module the legacy shell calls through `use` + `start`.
 
 Mode values:
-  tutorial — guided walkthrough with rich explanations (no tool requirement)
-  lab      — realistic pentesting via AttackBox terminal/ZAP (tool evidence required)
+  tutorial - guided walkthrough with rich explanations (no tool requirement)
+  lab - realistic pentesting via AttackBox terminal/ZAP (tool evidence required)
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ import os
 import threading
 import time
 import uuid
+import requests
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -28,8 +29,10 @@ from core.base_module import BaseModule
 from core.models import TargetConfig
 from engine.session import AttackSession
 
-# Temp file — lives inside the container; removed when `docker rm` clears /tmp
+# Temp file - lives inside the container; removed when `docker rm` clears /tmp
 _PERSIST_PATH = os.getenv("SESSION_STORE", "/tmp/attense_sessions.json")
+_CONTROL_API_URL = os.getenv("ATTENSE_APP_URL", "http://attense-app:8020").rstrip("/")
+_EVENTS_SECRET = os.getenv("RED_TEAM_EVENTS_SECRET", "")
 
 
 # Small ring buffer of recent log lines per session.
@@ -58,13 +61,13 @@ class SessionRecord:
     # when querying target-agent's evidence stream for progress.
     mission_started_at: Optional[float] = None
 
-    # ── Mode: "tutorial" (guided walkthrough) | "lab" (real tool usage) ──────
+    # -- Mode: "tutorial" (guided walkthrough) | "lab" (real tool usage) ------
     mode: str = "tutorial"
-    # ── Active attack variant within the module (e.g. "hydra_targeted") ─────
+    # -- Active attack variant within the module (e.g. "hydra_targeted") -----
     variant_id: Optional[str] = None
 
-    # ── Learning state (persisted across Check Progress calls) ───────────────
-    learning_state: str = "idle"  # idle | in_progress | completed
+    # -- Learning state (persisted across Check Progress calls) ---------------
+    learning_state: str = "idle" # idle | in_progress | completed
     learning_completed_tasks: List[int] = field(default_factory=list)
     learning_total_tasks: int = 0
     learning_progress_percent: int = 0
@@ -82,11 +85,12 @@ class SessionRecord:
     # joined room (attense-app's GET /api/auth/me). None if no room joined --
     # engine.run_module() falls back to the env var INCIDENT_ID in that case.
     incident_id: Optional[str] = None
+    room_id: Optional[str] = None
 
     # Mutation Mode: a normal mission with adaptive target shifts layered on.
     mutation_mode: bool = False
     mutation_intensity: str = "single"
-    mutation_status: str = "idle"  # idle | scheduled | fired | complete
+    mutation_status: str = "idle" # idle | scheduled | fired | complete
     mutation_next_fire_at: Optional[float] = None
     mutation_timeline: List[dict] = field(default_factory=list)
 
@@ -133,7 +137,7 @@ class SessionRecord:
                 # Dead subscriber; it'll be cleaned up when the WS disconnects.
                 pass
         if progressed:
-            # Announce progress out-of-band so the workspace can tick the ✓.
+            # Announce progress out-of-band so the workspace can tick the PASS.
             prog = {"ts": entry["ts"], "__progress__": list(self.completed_steps)}
             for q in subs:
                 try:
@@ -172,42 +176,43 @@ class SessionRecord:
         snap = self.attack.snapshot()
         total = len(getattr(self.module, "steps", []) or [])
         return {
-            "session_id":      self.session_id,
-            "module_id":       self.module.module_id,
-            "module_name":     self.module.name,
-            "scenario_id":     self.module.scenario_id,
-            "severity":        self.module.severity.value,
-            "state":           snap.get("state", "idle"),
-            "started_at":      snap.get("started_at"),
-            "stopped_at":      snap.get("stopped_at"),
-            "elapsed":         snap.get("elapsed"),
-            "result":          snap.get("result"),
-            "options":         dict(self.attack.options),
-            "target":          {"host": self.target.host, "port": self.target.port},
-            "total_steps":     total,
+            "session_id": self.session_id,
+            "module_id": self.module.module_id,
+            "module_name": self.module.name,
+            "scenario_id": self.module.scenario_id,
+            "severity": self.module.severity.value,
+            "state": snap.get("state", "idle"),
+            "started_at": snap.get("started_at"),
+            "stopped_at": snap.get("stopped_at"),
+            "elapsed": snap.get("elapsed"),
+            "result": snap.get("result"),
+            "options": dict(self.attack.options),
+            "target": {"host": self.target.host, "port": self.target.port},
+            "total_steps": total,
             "completed_steps": list(self.completed_steps),
             "mission_started_at": self.mission_started_at,
-            "created_at":      self.created_at,
+            "created_at": self.created_at,
             # Mode + learning state
-            "mode":                      self.mode,
-            "variant_id":                self.variant_id,
-            "learning_state":            self.learning_state,
-            "learning_completed_tasks":  list(self.learning_completed_tasks),
-            "learning_total_tasks":      self.learning_total_tasks,
+            "mode": self.mode,
+            "variant_id": self.variant_id,
+            "learning_state": self.learning_state,
+            "learning_completed_tasks": list(self.learning_completed_tasks),
+            "learning_total_tasks": self.learning_total_tasks,
             "learning_progress_percent": self.learning_progress_percent,
-            "learning_success":          self.learning_success,
-            "learning_completed_at":     self.learning_completed_at,
+            "learning_success": self.learning_success,
+            "learning_completed_at": self.learning_completed_at,
             "learning_duration_s": (
                 round(self.learning_completed_at - self.mission_started_at)
                 if self.learning_completed_at and self.mission_started_at else None
             ),
-            "mutation_mode":         self.mutation_mode,
-            "mutation_intensity":    self.mutation_intensity,
-            "mutation_status":       self.mutation_status,
+            "mutation_mode": self.mutation_mode,
+            "mutation_intensity": self.mutation_intensity,
+            "mutation_status": self.mutation_status,
             "mutation_next_fire_at": self.mutation_next_fire_at,
-            "mutation_timeline":     list(self.mutation_timeline),
-            "actor_id":              self.actor_id,
-            "incident_id":           self.incident_id,
+            "mutation_timeline": list(self.mutation_timeline),
+            "actor_id": self.actor_id,
+            "incident_id": self.incident_id,
+            "room_id": self.room_id,
         }
 
 
@@ -222,10 +227,10 @@ class SessionManager:
         self._lock = threading.Lock()
         self._load_persisted()
 
-    # ── JSON persistence (survives restarts; gone when container is removed) ──
+    # -- JSON persistence (survives restarts; gone when container is removed) --
 
     def _persist(self) -> None:
-        """Write all session snapshots + report caches to the temp JSON file."""
+        """Write legacy JSON and dual-write full snapshots to ATTENSE DB."""
         try:
             rows = []
             with self._lock:
@@ -238,8 +243,23 @@ class SessionManager:
             with open(tmp, "w") as f:
                 json.dump({"sessions": rows}, f)
             os.replace(tmp, _PERSIST_PATH)
+            for snap in rows:
+                self._dual_write_snapshot(snap)
         except Exception:
-            pass  # persistence is best-effort; never crash the server
+            pass # persistence is best-effort; never crash the server
+
+            def _dual_write_snapshot(self, snap: dict) -> None:
+                if not _EVENTS_SECRET:
+                    return
+                    try:
+                        requests.post(
+                            f"{_CONTROL_API_URL}/api/missions/snapshot",
+                            json=snap,
+                            headers={"Authorization": f"Bearer {_EVENTS_SECRET}"},
+                            timeout=2,
+                        )
+                    except requests.RequestException:
+                        pass
 
     def _load_persisted(self) -> None:
         """Restore sessions from the temp JSON file on startup."""
@@ -265,8 +285,8 @@ class SessionManager:
                 port=int(snap.get("target", {}).get("port", self._default_port)),
             )
             actor_id = snap.get("actor_id")
-            incident_id = snap.get("incident_id")  # .get() -> None for pre-existing sessions
-            # No-op emit — restored sessions don't stream logs
+            incident_id = snap.get("incident_id") # .get() -> None for pre-existing sessions
+            # No-op emit - restored sessions don't stream logs
             attack = AttackSession(mod, target, lambda _: None, actor_id=actor_id, incident_id=incident_id)
             # Restore engine state so snapshot() returns the right values
             saved_state = snap.get("state", "completed")
@@ -280,33 +300,34 @@ class SessionManager:
                 attack=attack,
                 actor_id=actor_id,
                 incident_id=incident_id,
+                room_id=snap.get("room_id"),
             )
-            rec.created_at             = snap.get("created_at", time.time())
-            rec.mission_started_at     = snap.get("mission_started_at")
-            rec.completed_steps        = snap.get("completed_steps", [])
-            rec.variant_id             = snap.get("variant_id")
-            rec.learning_state         = snap.get("learning_state", "idle")
-            rec.learning_completed_tasks  = snap.get("learning_completed_tasks", [])
-            rec.learning_total_tasks      = snap.get("learning_total_tasks", 0)
+            rec.created_at = snap.get("created_at", time.time())
+            rec.mission_started_at = snap.get("mission_started_at")
+            rec.completed_steps = snap.get("completed_steps", [])
+            rec.variant_id = snap.get("variant_id")
+            rec.learning_state = snap.get("learning_state", "idle")
+            rec.learning_completed_tasks = snap.get("learning_completed_tasks", [])
+            rec.learning_total_tasks = snap.get("learning_total_tasks", 0)
             rec.learning_progress_percent = snap.get("learning_progress_percent", 0)
-            rec.learning_success          = snap.get("learning_success", False)
-            rec.learning_completed_at     = snap.get("learning_completed_at")
-            rec.report_cache              = snap.get("report_cache")
-            rec.latest_evidence           = snap.get("latest_evidence", [])
-            rec.mutation_mode             = bool(snap.get("mutation_mode", False))
-            rec.mutation_intensity        = snap.get("mutation_intensity", "single")
-            rec.mutation_status           = snap.get("mutation_status", "idle")
-            rec.mutation_next_fire_at     = snap.get("mutation_next_fire_at")
-            rec.mutation_timeline         = snap.get("mutation_timeline", [])
+            rec.learning_success = snap.get("learning_success", False)
+            rec.learning_completed_at = snap.get("learning_completed_at")
+            rec.report_cache = snap.get("report_cache")
+            rec.latest_evidence = snap.get("latest_evidence", [])
+            rec.mutation_mode = bool(snap.get("mutation_mode", False))
+            rec.mutation_intensity = snap.get("mutation_intensity", "single")
+            rec.mutation_status = snap.get("mutation_status", "idle")
+            rec.mutation_next_fire_at = snap.get("mutation_next_fire_at")
+            rec.mutation_timeline = snap.get("mutation_timeline", [])
             rec.normalize_learning_state()
 
             self._sessions[sid] = rec
 
-    # ── Module registry passthrough ──────────────────────────────────────────
+    # -- Module registry passthrough ------------------------------------------
     def get_module(self, module_id: str) -> Optional[BaseModule]:
         return self._modules.get(module_id)
 
-    # ── Session lifecycle ────────────────────────────────────────────────────
+    # -- Session lifecycle ----------------------------------------------------
     def create(
         self,
         module_id: str,
@@ -316,6 +337,7 @@ class SessionManager:
         mutation_intensity: str = "single",
         actor_id: Optional[str] = None,
         incident_id: Optional[str] = None,
+        room_id: Optional[str] = None,
         loop: asyncio.AbstractEventLoop,
     ) -> SessionRecord:
         mod = self._modules.get(module_id)
@@ -334,7 +356,7 @@ class SessionManager:
         target = TargetConfig(host=self._default_host, port=self._default_port)
 
         # Forward-declare the record so the emit callback can capture it.
-        record: SessionRecord  # populated below
+        record: SessionRecord # populated below
         def emit(line: str) -> None:
             record.append_log(line, loop=loop)
 
@@ -347,6 +369,7 @@ class SessionManager:
             attack=attack,
             actor_id=actor_id,
             incident_id=incident_id,
+            room_id=room_id,
             mutation_mode=bool(mutation_mode),
             mutation_intensity=mutation_intensity if mutation_intensity in ("single", "escalating", "chaos") else "single",
         )
@@ -373,16 +396,16 @@ class SessionManager:
             self._persist()
         return removed
 
-    # ── Actions ──────────────────────────────────────────────────────────────
+    # -- Actions --------------------------------------------------------------
     def set_option(self, record: SessionRecord, key: str, value: str) -> None:
         """Reuse the shell's `set <opt> <value>` path so validation matches."""
-        record.attack._cmd_set([key, value])  # noqa: SLF001
+        record.attack._cmd_set([key, value]) # noqa: SLF001
 
     def set_target(self, record: SessionRecord, host: str, port: Optional[int]) -> None:
         record.target.host = host
         if port is not None:
             record.target.port = int(port)
-        record.attack._info(f"TARGET → {record.target.base_url}")  # noqa: SLF001
+        record.attack._info(f"TARGET -> {record.target.base_url}") # noqa: SLF001
 
     async def execute(self, record: SessionRecord, *, loop: asyncio.AbstractEventLoop) -> dict:
         """Run the attack on the executor; return the final snapshot."""
@@ -390,7 +413,7 @@ class SessionManager:
             raise RuntimeError("attack already running")
 
         def _run() -> None:
-            record.attack._cmd_execute([])  # noqa: SLF001
+            record.attack._cmd_execute([]) # noqa: SLF001
             # When start finishes without error, mark all declared steps complete.
             if record.attack.state == "completed":
                 steps = getattr(record.module, "steps", []) or []
@@ -399,7 +422,7 @@ class SessionManager:
         await loop.run_in_executor(None, _run)
         return record.snapshot()
 
-    # ── Logs / streaming ─────────────────────────────────────────────────────
+    # -- Logs / streaming -----------------------------------------------------
     def subscribe(self, record: SessionRecord) -> tuple[str, "asyncio.Queue[dict]"]:
         sub_id = uuid.uuid4().hex[:8]
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
@@ -416,7 +439,7 @@ class SessionManager:
         with record.log_lock:
             record.subscribers.pop(sub_id, None)
 
-    # ── Backwards-compatibility shims ────────────────────────────────────────
+    # -- Backwards-compatibility shims ----------------------------------------
     # Keep old attribute names working so any leftover call sites don't break
     # until they are updated.
     @staticmethod

@@ -1,8 +1,8 @@
 """
-alert_actions.py — Alert Event Builders (Blue Team Core)
+alert_actions.py - Alert Event Builders (Blue Team Core)
 =========================================================
 Pure functions that construct Event objects for all alert-related actions.
-No side effects — they only build and return an Event.
+No side effects - they only build and return an Event.
 
 The service layer calls these, then passes the event to the EventEmitter.
 """
@@ -12,8 +12,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.incidents.incident import Incident
+from attense_core.models.event import Event
+from attense_core.models.incident import Incident
 
 
 def _new_event_id() -> str:
@@ -112,3 +112,4 @@ def build_deny_alert_event(
         outcome="false_positive",
         metadata={"notes": notes} if notes else None,
     )
+

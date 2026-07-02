@@ -1,5 +1,5 @@
 """
-case_manager.py — Hive Case Manager
+case_manager.py - Hive Case Manager
 =====================================
 Higher-level orchestration on top of HiveClient.
 Manages the full Hive case lifecycle tied to an incident.
@@ -30,7 +30,7 @@ class CaseManager:
 
     def __init__(self, hive: HiveClient) -> None:
         self.hive = hive
-        self._case_ids: dict[str, str] = {}   # incident_id → hive_case_id
+        self._case_ids: dict[str, str] = {} # incident_id -> hive_case_id
 
     def open_case(self, incident_id: str, title: str, severity: str) -> str | None:
         """
@@ -55,13 +55,13 @@ class CaseManager:
         Parameters
         ----------
         incident_id : Incident whose case receives the observable.
-        data_type   : Observable type (e.g. ip, domain, hash, url).
-        value       : The IOC value.
+        data_type : Observable type (e.g. ip, domain, hash, url).
+        value : The IOC value.
         """
         case_id = self._case_ids.get(incident_id)
         if not case_id:
             logger.warning(
-                "[CaseManager] No Hive case found for incident '%s' — IOC not added.",
+                "[CaseManager] No Hive case found for incident '%s' - IOC not added.",
                 incident_id,
             )
             return

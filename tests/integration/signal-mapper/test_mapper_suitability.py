@@ -63,7 +63,7 @@ def test_mapper():
         print("[PASS] map_alert successfully mapped the alert.")
         print(f"[test] Event ID: {event.event_id}")
         print(f"[test] Scenario: {event.scenario_id}")
-        print(f"[test] Outcome:  {event.outcome}")
+        print(f"[test] Outcome: {event.outcome}")
         
         # Verify suitability fixes
         print("[test] Verifying suitability fixes (to_dict)...")

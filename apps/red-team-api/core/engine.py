@@ -1,5 +1,5 @@
 """
-core/engine.py — Attack execution engine (CLI build, no Qt).
+core/engine.py - Attack execution engine (CLI build, no Qt).
 
 Runs modules synchronously on the operator thread. In a CLI environment
 there is no GUI to keep responsive, so we drop QThread entirely. This
@@ -16,11 +16,11 @@ from core.base_module import BaseModule
 from core.logger import LogManager
 from core.models import AttackResult, TargetConfig
 
-# ── malicious_action_executed emission ──────────────────────────────────────
+# malicious_action_executed emission
 # Tells attense-app's incident pipeline a red-team module actually fired
 # against the target. This anchors Incident.start_time so TTD (time-to-detect)
 # is measurable, instead of falling back to using the first alert_raised for
-# both start and detection (see ATTENSE_app/incidents/incident.py).
+# both start and detection (see attense_core.models.incident).
 # Actual POST lives in core/event_sink.py, shared with backend/zap_bridge.py.
 
 
@@ -54,7 +54,7 @@ class Engine:
         self.modules = modules
         self.log = log_mgr
 
-    # ── Public API ────────────────────────────────────────────────────────────
+        # Public API
     def run_module(
         self,
         module_id: str,
@@ -112,7 +112,7 @@ class Engine:
                 log_fn=self.log.info,
             )
             result.duration_ms = round((time.monotonic() - t0) * 1000, 1)
-        except Exception as exc:  # noqa: BLE001 (we want all exceptions contained)
+        except Exception as exc: # noqa: BLE001 (we want all exceptions contained)
             result = AttackResult(
                 module_id=module.module_id,
                 module_name=module.name,
@@ -130,7 +130,7 @@ class Engine:
         self._emit_malicious_action_event(module, target, opts, result, actor_id, incident_id)
         return result
 
-    # ── Event emission ───────────────────────────────────────────────────────
+        # - Event emission - 
     def _emit_malicious_action_event(
         self,
         module: BaseModule,
@@ -173,3 +173,4 @@ class Engine:
             },
             log_fn=self.log.warning,
         )
+

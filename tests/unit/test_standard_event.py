@@ -27,13 +27,13 @@ _CORE_ROOT = os.path.join(_REPO_ROOT, "packages", "attense-core")
 if _CORE_ROOT not in sys.path:
     sys.path.insert(0, _CORE_ROOT)
 
-from ATTENSE_app.events.allowed_events import (
+from attense_core.models.allowed_events import (
     ALLOWED_ACTOR_TYPES,
     ALLOWED_EVENT_TYPES,
     ALLOWED_OUTCOMES,
     ALLOWED_TARGET_TYPES,
 )
-from ATTENSE_app.events.constants import (
+from attense_core.models.constants import (
     ActorType,
     EventSource,
     EventType,
@@ -41,8 +41,8 @@ from ATTENSE_app.events.constants import (
     Outcome,
     TargetType,
 )
-from ATTENSE_app.events.standard_event import SCHEMA_VERSION, StandardEvent
-from ATTENSE_app.incidents.incident import Incident
+from attense_core.models.standard_event import SCHEMA_VERSION, StandardEvent
+from attense_core.models.incident import Incident
 
 T0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
 
@@ -112,7 +112,7 @@ class StandardEventValidationTests(unittest.TestCase):
     def test_aware_non_utc_is_normalized_to_utc(self):
         payload = _legacy_payload(timestamp="2026-01-01T12:00:00+02:00")
         ev = StandardEvent.model_validate(payload)
-        self.assertEqual(ev.occurred_at, T0)  # 12:00+02:00 == 10:00Z
+        self.assertEqual(ev.occurred_at, T0) # 12:00+02:00 == 10:00Z
         self.assertEqual(ev.occurred_at.utcoffset(), timedelta(0))
 
     def test_naive_timestamp_string_is_rejected(self):
@@ -173,7 +173,7 @@ class LegacyBridgeTests(unittest.TestCase):
         self.assertEqual(legacy.metadata["schema_version"], SCHEMA_VERSION)
         self.assertEqual(legacy.metadata["room_id"], "room-7")
         self.assertEqual(legacy.metadata["run_id"], "run-3")
-        self.assertEqual(legacy.metadata["module_id"], "xss-01")  # original kept
+        self.assertEqual(legacy.metadata["module_id"], "xss-01") # original kept
 
     def test_to_legacy_event_dict_uses_timestamp_key(self):
         ev = StandardEvent.model_validate(CANONICAL)
@@ -200,7 +200,7 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(ev.source, EventSource.TEST)
 
     def test_from_wazuh_event_lifts_legacy_event(self):
-        from ATTENSE_app.events.event import Event
+        from attense_core.models.event import Event
 
         wazuh = Event(
             event_id="w1",
@@ -296,3 +296,4 @@ class GeneratedSchemaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

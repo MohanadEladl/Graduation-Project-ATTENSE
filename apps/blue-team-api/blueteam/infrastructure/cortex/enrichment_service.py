@@ -1,10 +1,10 @@
 """
-enrichment_service.py — Cortex-Lite Orchestrator
+enrichment_service.py - Cortex-Lite Orchestrator
 ==================================================
 Extracts IOCs from an incoming alert and runs all enrichment
 lookups (VirusTotal + AbuseIPDB) in one place.
 
-Called automatically by the raise_alert route — the analyst sees
+Called automatically by the raise_alert route - the analyst sees
 enrichment results as part of the alert_raised response.
 
 Design rules:
@@ -25,13 +25,13 @@ from .abuseipdb_client import AbuseIPDBClient, AbuseIPResult
 
 logger = logging.getLogger(__name__)
 
-# ── IOC extraction patterns ───────────────────────────────────────────────────
+# -- IOC extraction patterns ---------------------------------------------------
 
 _IPV4_RE = re.compile(
     r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b"
 )
 _HASH_RE = re.compile(r"\b([0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\b")
-_URL_RE  = re.compile(r"https?://[^\s\"'<>]+")
+_URL_RE = re.compile(r"https?://[^\s\"'<>]+")
 
 
 @dataclass
@@ -41,15 +41,15 @@ class EnrichmentReport:
 
     Fields
     ------
-    iocs_found      : dict of extracted IOC values by type
-    ip_reputation   : AbuseIPDB results for every IP in the alert
-    vt_ip_results   : VirusTotal results for every IP
-    vt_url_results  : VirusTotal results for every URL
+    iocs_found : dict of extracted IOC values by type
+    ip_reputation : AbuseIPDB results for every IP in the alert
+    vt_ip_results : VirusTotal results for every IP
+    vt_url_results : VirusTotal results for every URL
     vt_hash_results : VirusTotal results for every hash
-    risk_score      : 0–100 overall risk estimate
-    risk_label      : "low" | "medium" | "high" | "critical"
+    risk_score : 0-100 overall risk estimate
+    risk_label : "low" | "medium" | "high" | "critical"
     enrichment_note : Human-readable summary for the analyst
-    errors          : Any non-fatal errors during enrichment
+    errors : Any non-fatal errors during enrichment
     """
 
     iocs_found: dict[str, list[str]] = field(default_factory=dict)
@@ -96,7 +96,7 @@ class EnrichmentReport:
                 "url": "Malicious URL",
                 "hash": "Malicious File Hash",
             }.get(ioc_type, "Indicator")
-            return f"{default_message} — no threat-intel match found", tags
+            return f"{default_message} - no threat-intel match found", tags
 
         return " | ".join(parts), tags
 
@@ -154,17 +154,17 @@ class EnrichmentService:
 
     Parameters
     ----------
-    vt_api_key    : VirusTotal API key (empty = disabled).
+    vt_api_key : VirusTotal API key (empty = disabled).
     abuse_api_key : AbuseIPDB API key (empty = disabled).
     """
 
     def __init__(self, vt_api_key: str = "", abuse_api_key: str = "") -> None:
-        self._vt    = VirusTotalClient(api_key=vt_api_key)
+        self._vt = VirusTotalClient(api_key=vt_api_key)
         self._abuse = AbuseIPDBClient(api_key=abuse_api_key)
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # Public interface
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     def enrich_alert(self, raw_log: str, siem_id: str = "", target_id: str = "") -> EnrichmentReport:
         """
@@ -172,13 +172,13 @@ class EnrichmentService:
 
         Parameters
         ----------
-        raw_log   : The raw log line from the alert (best source of IOCs).
-        siem_id   : SIEM alert ID — used as fallback IOC context.
-        target_id : Target identifier — checked if it looks like an IP.
+        raw_log : The raw log line from the alert (best source of IOCs).
+        siem_id : SIEM alert ID - used as fallback IOC context.
+        target_id : Target identifier - checked if it looks like an IP.
 
         Returns
         -------
-        EnrichmentReport (never raises — always returns something).
+        EnrichmentReport (never raises - always returns something).
         """
         report = EnrichmentReport()
 
@@ -189,32 +189,32 @@ class EnrichmentService:
             report.iocs_found = {k: list(v) for k, v in iocs.items()}
 
             logger.info(
-                "[Cortex] Enriching alert — IPs: %d, URLs: %d, Hashes: %d",
+                "[Cortex] Enriching alert - IPs: %d, URLs: %d, Hashes: %d",
                 len(iocs["ips"]), len(iocs["urls"]), len(iocs["hashes"]),
             )
 
-            # 2. AbuseIPDB — check every extracted IP
+            # 2. AbuseIPDB - check every extracted IP
             for ip in iocs["ips"]:
                 result = self._abuse.lookup(ip)
                 report.ip_reputation.append(result)
                 if result.error:
                     report.errors.append(f"AbuseIPDB({ip}): {result.error}")
 
-            # 3. VirusTotal — IPs
+            # 3. VirusTotal - IPs
             for ip in iocs["ips"]:
                 result = self._vt.lookup_ip(ip)
                 report.vt_ip_results.append(result)
                 if result.error and result.error != "no_api_key":
                     report.errors.append(f"VT_IP({ip}): {result.error}")
 
-            # 4. VirusTotal — URLs
+            # 4. VirusTotal - URLs
             for url in iocs["urls"]:
                 result = self._vt.lookup_url(url)
                 report.vt_url_results.append(result)
                 if result.error and result.error != "no_api_key":
                     report.errors.append(f"VT_URL({url}): {result.error}")
 
-            # 5. VirusTotal — Hashes
+            # 5. VirusTotal - Hashes
             for h in iocs["hashes"]:
                 result = self._vt.lookup_hash(h)
                 report.vt_hash_results.append(result)
@@ -228,13 +228,13 @@ class EnrichmentService:
         except Exception as exc:
             logger.error("[Cortex] Unexpected enrichment error: %s", exc, exc_info=True)
             report.errors.append(f"unexpected: {exc}")
-            report.enrichment_note = "Enrichment failed unexpectedly — alert still valid."
+            report.enrichment_note = "Enrichment failed unexpectedly - alert still valid."
 
         return report
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # IOC extraction
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     @staticmethod
     def _extract_iocs(text: str) -> dict[str, set[str]]:
@@ -242,8 +242,8 @@ class EnrichmentService:
         Extract IPs, URLs, and hashes from free-form text.
         Returns a dict of sets to avoid duplicates.
         """
-        ips:    set[str] = set()
-        urls:   set[str] = set()
+        ips: set[str] = set()
+        urls: set[str] = set()
         hashes: set[str] = set()
 
         # URLs first (so IPs inside URLs aren't double-counted)
@@ -267,14 +267,14 @@ class EnrichmentService:
 
         return {"ips": ips, "urls": urls, "hashes": hashes}
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # Risk scoring
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     @staticmethod
     def _compute_risk(report: EnrichmentReport) -> tuple[int, str]:
         """
-        Compute a 0–100 risk score from all enrichment results.
+        Compute a 0-100 risk score from all enrichment results.
 
         Scoring:
           - AbuseIPDB confidence score contributes directly (max 50 pts)
@@ -285,14 +285,14 @@ class EnrichmentService:
         # AbuseIPDB contribution (take the worst IP)
         for r in report.ip_reputation:
             if r.found and not r.error:
-                score = max(score, r.abuse_confidence_score // 2)   # 0–50 pts
+                score = max(score, r.abuse_confidence_score // 2) # 0-50 pts
 
         # VT contribution (IPs + URLs + hashes)
         all_vt = report.vt_ip_results + report.vt_url_results + report.vt_hash_results
         for r in all_vt:
             if r.found and r.total_engines > 0:
                 ratio = r.malicious_votes / r.total_engines
-                vt_pts = int(ratio * 50)                            # 0–50 pts
+                vt_pts = int(ratio * 50) # 0-50 pts
                 score = max(score, score + vt_pts)
 
         score = min(score, 100)

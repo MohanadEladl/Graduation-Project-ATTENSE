@@ -1,5 +1,5 @@
 """
-reader.py – Continuously tail the Wazuh alerts JSONL file.
+reader.py - Continuously tail the Wazuh alerts JSONL file.
 
 Each line in alerts.json is a self-contained JSON object written by Wazuh.
 On startup we fast-forward past existing content (so we only process *new*
@@ -48,7 +48,7 @@ def tail_alerts(path: str | None = None) -> Generator[dict, None, None]:
     path = path or settings.wazuh_alerts_path
     _wait_for_file(path)
 
-    while True:  # outer loop handles rotation
+    while True: # outer loop handles rotation
         try:
             inode = os.stat(path).st_ino
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -67,10 +67,10 @@ def tail_alerts(path: str | None = None) -> Generator[dict, None, None]:
                         try:
                             st = os.stat(path)
                             if st.st_ino != inode or st.st_size < fh.tell():
-                                logger.info("[reader] File rotation detected – reopening.")
-                                break  # break inner loop → re-open
+                                logger.info("[reader] File rotation detected - reopening.")
+                                break # break inner loop -> re-open
                         except FileNotFoundError:
-                            logger.warning("[reader] Alerts file disappeared – waiting.")
+                            logger.warning("[reader] Alerts file disappeared - waiting.")
                             time.sleep(2)
                             break
                         time.sleep(settings.poll_interval)
@@ -88,8 +88,8 @@ def tail_alerts(path: str | None = None) -> Generator[dict, None, None]:
                         )
 
         except FileNotFoundError:
-            logger.warning("[reader] File not found: %s – retrying in 5s.", path)
+            logger.warning("[reader] File not found: %s - retrying in 5s.", path)
             time.sleep(5)
         except Exception as exc:
-            logger.error("[reader] Unexpected error: %s – retrying in 5s.", exc, exc_info=True)
+            logger.error("[reader] Unexpected error: %s - retrying in 5s.", exc, exc_info=True)
             time.sleep(5)

@@ -1,12 +1,12 @@
 """
-containment_validator.py — Containment Validation Rules
+containment_validator.py - Containment Validation Rules
 =========================================================
 Pre-condition checks for containment actions.
 """
 
 from __future__ import annotations
 
-from ATTENSE_app.incidents.incident import Incident
+from attense_core.models.incident import Incident
 
 
 def validate_initiate_containment(incident: Incident, store) -> None:
@@ -62,3 +62,4 @@ def validate_complete_containment(incident: Incident, store) -> None:
         raise ValueError(
             f"Containment outcome already recorded for incident '{incident.incident_id}'."
         )
+

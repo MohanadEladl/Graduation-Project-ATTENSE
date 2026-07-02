@@ -27,8 +27,8 @@ _CORE_ROOT = os.path.join(_REPO_ROOT, "packages", "attense-core")
 if _CORE_ROOT not in sys.path:
     sys.path.insert(0, _CORE_ROOT)
 
-from pipeline import bridge  # noqa: E402
-from pipeline.bridge import run_bridge  # noqa: E402
+from pipeline import bridge # noqa: E402
+from pipeline.bridge import run_bridge # noqa: E402
 
 INCIDENT = "scored-report-test"
 
@@ -72,14 +72,14 @@ def _write_two_analyst_actions(actions_dir: str) -> None:
     with open(path_a, "w", encoding="utf-8") as fh:
         for et, t in (("investigation_started", 60), ("incident_confirmed", 120)):
             fh.write(json.dumps({
-                "analyst_id": "analyst-a", "incident_id": INCIDENT,
-                "scenario_id": "APP-01", "event_type": et, "t_offset_sec": t,
-                "detail": f"fixture {et}", "timestamp": 1.0 * t, "stored_at": 1.0 * t,
+            "analyst_id": "analyst-a", "incident_id": INCIDENT,
+            "scenario_id": "APP-01", "event_type": et, "t_offset_sec": t,
+            "detail": f"fixture {et}", "timestamp": 1.0 * t, "stored_at": 1.0 * t,
             }) + "\n")
-    with open(path_b, "w", encoding="utf-8") as fh:
-        for et, t in (("containment_initiated", 180), ("containment_succeeded", 240)):
-            fh.write(json.dumps({
-                "analyst_id": "analyst-b", "incident_id": INCIDENT,
+            with open(path_b, "w", encoding="utf-8") as fh:
+                for et, t in (("containment_initiated", 180), ("containment_succeeded", 240)):
+                    fh.write(json.dumps({
+                    "analyst_id": "analyst-b", "incident_id": INCIDENT,
                 "scenario_id": "APP-01", "event_type": et, "t_offset_sec": t,
                 "detail": f"fixture {et}", "timestamp": 1.0 * t, "stored_at": 1.0 * t,
             }) + "\n")
@@ -95,14 +95,14 @@ class ScoredReportWiringTests(unittest.TestCase):
             self.tmp = tempfile.mkdtemp()
         self.actions = os.path.join(self.tmp, "actions")
         os.makedirs(self.actions)
-        # bridge reads these as module-level globals at call time — point them
+        # bridge reads these as module-level globals at call time - point them
         # at the fixture dir instead of the container's /attense paths.
         self._orig_mapped = bridge.MAPPED_EVENTS
         self._orig_actions = bridge.ACTIONS_DIR
         self._orig_store = bridge.EVENT_STORE_DIR
         bridge.MAPPED_EVENTS = os.path.join(self.tmp, "mapped_events.jsonl")
         bridge.ACTIONS_DIR = self.actions
-        bridge.EVENT_STORE_DIR = None  # off by default; the merge test opts in
+        bridge.EVENT_STORE_DIR = None # off by default; the merge test opts in
 
     def tearDown(self):
         bridge.MAPPED_EVENTS = self._orig_mapped
@@ -174,14 +174,14 @@ class ScoredReportWiringTests(unittest.TestCase):
 
     def test_no_events_raises_valueerror_for_the_endpoint_fallback(self):
         # the endpoint catches this exact ValueError and degrades to the basic
-        # generate_report() — see incidents_router._scored_report.
+        # generate_report() - see incidents_router._scored_report.
         with self.assertRaises(ValueError):
             run_bridge("incident-with-no-durable-events")
 
     def test_build_and_write_report_persists_markdown_and_summary(self):
         # The exercise-end hook (room_manager._generate_final_reports) and the
         # CLI both go through this. It must score, write the markdown file, and
-        # return a summary — without any VERTEX env (plain-text fallback).
+        # return a summary - without any VERTEX env (plain-text fallback).
         from pipeline.run_pipeline import build_and_write_report
 
         _write_alert(bridge.MAPPED_EVENTS)
@@ -210,7 +210,7 @@ class ScoredReportWiringTests(unittest.TestCase):
         # The core data-flow fix: red-team malicious_action_executed events live
         # ONLY in the durable store (they never reach mapped_events.jsonl, which
         # the signal-mapper fills with alert_raised only). run_bridge must merge
-        # the store so start_time anchors on the ATTACK, not the alert — making
+        # the store so start_time anchors on the ATTACK, not the alert - making
         # TTD a real interval instead of the degenerate ~0 it was before.
         from attense_core.models.standard_event import StandardEvent
         from attense_core.repositories.events import EventRepository
@@ -218,14 +218,14 @@ class ScoredReportWiringTests(unittest.TestCase):
         store_dir = os.path.join(self.tmp, "event_store")
         bridge.EVENT_STORE_DIR = store_dir
 
-        t0 = datetime(2026, 6, 24, 12, 0, 0, tzinfo=timezone.utc)  # attack start
+        t0 = datetime(2026, 6, 24, 12, 0, 0, tzinfo=timezone.utc) # attack start
         EventRepository(store_dir).append(StandardEvent(
             event_id="rt-1", incident_id=INCIDENT, scenario_id="APP-01",
             actor_id="redteam-operator", target_id="http://target-agent",
             event_type="malicious_action_executed", actor_type="red_team",
             target_type="service", occurred_at=t0, outcome="success",
         ))
-        # Wazuh alert 120s later — the only thing in mapped_events.jsonl.
+        # Wazuh alert 120s later - the only thing in mapped_events.jsonl.
         alert_ts = (t0 + timedelta(seconds=120)).strftime("%Y-%m-%dT%H:%M:%S")
         with open(bridge.MAPPED_EVENTS, "w", encoding="utf-8") as fh:
             fh.write(json.dumps({
@@ -239,55 +239,55 @@ class ScoredReportWiringTests(unittest.TestCase):
         report, events = run_bridge(INCIDENT)
 
         ids = {e.event_id for e in events}
-        self.assertIn("rt-1", ids)   # the red-team attack event was merged in
+        self.assertIn("rt-1", ids) # the red-team attack event was merged in
         self.assertIn("wz-1", ids)
         # start_time = attack (t0); detection = alert (t0+120s) => real TTD.
         self.assertEqual(report["ttd"], timedelta(seconds=120))
 
-    def test_run_bridge_team_score_is_average_of_member_scores(self):
-        _write_alert(bridge.MAPPED_EVENTS)
-        _write_two_analyst_actions(self.actions)
+        def test_run_bridge_team_score_is_average_of_member_scores(self):
+            _write_alert(bridge.MAPPED_EVENTS)
+            _write_two_analyst_actions(self.actions)
 
-        report, _events = run_bridge(INCIDENT)
+            report, _events = run_bridge(INCIDENT)
 
-        self.assertEqual(report["team_score_basis"], "average_of_members")
-        self.assertEqual(set(report["member_scores"]), {"analyst-a", "analyst-b"})
-        expected_avg = round(
+            self.assertEqual(report["team_score_basis"], "average_of_members")
+            self.assertEqual(set(report["member_scores"]), {"analyst-a", "analyst-b"})
+            expected_avg = round(
             sum(m["final_score"] for m in report["member_scores"].values()) / 2, 2
-        )
-        self.assertEqual(report["final_score"], expected_avg)
-        # team-wide rule breakdown (full incident context) is untouched —
-        # still 9 rules, still reflects the whole timeline, not the average.
-        self.assertEqual(len(report["scoring_rules"]), 9)
+            )
+            self.assertEqual(report["final_score"], expected_avg)
+            # team-wide rule breakdown (full incident context) is untouched -
+            # still 9 rules, still reflects the whole timeline, not the average.
+            self.assertEqual(len(report["scoring_rules"]), 9)
 
-    def test_run_bridge_falls_back_to_whole_incident_score_with_no_analysts(self):
-        # No analyst-*.jsonl written at all -> system-only incident.
-        _write_alert(bridge.MAPPED_EVENTS)
+            def test_run_bridge_falls_back_to_whole_incident_score_with_no_analysts(self):
+                # No analyst-*.jsonl written at all -> system-only incident.
+                _write_alert(bridge.MAPPED_EVENTS)
 
-        report, _events = run_bridge(INCIDENT)
+                report, _events = run_bridge(INCIDENT)
 
-        self.assertEqual(report["team_score_basis"], "whole_incident")
-        self.assertEqual(report["member_scores"], {})
+                self.assertEqual(report["team_score_basis"], "whole_incident")
+                self.assertEqual(report["member_scores"], {})
 
-    def test_build_and_write_report_writes_one_file_per_member(self):
-        from pipeline.run_pipeline import build_and_write_report
+                def test_build_and_write_report_writes_one_file_per_member(self):
+                    from pipeline.run_pipeline import build_and_write_report
 
-        _write_alert(bridge.MAPPED_EVENTS)
-        _write_two_analyst_actions(self.actions)
+                    _write_alert(bridge.MAPPED_EVENTS)
+                    _write_two_analyst_actions(self.actions)
 
-        result = build_and_write_report(INCIDENT, actions_dir=self.actions)
+                    result = build_and_write_report(INCIDENT, actions_dir=self.actions)
 
-        self.assertEqual(len(result["member_reports"]), 2)
-        analyst_ids = {m["analyst_id"] for m in result["member_reports"]}
-        self.assertEqual(analyst_ids, {"analyst-a", "analyst-b"})
-        for member in result["member_reports"]:
-            self.assertTrue(os.path.isfile(member["report_path"]))
-            with open(member["report_path"], encoding="utf-8") as fh:
-                markdown = fh.read()
-            # member report is scoped to that analyst -- title carries their id
-            self.assertIn(member["analyst_id"], markdown)
-        # team file still written too, at the original path/name
-        self.assertTrue(os.path.isfile(result["report_path"]))
+                    self.assertEqual(len(result["member_reports"]), 2)
+                    analyst_ids = {m["analyst_id"] for m in result["member_reports"]}
+                    self.assertEqual(analyst_ids, {"analyst-a", "analyst-b"})
+                    for member in result["member_reports"]:
+                        self.assertTrue(os.path.isfile(member["report_path"]))
+                        with open(member["report_path"], encoding="utf-8") as fh:
+                            markdown = fh.read()
+                            # member report is scoped to that analyst -- title carries their id
+                            self.assertIn(member["analyst_id"], markdown)
+                            # team file still written too, at the original path/name
+                            self.assertTrue(os.path.isfile(result["report_path"]))
 
     def test_durable_store_dedups_overlapping_event_ids(self):
         # The store also contains the Wazuh alert_raised (it passes through
@@ -318,7 +318,7 @@ class ScoredReportWiringTests(unittest.TestCase):
             }) + "\n")
 
         _report, events = run_bridge(INCIDENT)
-        self.assertEqual([e.event_id for e in events], ["wz-1"])  # not duplicated
+        self.assertEqual([e.event_id for e in events], ["wz-1"]) # not duplicated
 
 
 if __name__ == "__main__":

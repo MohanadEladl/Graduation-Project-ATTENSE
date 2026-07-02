@@ -1,5 +1,5 @@
 """
-Zero-Day Detection Agent — with MITRE ATT&CK Integration
+Zero-Day Detection Agent - with MITRE ATT&CK Integration
 """
 
 import hashlib
@@ -45,7 +45,7 @@ logger = logging.getLogger("zeroday-agent")
 
 _MARKDOWN_FENCE_RE = re.compile(r"```json|```")
 
-# ─── Gemini Client (lazy singleton, aligned with project pattern) ────────────
+# --- Gemini Client (lazy singleton, aligned with project pattern) ------------
 
 _client = None
 
@@ -59,7 +59,7 @@ def _get_client():
     if _client is not None:
         return _client
     if not _GENAI_AVAILABLE:
-        logger.warning("google-genai not installed — Gemini analysis unavailable")
+        logger.warning("google-genai not installed - Gemini analysis unavailable")
         return None
 
     api_key = os.environ.get("GOOGLE_API_KEY", "")
@@ -80,28 +80,28 @@ def _get_client():
     return None
 
 
-# ─── ATTENSE Cyber Range containers (verified against compose files) ─────────
+# --- ATTENSE Cyber Range containers (verified against compose files) ---------
 
 CONTAINERS = {
-    "attense_target_agent":         "target-agent",
-    "attense_wazuh_manager":        "wazuh-manager",
-    "attense_signal_store":         "signal-store",
-    "attense_app":                  "attense-app",
-    "attense-attackbox":            "attackbox",
-    "attense_red_team_backend":     "red-team-backend",
-    "attense_red_team_frontend":    "red-team-frontend",
-    "attense_zap":                  "zap",
-    "attense_ollama":               "ollama",
-    "attense_thehive":              "thehive",
-    "attense_cortex":               "cortex",
-    "attense_cassandra":            "cassandra",
-    "attense_elasticsearch":        "elasticsearch",
+    "attense_target_agent": "target-agent",
+    "attense_wazuh_manager": "wazuh-manager",
+    "attense_signal_store": "signal-store",
+    "attense_app": "attense-app",
+    "attense-attackbox": "attackbox",
+    "attense_red_team_backend": "red-team-backend",
+    "attense_red_team_frontend": "red-team-frontend",
+    "attense_zap": "zap",
+    "attense_ollama": "ollama",
+    "attense_thehive": "thehive",
+    "attense_cortex": "cortex",
+    "attense_cassandra": "cassandra",
+    "attense_elasticsearch": "elasticsearch",
     "attense_wazuh_agent_watchdog": "wazuh-agent-watchdog",
 }
 
 BLUETEAM_URL = os.environ.get("BLUETEAM_URL", "http://attense-app:8010")
 ROOM_ID = os.environ.get("ROOM_ID", "default")
-# Scoring pipeline (control-api event ingest) — same endpoint the red-team
+# Scoring pipeline (control-api event ingest) - same endpoint the red-team
 # engine posts malicious_action_executed to (see red-team-api/core/event_sink.py).
 ATTENSE_APP_URL = os.environ.get("ATTENSE_APP_URL", "http://attense-app:8020")
 EVENTS_SECRET = os.environ.get("RED_TEAM_EVENTS_SECRET", "")
@@ -118,7 +118,7 @@ MAX_OUTPUT_TOKENS = 8192
 PARALLEL_WORKERS = 8
 
 
-# ─── Shared helpers ──────────────────────────────────────────────────────────
+# --- Shared helpers ----------------------------------------------------------
 
 def _empty_analysis(**overrides) -> dict:
     base = {
@@ -154,7 +154,7 @@ def _parse_json_response(text: str) -> dict | None:
     return None
 
 
-# ─── Log Collection (parallel) ───────────────────────────────────────────────
+# --- Log Collection (parallel) -----------------------------------------------
 
 def _collect_one(container: str, label: str) -> dict:
     try:
@@ -191,14 +191,14 @@ def collect_all_logs() -> list[dict]:
             data = future.result()
             results[cid] = data
             if data["error"]:
-                logger.warning("  %s: %s", label, data["error"])
+                logger.warning(" %s: %s", label, data["error"])
             else:
-                logger.info("  %s: OK", label)
+                logger.info(" %s: OK", label)
 
     return [results[cid] for cid in CONTAINERS if cid in results]
 
 
-# ─── MITRE Pre-Analysis ─────────────────────────────────────────────────────
+# --- MITRE Pre-Analysis -----------------------------------------------------
 
 def pre_analyze_mitre(all_logs: list[dict]) -> dict:
     return {
@@ -212,27 +212,27 @@ def _format_mitre_context(mitre_matches: dict) -> str:
     parts = ["PRE-MATCHED MITRE ATT&CK TECHNIQUES (from keyword scan):"]
     for container, matches in mitre_matches.items():
         if matches:
-            parts.append(f"\n  Container: {container}")
+            parts.append(f"\n Container: {container}")
             for m in matches:
-                parts.append(f"    -> {m['technique_id']} [{m['tactic']}] {m['technique_name']}")
-                parts.append(f"       Matched keywords: {', '.join(m['matched_keywords'])}")
+                parts.append(f" -> {m['technique_id']} [{m['tactic']}] {m['technique_name']}")
+                parts.append(f" Matched keywords: {', '.join(m['matched_keywords'])}")
         else:
-            parts.append(f"\n  Container: {container} -- No known technique keywords matched")
+            parts.append(f"\n Container: {container} -- No known technique keywords matched")
     return "\n".join(parts)
 
 
-# ─── Alert dispatch — both planes, correlated + deduplicated ─────────────────
+# --- Alert dispatch - both planes, correlated + deduplicated -----------------
 #
 # A confirmed zero-day is sent to BOTH consumers:
-#   1. the blue-team analyst dashboard  → POST :8010/blueteam/raise-alert
-#      (RaiseAlertRequest + X-Room-Id; mirrors signal-mapper/app/output.py)
-#   2. the control-api scoring pipeline → POST :8020/api/incidents/events
-#      (canonical StandardEvent; mirrors red-team-api/core/event_sink.py)
+# 1. the blue-team analyst dashboard -> POST :8010/blueteam/raise-alert
+# (RaiseAlertRequest + X-Room-Id; mirrors signal-mapper/app/output.py)
+# 2. the control-api scoring pipeline -> POST :8020/api/incidents/events
+# (canonical StandardEvent; mirrors red-team-api/core/event_sink.py)
 #
 # Both carry the SHARED exercise incident_id (INCIDENT_ID env) so the detection
 # joins the one-exercise-one-incident timeline instead of minting its own ticket
 # (report Phase 4). The watcher re-scans every cycle, so dispatch is deduplicated
-# by a detection fingerprint — a persistent attack is reported once, not every
+# by a detection fingerprint - a persistent attack is reported once, not every
 # interval. Transport uses tenacity retry, the same library signal-mapper and
 # control-api use.
 
@@ -255,13 +255,13 @@ def _get_http_client() -> httpx.Client:
 
 def _resolve_incident_id() -> str:
     """The shared exercise incident_id (INCIDENT_ID env), or a generated id in
-    standalone mode. Mirrors signal-mapper/app/mapper.py:_resolve_incident_id —
+    standalone mode. Mirrors signal-mapper/app/mapper.py:_resolve_incident_id -
     correlate to the exercise instead of splitting it into a separate incident."""
     return INCIDENT_ID or f"zeroday-{uuid.uuid4()}"
 
 
 def _detection_fingerprint(analysis: dict) -> str:
-    """Stable id for a *distinct* detection — drives both dedup and an
+    """Stable id for a *distinct* detection - drives both dedup and an
     idempotent StandardEvent event_id (so a replay is ignored by the store)."""
     mitre = analysis.get("closest_mitre_technique", {})
     basis = "|".join([
@@ -296,7 +296,7 @@ def _to_raise_alert_request(analysis: dict, incident_id: str) -> dict:
 
 def _to_standard_event(analysis: dict, incident_id: str, fingerprint: str) -> dict:
     """Build the canonical StandardEvent the scoring pipeline ingests (report
-    Phase 2). Mirrors red-team-api/core/event_sink.py — same contract, but a
+    Phase 2). Mirrors red-team-api/core/event_sink.py - same contract, but a
     separate container so it can't import attense_core. Emitted as an
     `alert_raised` detection by the `system` actor; the fingerprint-derived
     event_id makes a replay idempotent in the durable store."""
@@ -367,7 +367,7 @@ def dispatch_alert(analysis: dict) -> dict:
     global _last_posted_fingerprint
     fingerprint = _detection_fingerprint(analysis)
     if fingerprint == _last_posted_fingerprint:
-        logger.info("Same zero-day as last report (fp=%s) — skipping duplicate dispatch", fingerprint)
+        logger.info("Same zero-day as last report (fp=%s) - skipping duplicate dispatch", fingerprint)
         return {"skipped": True, "fingerprint": fingerprint}
 
     incident_id = _resolve_incident_id()
@@ -390,7 +390,7 @@ def dispatch_alert(analysis: dict) -> dict:
     }
 
 
-# ─── Gemini AI Analysis ─────────────────────────────────────────────────────
+# --- Gemini AI Analysis -----------------------------------------------------
 
 _SYSTEM_PROMPT_TEMPLATE = """You are a senior cybersecurity analyst and MITRE ATT&CK expert.
 You are analyzing logs from the ATTENSE Cyber Range -- a Red Team vs Blue Team simulation lab with these containers:
@@ -489,7 +489,7 @@ def _call_gemini(client, model: str, system_prompt: str, messages: list) -> str 
         return response.text.strip()
     except genai_errors.ClientError as exc:
         if exc.code == 429:
-            logger.warning("Gemini rate limit hit — waiting 55s before retry...")
+            logger.warning("Gemini rate limit hit - waiting 55s before retry...")
             time.sleep(55)
             response = client.models.generate_content(
                 model=model,
@@ -550,7 +550,7 @@ def _build_offline_analysis(mitre_matches: dict) -> dict:
             "mitre_technique": m.get("technique_id", "UNKNOWN"),
             "mitre_tactic": m.get("tactic", "Unknown"),
             "is_known_technique": True,
-            "zero_day_indicator": "N/A — matches known technique",
+            "zero_day_indicator": "N/A - matches known technique",
             "timestamp": datetime.now().isoformat(),
         }
         for container, m in all_matches
@@ -568,12 +568,12 @@ def _build_offline_analysis(mitre_matches: dict) -> dict:
         "classification": "KNOWN_ATTACK",
         "kill_chain_stage": best_match.get("tactic", "Unknown").replace("-", " ").title(),
         "closest_mitre_technique": {
-            "id":          best_match.get("technique_id", "UNKNOWN"),
-            "name":        best_match.get("technique_name", "Unknown"),
-            "tactic":      best_match.get("tactic", "Unknown"),
-            "url":         best_match.get("url", ""),
+            "id": best_match.get("technique_id", "UNKNOWN"),
+            "name": best_match.get("technique_name", "Unknown"),
+            "tactic": best_match.get("tactic", "Unknown"),
+            "url": best_match.get("url", ""),
             "match_level": "FULL",
-            "why_zero_day": "N/A — behavior matches a known technique; no zero-day indicators.",
+            "why_zero_day": "N/A - behavior matches a known technique; no zero-day indicators.",
         },
         "anomalies": anomalies,
         "attack_vector": f"Keyword-matched techniques in: {', '.join(affected)}",
@@ -584,7 +584,7 @@ def _build_offline_analysis(mitre_matches: dict) -> dict:
             f"Full kill-chain reasoning requires Gemini credentials."
         ),
         "reasoning": (
-            f"Offline analysis — no Gemini credentials available. "
+            f"Offline analysis - no Gemini credentials available. "
             f"MITRE pre-scan matched {len(all_matches)} known technique(s) across "
             f"{len(affected)} container(s): {techniques_summary}."
         ),
@@ -599,7 +599,7 @@ def _build_offline_analysis(mitre_matches: dict) -> dict:
 def analyze_with_gemini(all_logs: list[dict], mitre_matches: dict) -> dict:
     client = _get_client()
     if client is None:
-        logger.warning("No Gemini credentials — falling back to offline MITRE analysis")
+        logger.warning("No Gemini credentials - falling back to offline MITRE analysis")
         return _build_offline_analysis(mitre_matches)
 
     logger.info("Starting Gemini AI + MITRE ATT&CK analysis...")
@@ -627,16 +627,16 @@ Respond ONLY with the JSON object."""
     messages = [{"role": "user", "parts": [{"text": user_prompt}]}]
 
     for turn in range(MAX_API_TURNS):
-        logger.info("  Analysis turn %d/%d...", turn + 1, MAX_API_TURNS)
+        logger.info(" Analysis turn %d/%d...", turn + 1, MAX_API_TURNS)
         text = _call_gemini(client, GEMINI_MODEL, system_prompt, messages)
 
         if text is None:
-            logger.warning("Gemini returned no response — returning empty analysis")
+            logger.warning("Gemini returned no response - returning empty analysis")
             return _empty_analysis(reasoning="Gemini API call failed")
 
         result = _parse_json_response(text)
         if result:
-            logger.info("  MITRE analysis complete")
+            logger.info(" MITRE analysis complete")
             return result
 
         messages.append({"role": "model", "parts": [{"text": text}]})
@@ -645,7 +645,7 @@ Respond ONLY with the JSON object."""
     return _empty_analysis(reasoning=f"JSON parsing failed after {MAX_API_TURNS} attempts")
 
 
-# ─── Report Generator ───────────────────────────────────────────────────────
+# --- Report Generator -------------------------------------------------------
 
 _BADGE_MAP = {
     "TRUE_ZERO_DAY": "TRUE ZERO-DAY", "ZERO_DAY_VARIANT": "ZERO-DAY VARIANT",
@@ -691,8 +691,8 @@ def generate_report(analysis: dict, all_logs: list[dict], mitre_matches: dict) -
         if matches:
             for m in matches:
                 w(f"- **{m['technique_id']}** [{m['tactic']}] {m['technique_name']}\n")
-                w(f"  - Keywords: `{', '.join(m['matched_keywords'])}`\n")
-                w(f"  - {m['url']}\n")
+                w(f" - Keywords: `{', '.join(m['matched_keywords'])}`\n")
+                w(f" - {m['url']}\n")
         else:
             w("_No known MITRE technique keywords matched -- suspicious!_\n\n")
 
@@ -740,7 +740,7 @@ def generate_report(analysis: dict, all_logs: list[dict], mitre_matches: dict) -
     return report_path
 
 
-# ─── Alert ───────────────────────────────────────────────────────────────────
+# --- Alert -------------------------------------------------------------------
 
 def send_alert(analysis: dict):
     classification = analysis.get("classification", "UNKNOWN")
@@ -766,18 +766,18 @@ def send_alert(analysis: dict):
         )
 
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+# --- Main --------------------------------------------------------------------
 
 def run_agent():
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s  %(message)s",
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     logger.info("=" * 60)
-    logger.info("  ZERO-DAY DETECTION AGENT + MITRE ATT&CK")
-    logger.info("  Connected to ATTENSE Cyber Range")
+    logger.info(" ZERO-DAY DETECTION AGENT + MITRE ATT&CK")
+    logger.info(" Connected to ATTENSE Cyber Range")
     logger.info("=" * 60)
 
     all_logs = collect_all_logs()
@@ -785,7 +785,7 @@ def run_agent():
     logger.info("Running MITRE ATT&CK keyword pre-scan...")
     mitre_matches = pre_analyze_mitre(all_logs)
     total = sum(len(v) for v in mitre_matches.values())
-    logger.info("  Found %d technique matches across containers", total)
+    logger.info(" Found %d technique matches across containers", total)
 
     valid_logs = [log for log in all_logs if not log.get("error") and log.get("logs", "").strip()]
     if valid_logs:

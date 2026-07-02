@@ -1,5 +1,5 @@
 """
-routes/search.py – Search endpoint.
+routes/search.py - Search endpoint.
 
 [VULN APP-01] REFLECTED CROSS-SITE SCRIPTING (XSS)
 ====================================================
@@ -15,13 +15,14 @@ from flask import Blueprint, request, render_template_string, current_app
 from markupsafe import escape
 
 import containment
+from route_security import has_xss_payload
 
 logger = logging.getLogger("target.search")
 search_bp = Blueprint("search", __name__)
 
 _TEMPLATE = """
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
-<title>Product Search — AcmeCorp</title>
+<title>Product Search - AcmeCorp</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#c8cdd8;min-height:100vh;}
@@ -97,7 +98,7 @@ a{color:#6ea8fe;text-decoration:none;}
 
 @search_bp.route("/search")
 def search():
-    # [VULN] q is rendered with |safe — no escaping. XSS lives here.
+    # [VULN] q is rendered with |safe - no escaping. XSS lives here.
     q = request.args.get("q", "")
 
     logger.info(json.dumps({
@@ -108,7 +109,7 @@ def search():
         "method": request.method,
     }))
 
-    # Lab evidence — generic usage
+    # Lab evidence - generic usage
     import evidence
     evidence.record(
         "search_used",
@@ -119,29 +120,25 @@ def search():
         extra={"query": q},
     )
     # Detect XSS-like payloads: script tags, event handlers, javascript:
-    if q:
-        low = q.lower()
-        if any(s in low for s in ("<script", "</script", "onerror=", "onload=",
-                                  "onclick=", "onmouseover=", "javascript:",
-                                  "<svg", "<img ", "<iframe")):
-            evidence.record(
-                "xss_payload_observed",
-                module_id="xss",
-                path="/search", method="GET",
-                source_ip=request.remote_addr,
-        via=current_app.detect_via(),
-                severity="medium",
-                extra={"query": q[:200]},
-            )
-            evidence.record(
-                "reflected_input_detected",
-                module_id="xss",
-                path="/search", method="GET",
-                source_ip=request.remote_addr,
-        via=current_app.detect_via(),
-                severity="high",
-                extra={"query": q[:200]},
-            )
+    if has_xss_payload(q):
+        evidence.record(
+            "xss_payload_observed",
+            module_id="xss",
+            path="/search", method="GET",
+            source_ip=request.remote_addr,
+            via=current_app.detect_via(),
+            severity="medium",
+            extra={"query": q[:200]},
+        )
+        evidence.record(
+            "reflected_input_detected",
+            module_id="xss",
+            path="/search", method="GET",
+            source_ip=request.remote_addr,
+            via=current_app.detect_via(),
+            severity="high",
+            extra={"query": q[:200]},
+        )
 
     rendered_q = escape(q) if containment.is_enabled("sanitize_input") else q
     return render_template_string(_TEMPLATE, q=rendered_q)

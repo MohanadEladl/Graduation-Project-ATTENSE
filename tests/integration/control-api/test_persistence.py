@@ -27,12 +27,12 @@ _CORE_ROOT = os.path.join(_REPO_ROOT, "packages", "attense-core")
 if _CORE_ROOT not in sys.path:
     sys.path.insert(0, _CORE_ROOT)
 
-from ATTENSE_app.events.standard_event import StandardEvent
-from ATTENSE_app.incidents.incident import Incident
-from ATTENSE_app.matrics.metrics import TTC_calculation, TTD_calculation
-from ATTENSE_app.Outcomes.outcome import classify_outcome
-from ATTENSE_app.persistence.event_repository import EventRepository
-from ATTENSE_app.persistence.incident_projection import IncidentProjection
+from attense_core.models.standard_event import StandardEvent
+from attense_core.models.incident import Incident
+from attense_core.evaluation.metrics import TTC_calculation, TTD_calculation
+from attense_core.evaluation.outcome import classify_outcome
+from attense_core.repositories.events import EventRepository
+from attense_core.repositories.incidents import IncidentProjection
 
 T0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
 
@@ -103,7 +103,7 @@ class RepositoryTests(unittest.TestCase):
     def test_duplicate_event_id_is_ignored(self):
         ev = make_event("malicious_action_executed", 0, event_id="DUP")
         self.assertTrue(self.repo.append(ev))
-        self.assertFalse(self.repo.append(ev))  # same id -> ignored
+        self.assertFalse(self.repo.append(ev)) # same id -> ignored
         self.assertEqual(len(self.repo.get_events("INC-1")), 1)
 
     def test_duplicate_does_not_double_count_failures(self):
@@ -127,8 +127,8 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(proj.outcome, "SUCCESS")
         self.assertEqual(proj.ttd_seconds, legacy["ttd"])
         self.assertEqual(proj.ttc_seconds, legacy["ttc"])
-        self.assertEqual(proj.ttd_seconds, 120.0)   # 2 min
-        self.assertEqual(proj.ttc_seconds, 420.0)    # 7 min
+        self.assertEqual(proj.ttd_seconds, 120.0) # 2 min
+        self.assertEqual(proj.ttc_seconds, 420.0) # 7 min
 
     def test_state_survives_restart(self):
         for ev in LIFECYCLE:
@@ -201,7 +201,7 @@ class ControllerDualWriteTests(unittest.TestCase):
         ev = make_event("malicious_action_executed", 0, event_id="REPLAY", actor_type="red_team")
         payload = ev.to_legacy_event_dict()
         self.controller.process_event(payload)
-        self.controller.process_event(payload)  # replay
+        self.controller.process_event(payload) # replay
         # durable store ignored the replay...
         self.assertEqual(len(self.controller.event_repository.get_events("INC-1")), 1)
         # ...while the legacy in-memory incident applied it twice (documented gap)
@@ -221,3 +221,4 @@ class DurableStoreDisabledTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

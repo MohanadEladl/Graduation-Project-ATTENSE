@@ -1,4 +1,4 @@
-"""blueteam — Blue Team service package.
+"""blueteam - Blue Team service package.
 
 Built both ways from this one source tree: embedded in attense-app's own
 process (see apps/control-api/controller.py, which imports blueteam.main

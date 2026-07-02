@@ -1,5 +1,5 @@
 # =============================================================================
-# ATTENSE Cyber Range — infra/compose.ai.yml
+# ATTENSE Cyber Range - infra/compose.ai.yml
 # =============================================================================
 # AI services: Ollama (local LLM inference, used by the red-team backend's
 # freestyle/analysis features) and the Zero-Day Detection Agent (Gemini-
@@ -17,7 +17,7 @@ x-default-logging: &default-logging
 
 services:
 
-  # ── Ollama: Local LLM inference ─────────────────────────────────────────────
+  # -- Ollama: Local LLM inference ---------------------------------------------
   ollama:
     image: ollama/ollama
     container_name: attense_ollama
@@ -36,7 +36,7 @@ services:
     networks:
       - attense_net
 
-  # ── Zero-Day Detection Agent: Gemini AI + MITRE ATT&CK ────────────────────
+  # -- Zero-Day Detection Agent: Gemini AI + MITRE ATT&CK --------------------
   zeroday-agent:
     build:
       context: ../apps/zeroday-agent
@@ -54,7 +54,7 @@ services:
       ROOM_ID: "${ROOM_ID:-default}"
       ATTENSE_APP_URL: "http://attense-app:8020"
       RED_TEAM_EVENTS_SECRET: "${RED_TEAM_EVENTS_SECRET}"
-      # Correlate detections to the shared exercise incident (report Phase 4) —
+      # Correlate detections to the shared exercise incident (report Phase 4) -
       # must match signal-store / red-team INCIDENT_ID for one-exercise-one-incident.
       INCIDENT_ID: "${INCIDENT_ID:-phase3-incident-001}"
       SCENARIO_ID: "${SCENARIO_ID:-ZERO-DAY-01}"

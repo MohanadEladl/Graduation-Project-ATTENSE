@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-setup_wazuh.py — Wazuh Manager First-Boot Fixups
+setup_wazuh.py - Wazuh Manager First-Boot Fixups
 ===================================================
 Fixes two recurring Wazuh manager issues found while validating the Cortex
 active-response responders. Neither is persisted by any repo-tracked
-config — the manager's /var/ossec/etc lives in a Docker named volume with
-no bind-mounted source of truth — so they need to be (re)applied whenever
+config - the manager's /var/ossec/etc lives in a Docker named volume with
+no bind-mounted source of truth - so they need to be (re)applied whenever
 that volume is fresh.
 
 1. Log directory ownership: Docker creates named-volume mount points as
@@ -19,7 +19,7 @@ that volume is fresh.
    generated and automatic rule-triggered AR also works.
 
 Runs against the already-running wazuh-manager container via the Docker
-Engine API over the Unix socket (exec) — /var/ossec/etc isn't directly
+Engine API over the Unix socket (exec) - /var/ossec/etc isn't directly
 reachable from this script's own filesystem.
 
 Usage: docker compose run --rm wazuh-init
@@ -108,7 +108,7 @@ def docker_exec(container: str, cmd: list[str]) -> tuple[int, str]:
 
 
 def _wait_for_container(max_wait: int = 120) -> None:
-    print(f"⏳ Waiting for {WAZUH_CONTAINER} to be running …", end="", flush=True)
+    print(f"⏳ Waiting for {WAZUH_CONTAINER} to be running ...", end="", flush=True)
     deadline = time.time() + max_wait
     while time.time() < deadline:
         try:
@@ -121,7 +121,7 @@ def _wait_for_container(max_wait: int = 120) -> None:
         print(".", end="", flush=True)
         time.sleep(3)
     print()
-    sys.exit(f"❌ {WAZUH_CONTAINER} did not start in time.")
+    sys.exit(f"FAIL {WAZUH_CONTAINER} did not start in time.")
 
 
 def step_check_already_healthy() -> bool:
@@ -133,7 +133,7 @@ def step_check_already_healthy() -> bool:
 
 
 def step_fix_log_ownership() -> None:
-    print("\n🔧 Step 1: Fix log directory ownership (archives, firewall, alerts) …")
+    print("\n🔧 Step 1: Fix log directory ownership (archives, firewall, alerts) ...")
     # mkdir -p first: on a genuinely fresh container these may not exist yet
     # (only logs/alerts is a named volume; archives/firewall are created by
     # Wazuh's own startup sequence, which can race with this script).
@@ -142,16 +142,16 @@ def step_fix_log_ownership() -> None:
         f"mkdir -p {LOG_DIRS} && chown -R wazuh:wazuh {LOG_DIRS} && chmod -R 750 {LOG_DIRS}",
     ])
     if code == 0:
-        print("   ✅ Ownership fixed.")
+        print(" ✅ Ownership fixed.")
     else:
-        print(f"   ⚠️  chown/chmod exited {code}: {out.strip()}")
+        print(f" ⚠️ chown/chmod exited {code}: {out.strip()}")
 
 
 def step_ensure_active_response_bindings() -> bool:
-    print("\n🔫 Step 2: Ensure active-response command bindings exist …")
+    print("\n🔫 Step 2: Ensure active-response command bindings exist ...")
     code, _ = docker_exec(WAZUH_CONTAINER, ["grep", "-q", AR_MARKER, "/var/ossec/etc/ossec.conf"])
     if code == 0:
-        print("   ✅ Already present — skipping.")
+        print(" ✅ Already present - skipping.")
         return False
 
     patch_script = f'''
@@ -164,35 +164,35 @@ print("patched")
 '''
     code, out = docker_exec(WAZUH_CONTAINER, ["python3", "-c", patch_script])
     if code == 0:
-        print("   ✅ Bindings added.")
+        print(" ✅ Bindings added.")
         return True
-    print(f"   ⚠️  Failed to patch ossec.conf (exit {code}): {out.strip()}")
+    print(f" ⚠️ Failed to patch ossec.conf (exit {code}): {out.strip()}")
     return False
 
 
 def step_restart_wazuh() -> None:
-    print("\n🔄 Step 3: Restarting Wazuh daemons …")
+    print("\n🔄 Step 3: Restarting Wazuh daemons ...")
     code, _ = docker_exec(WAZUH_CONTAINER, ["/var/ossec/bin/wazuh-control", "restart"])
-    print(f"   wazuh-control restart exited {code}")
+    print(f" wazuh-control restart exited {code}")
     time.sleep(8)
     _, status_out = docker_exec(WAZUH_CONTAINER, ["/var/ossec/bin/wazuh-control", "status"])
     print(status_out)
     if "wazuh-analysisd is running" not in status_out:
-        print("   ⚠️  wazuh-analysisd is still not running — check the container logs.")
+        print(" ⚠️ wazuh-analysisd is still not running - check the container logs.")
 
 
 def main() -> None:
     print("=" * 60)
-    print("  ATTENSE — Wazuh Manager First-Boot Fixups")
+    print(" ATTENSE - Wazuh Manager First-Boot Fixups")
     print("=" * 60)
 
     if not os.path.exists(DOCKER_SOCKET):
-        sys.exit(f"❌ Docker socket not found at {DOCKER_SOCKET} — cannot exec into {WAZUH_CONTAINER}.")
+        sys.exit(f"FAIL Docker socket not found at {DOCKER_SOCKET} - cannot exec into {WAZUH_CONTAINER}.")
 
     _wait_for_container()
 
     if step_check_already_healthy():
-        print("\n✅ Already healthy and configured — nothing to do.")
+        print("\n✅ Already healthy and configured - nothing to do.")
         return
 
     step_fix_log_ownership()

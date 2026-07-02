@@ -1,14 +1,14 @@
 """
-incident_service.py — Incident Service (Blue Team Core)
+incident_service.py - Incident Service (Blue Team Core)
 =========================================================
-Handles incident confirmation — the critical step where:
+Handles incident confirmation - the critical step where:
     - A true positive is established
     - TTD (Time to Detect) is calculated
-      TTD = incident_confirmed.timestamp − malicious_action_executed.timestamp
+      TTD = incident_confirmed.timestamp - malicious_action_executed.timestamp
 
 Called by: human analyst after investigation.
 Pre-condition: alert_investigation_started must already exist.
-Emits: incident_confirmed  →  status becomes DETECTED
+Emits: incident_confirmed -> status becomes DETECTED
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def confirm_incident(
     Analyst confirms the alert is a true positive.
 
     This is the CRITICAL decision point:
-    - TTD is calculated here (start_time → confirmation timestamp)
+    - TTD is calculated here (start_time -> confirmation timestamp)
     - Incident status transitions to DETECTED
     - Hive case is updated to reflect the escalation
 

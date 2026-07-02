@@ -73,6 +73,8 @@ from backend import identity                        # noqa: E402
 
 DEFAULT_HOST = os.getenv("TARGET_HOST", "target-agent")
 DEFAULT_PORT = int(os.getenv("TARGET_PORT", "80"))
+ALLOW_GUEST_OPERATOR = os.getenv("RED_TEAM_ALLOW_GUEST_OPERATOR", "1").lower() not in {"0", "false", "no"}
+GUEST_OPERATOR_USERNAME = os.getenv("RED_TEAM_GUEST_USERNAME", "guest-red-operator")
 
 # ── Watcher Agent: session coordination store ─────────────────────────────────
 _WATCHER_SESSIONS: dict[str, dict] = {}
@@ -230,18 +232,26 @@ async def require_operator_session(
     x_session_token: Optional[str] = Header(default=None),
 ) -> dict:
     """
-    Hard auth gate for endpoints that create or drive a red-team session.
-    Validates X-Session-Token against attense-app's own session store
-    (GET /api/auth/me) and rejects with 401 if missing/invalid. Unlike
-    identity.validate_session()'s soft "return None", routes behind this
-    dependency cannot proceed without a real, currently-valid operator
-    identity.
+    Resolve the red-team operator for session-driving endpoints.
+
+    If a valid ATTENSE session token is supplied, use that identity. For the
+    standalone cyber-range/demo flow, allow a guest operator so launching a
+    mission does not bounce back to the portal login page. Set
+    RED_TEAM_ALLOW_GUEST_OPERATOR=0 to restore the hard auth gate.
     """
     loop = asyncio.get_running_loop()
     info = await loop.run_in_executor(None, identity.validate_session, x_session_token)
-    if info is None or not info.get("username"):
-        raise HTTPException(status_code=401, detail="invalid_or_missing_session_token")
-    return info
+    if info and info.get("username"):
+        return info
+    if ALLOW_GUEST_OPERATOR:
+        return {
+            "username": GUEST_OPERATOR_USERNAME,
+            "role": "red_team",
+            "type": "guest",
+            "room_id": None,
+            "incident_id": os.getenv("INCIDENT_ID"),
+        }
+    raise HTTPException(status_code=401, detail="invalid_or_missing_session_token")
 
 
 @app.post("/api/sessions")

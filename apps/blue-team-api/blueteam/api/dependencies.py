@@ -1,5 +1,5 @@
 """
-dependencies.py — Dependency Injection for Blue Team API
+dependencies.py - Dependency Injection for Blue Team API
 =========================================================
 Provides shared dependencies that are injected into route handlers
 via FastAPI's Depends() mechanism.
@@ -8,11 +8,11 @@ Instead of creating services inside every route, components are
 supplied from outside (the military supplies the rifle, not the soldier).
 
 Injected dependencies:
-    - EventStore  : in-memory event log (swap for DB/Kafka in production)
-    - HiveClient  : TheHive integration (stubbed until Hive is live)
+    - EventStore : in-memory event log (swap for DB/Kafka in production)
+    - HiveClient : TheHive integration (stubbed until Hive is live)
     - SandboxConnector : controls the target sandbox environment
-    - Logger      : audit-trail logger
-    - Settings    : runtime config
+    - Logger : audit-trail logger
+    - Settings : runtime config
 """
 
 from __future__ import annotations
@@ -32,9 +32,9 @@ from ..core.blueactions.attacker_log_attacher import AttackerLogAttacher
 from ..config.settings import Settings
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Settings singleton
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @lru_cache
 def get_settings() -> Settings:
@@ -42,11 +42,11 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Infrastructure singletons
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
-# Single shared EventEmitter — all routes publish through the same store.
+# Single shared EventEmitter - all routes publish through the same store.
 _event_emitter = EventEmitter()
 
 
@@ -101,9 +101,9 @@ def get_logger() -> logging.Logger:
     return logging.getLogger("blueteam.audit")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Authorization
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def require_room(
     x_room_id: Optional[str] = Header(default=None, alias="X-Room-Id"),
@@ -114,7 +114,7 @@ def require_room(
     control plane / gateway), NOT from the request body, so it cannot be
     forged to reach another room. A missing room is a 401. The data layer
     (EventEmitter) then enforces that the targeted incident belongs to this
-    room, raising CrossRoomAccessError (→ 403) on a cross-room attempt.
+    room, raising CrossRoomAccessError (-> 403) on a cross-room attempt.
     """
     if not x_room_id:
         raise HTTPException(

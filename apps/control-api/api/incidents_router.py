@@ -2,8 +2,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ATTENSE_app.events.standard_event import StandardEvent
-from ATTENSE_app.reports.report import generate_report
+from attense_core.models.standard_event import StandardEvent
+from attense_core.evaluation.reports import generate_report
 from dependencies.auth import require_events_secret, require_session
 
 
@@ -19,7 +19,7 @@ def _scored_report(incident_id: str, incident) -> dict:
     the basic ttd/ttc/outcome report.
 
     Falls back to the plain timestamp report (generate_report) only when the
-    pipeline has nothing to score — run_bridge raises ValueError when no durable
+    pipeline has nothing to score - run_bridge raises ValueError when no durable
     events exist for the incident yet, or its scenario has no rule file. Any
     other error is a real bug and is allowed to surface as a 500.
     """
@@ -56,8 +56,22 @@ def ingest_event(
     containers have no access to attense-app's data volume.
     """
     from main import controller
+    from attense_core.models.constants import EventType
+    from core import room_manager
 
     controller.process_event(body.to_legacy_event_dict())
+
+    # Auto-surface a Blue Team room the moment an attack fires, so analysts have
+    # something to respond to even when no SOC Manager pre-created a room. Best
+    # effort: a failure here must never reject the event ingestion itself.
+    if body.event_type == EventType.MALICIOUS_ACTION_EXECUTED:
+        try:
+            room_manager.ensure_room_for_incident(body.incident_id, body.scenario_id)
+        except Exception:
+            logger.exception(
+                "Auto-create room failed for incident %s", body.incident_id
+            )
+
     return {"status": "accepted", "event_id": body.event_id}
 
 
@@ -89,3 +103,4 @@ def get_incident_report(
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
     return _scored_report(incident_id, incident)
+

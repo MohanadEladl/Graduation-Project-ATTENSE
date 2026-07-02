@@ -95,6 +95,11 @@ export const api = {
   // Variants per module (called from the variant picker before create)
   variants: (module_id) => get(`/api/modules/${encodeURIComponent(module_id)}/variants`),
 
+  // Guided walkthrough content for a module/variant. No backend route yet, so
+  // this 404s and Workspace falls back to buildFallbackWalkthrough via .catch.
+  walkthrough: (module_id, variant_id) =>
+    get(`/api/modules/${encodeURIComponent(module_id)}/walkthrough${variant_id ? `?variant=${encodeURIComponent(variant_id)}` : ''}`),
+
   // Lab action telemetry (Phase 2)
   actions: {
     record: (payload) => post('/api/lab/actions', payload),

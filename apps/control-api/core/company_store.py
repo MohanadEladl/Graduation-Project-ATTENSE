@@ -2,6 +2,11 @@ from typing import Optional
 
 from core.db import connection, int_id
 
+# Shared holding company for auto-created exercise rooms (attacks launched
+# without a SOC-Manager-created room). Blue Team has global room visibility, so
+# rooms under this company are seen by everyone regardless of their own org.
+EXERCISE_COMPANY_NAME = "ATTENSE Exercise"
+
 
 def _company_from_row(row: dict | None) -> Optional[dict]:
     if row is None:
@@ -20,9 +25,31 @@ def create_company(name: str, created_by: str) -> dict:
             '''
             INSERT INTO "Company" (name, status, created_by)
             VALUES (%s, 'pending', %s)
+            ON CONFLICT (name) DO UPDATE
+            SET name = EXCLUDED.name
             RETURNING company_id, name, status, created_by
             ''',
             (name, created_by),
+        )
+        return _company_from_row(cur.fetchone())
+
+
+def ensure_exercise_company() -> dict:
+    """Return the shared, active exercise company, creating it if needed.
+
+    Auto-created attack rooms are parented here so they exist independently of
+    any real org. Idempotent: safe to call on every attack event.
+    """
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            '''
+            INSERT INTO "Company" (name, status, created_by)
+            VALUES (%s, 'active', 'system')
+            ON CONFLICT (name) DO UPDATE
+            SET status = 'active'
+            RETURNING company_id, name, status, created_by
+            ''',
+            (EXERCISE_COMPANY_NAME,),
         )
         return _company_from_row(cur.fetchone())
 

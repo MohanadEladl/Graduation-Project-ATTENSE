@@ -1,5 +1,5 @@
 """
-utils.py – Shared helpers for ATTENSE Signal Mapper.
+utils.py - Shared helpers for ATTENSE Signal Mapper.
 
 All functions are pure / side-effect-free and safe to call from any module.
 """
@@ -33,7 +33,7 @@ def to_iso(ts: str) -> str:
     Normalise a Wazuh timestamp string to a full ISO-8601 string.
 
     Wazuh produces strings like ``2026-02-22T01:00:00.000+0000`` which is
-    almost ISO-8601 but the timezone offset lacks a colon.  We normalise to
+    almost ISO-8601 but the timezone offset lacks a colon. We normalise to
     the RFC-3339 / ISO-8601 form ``2026-02-22T01:00:00.000+00:00``.
 
     If the timestamp is empty or unparseable the current UTC time is returned.
@@ -41,7 +41,7 @@ def to_iso(ts: str) -> str:
     if not ts:
         return datetime.now(timezone.utc).isoformat()
 
-    # Insert colon into ±HHMM offset → ±HH:MM
+    # Insert colon into ±HHMM offset -> ±HH:MM
     ts_fixed = re.sub(r"([+-])(\d{2})(\d{2})$", r"\1\2:\3", ts.strip())
 
     try:
@@ -55,10 +55,10 @@ def to_iso(ts: str) -> str:
 
 
 def truncate(s: str, n: int = 200) -> str:
-    """Return at most *n* characters of *s*, appending '…' if truncated."""
+    """Return at most *n* characters of *s*, appending '...' if truncated."""
     if not s:
         return ""
-    return s[:n] + ("…" if len(s) > n else "")
+    return s[:n] + ("..." if len(s) > n else "")
 
 
 def or_none(value: str | None) -> str | None:

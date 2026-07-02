@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.auth_router import router as auth_router
 from api.company_router import router as company_router
 from api.incidents_router import router as incidents_router
+from api.missions_router import router as missions_router
 from api.rooms_router import router as rooms_router
 from api.scenarios_router import router as scenarios_router
 from controller import AttenseController
@@ -26,7 +27,12 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     # TODO: Replace this placeholder with the real public frontend origin before going live.
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=[
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -34,6 +40,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(company_router)
 app.include_router(incidents_router)
+app.include_router(missions_router)
 app.include_router(rooms_router)
 app.include_router(scenarios_router)
 

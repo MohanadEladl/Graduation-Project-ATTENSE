@@ -1,5 +1,5 @@
 """
-backend/zap_bridge.py — bridge from ZAP's alerts queue to the scoring engine.
+backend/zap_bridge.py - bridge from ZAP's alerts queue to the scoring engine.
 
 Structurally mirrors backend/detections.py::DetectionBroker (background
 asyncio task, bootstrap-without-broadcast, _seen_ids dedup). Polls ZAP's
@@ -32,7 +32,7 @@ from backend.session_manager import SessionManager
 
 logger = logging.getLogger("red-team.zap_bridge")
 
-_POLL_INTERVAL = 5.0  # seconds -- ZAP alerts aren't latency-sensitive like live log tailing
+_POLL_INTERVAL = 5.0 # seconds -- ZAP alerts aren't latency-sensitive like live log tailing
 _FETCH_COUNT = 200
 _OPEN_LAB_MODULE_ID = "open_lab"
 
@@ -70,7 +70,7 @@ class ZapBridge:
         self._emitted_count: int = 0
         self._last_multi_session_warn: float = 0.0
 
-    # ── Lifecycle ────────────────────────────────────────────────────────────
+    # -- Lifecycle ------------------------------------------------------------
     def start(self) -> None:
         if self._task and not self._task.done():
             return
@@ -87,18 +87,18 @@ class ZapBridge:
             except (asyncio.CancelledError, Exception):
                 pass
 
-    # ── State accessor ───────────────────────────────────────────────────────
+    # -- State accessor -------------------------------------------------------
     def status(self) -> dict:
         return {
-            "reachable":      self._reachable,
-            "last_poll":      self._last_poll,
-            "last_error":     self._last_error,
-            "seen_alerts":    len(self._seen_ids),
+            "reachable": self._reachable,
+            "last_poll": self._last_poll,
+            "last_error": self._last_error,
+            "seen_alerts": len(self._seen_ids),
             "emitted_events": self._emitted_count,
-            "source":         self._base_url,
+            "source": self._base_url,
         }
 
-    # ── Polling loop ─────────────────────────────────────────────────────────
+    # -- Polling loop ---------------------------------------------------------
     async def _run(self) -> None:
         # Seed _seen_ids without emitting -- pre-existing alerts (from before
         # the bridge started, or from scripted modules' own traffic) aren't
@@ -109,7 +109,7 @@ class ZapBridge:
                 await self._poll_once()
                 self._reachable = True
                 self._last_error = None
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc: # noqa: BLE001
                 self._reachable = False
                 self._last_error = str(exc)
                 logger.debug("ZAP alerts poll failed: %s", exc)
@@ -140,7 +140,7 @@ class ZapBridge:
                     self._seen_ids.add(aid)
             self._reachable = True
             logger.info("ZapBridge bootstrap: %d pre-existing alerts seeded (not emitted)", len(alerts))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc: # noqa: BLE001
             self._last_error = str(exc)
             logger.info("ZapBridge bootstrap failed: %s", exc)
 
@@ -156,7 +156,7 @@ class ZapBridge:
             self._seen_ids.add(aid)
             self._emit(alert, incident_id, actor_id)
 
-    # ── Context resolution ───────────────────────────────────────────────────
+    # -- Context resolution ---------------------------------------------------
     def _resolve_target_session(self) -> tuple[Optional[str], Optional[str]]:
         """Most recently created open_lab session's incident_id/actor_id, or
         the env var INCIDENT_ID fallback if none exist (today's behavior)."""

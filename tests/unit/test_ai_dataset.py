@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = _REPO_ROOT / "apps" / "control-api" / "ATTENSE_app" / "AI" / "Data"
+DATA_DIR = _REPO_ROOT / "packages" / "attense-core" / "attense_core" / "evaluation" / "attack_data"
 VECTOR_RE = re.compile(
     r"^CVSS:3\.1/AV:(N|A|L|P)/AC:(L|H)/PR:(N|L|H)/UI:(N|R)/"
     r"S:(U|C)/C:(N|L|H)/I:(N|L|H)/A:(N|L|H)$"
@@ -192,3 +192,5 @@ class AttackDatasetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

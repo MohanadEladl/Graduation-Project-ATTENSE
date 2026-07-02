@@ -1,5 +1,5 @@
 """
-lab_evidence_connector.py — Target-Agent Evidence Reader
+lab_evidence_connector.py - Target-Agent Evidence Reader
 =========================================================
 Read-only companion to TargetConnector (which sends containment commands).
 
@@ -9,7 +9,7 @@ and exposes them at GET /lab/events. This connector fetches those events so
 the Blue Team can attach the attacker's activity to a TheHive case.
 
 Single responsibility: pull evidence. It does not mutate anything on the
-target. All failures are non-fatal — a down target-agent yields [].
+target. All failures are non-fatal - a down target-agent yields [].
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class LabEvidenceConnector:
     Parameters
     ----------
     base_url : Base URL of the target-agent service (same as SANDBOX_URL).
-    timeout  : HTTP request timeout in seconds.
+    timeout : HTTP request timeout in seconds.
     """
 
     def __init__(self, base_url: str = "http://localhost:8020", timeout: float = 5.0) -> None:
@@ -51,9 +51,9 @@ class LabEvidenceConnector:
         Parameters
         ----------
         since_epoch : Only return events with ``ts >= since_epoch``.
-        source_ip   : If given, keep only events from this attacker IP.
+        source_ip : If given, keep only events from this attacker IP.
                       If None, return all events in the window.
-        limit       : Max events to request from the target-agent.
+        limit : Max events to request from the target-agent.
 
         Returns
         -------

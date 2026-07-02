@@ -1,12 +1,12 @@
 """
-incident_validator.py — Incident Validation Rules
+incident_validator.py - Incident Validation Rules
 ===================================================
 Pre-condition checks for incident confirmation.
 """
 
 from __future__ import annotations
 
-from ATTENSE_app.incidents.incident import Incident
+from attense_core.models.incident import Incident
 
 
 def validate_confirm_incident(incident: Incident, store) -> None:
@@ -43,3 +43,4 @@ def validate_confirm_incident(incident: Incident, store) -> None:
         raise ValueError(
             f"Incident '{incident.incident_id}' has already been confirmed."
         )
+

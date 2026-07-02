@@ -1,5 +1,5 @@
 """
-hive_keywords.py — Shared keyword patterns for TheHive task-log event detection.
+hive_keywords.py - Shared keyword patterns for TheHive task-log event detection.
 
 Imported by hive_event_translator.py (incident state machine path) and
 analyst_action_extractor.py (scoring JSONL path). Single source so both

@@ -1,10 +1,10 @@
 """
-virustotal_client.py — VirusTotal API v3 Client
+virustotal_client.py - VirusTotal API v3 Client
 =================================================
 Performs threat intelligence lookups against VirusTotal for:
-  - IP addresses  → malicious/suspicious votes, country, ASN
-  - URLs          → malicious/suspicious vote counts
-  - File hashes   → detection ratio, malware family names
+  - IP addresses -> malicious/suspicious votes, country, ASN
+  - URLs -> malicious/suspicious vote counts
+  - File hashes -> detection ratio, malware family names
 
 Graceful degradation: if VT_API_KEY is empty or the API is
 unreachable, returns an empty VTResult instead of raising an error.
@@ -28,20 +28,20 @@ class VTResult:
     """Structured VirusTotal lookup result."""
 
     ioc: str = ""
-    ioc_type: str = ""                      # "ip", "url", "hash"
+    ioc_type: str = "" # "ip", "url", "hash"
     found: bool = False
     malicious_votes: int = 0
     suspicious_votes: int = 0
     harmless_votes: int = 0
     undetected_votes: int = 0
     total_engines: int = 0
-    community_score: int = 0                # negative = bad
+    community_score: int = 0 # negative = bad
     country: str = ""
     asn: int = 0
     as_owner: str = ""
     malware_families: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
-    error: str = ""                         # set if lookup failed
+    error: str = "" # set if lookup failed
 
     @property
     def detection_ratio(self) -> str:
@@ -78,11 +78,11 @@ class VirusTotalClient:
         self._timeout = timeout
         self._enabled = bool(self._api_key)
         if not self._enabled:
-            logger.info("[VT] No API key configured — VirusTotal lookups disabled.")
+            logger.info("[VT] No API key configured - VirusTotal lookups disabled.")
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # Public interface
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     def lookup_ip(self, ip: str) -> VTResult:
         """Look up an IP address on VirusTotal."""
@@ -104,9 +104,9 @@ class VirusTotalClient:
             return VTResult(ioc=file_hash, ioc_type="hash", error="no_api_key")
         return self._get_report(f"/files/{file_hash}", file_hash, "hash")
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # Internal helpers
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     def _get_report(self, path: str, ioc: str, ioc_type: str) -> VTResult:
         """Fetch a report from VT and parse it into a VTResult."""
@@ -131,11 +131,11 @@ class VirusTotalClient:
         attrs = data.get("data", {}).get("attributes", {})
         stats = attrs.get("last_analysis_stats", {})
 
-        malicious  = stats.get("malicious", 0)
+        malicious = stats.get("malicious", 0)
         suspicious = stats.get("suspicious", 0)
-        harmless   = stats.get("harmless", 0)
+        harmless = stats.get("harmless", 0)
         undetected = stats.get("undetected", 0)
-        total      = malicious + suspicious + harmless + undetected
+        total = malicious + suspicious + harmless + undetected
 
         # Malware family names (files only)
         families: list[str] = []

@@ -1,5 +1,5 @@
 """
-observable_manager.py — Hive Observable Manager
+observable_manager.py - Hive Observable Manager
 =================================================
 Manages IOC (Indicator of Compromise) observables within Hive cases.
 Provides convenience methods for common observable types encountered
@@ -20,12 +20,12 @@ class ObservableManager:
     Handles adding observables (IOCs) to Hive cases.
 
     Observable types supported:
-        ip       → source/destination IP address
-        domain   → suspicious domain
-        url      → malicious URL
-        hash     → file hash (MD5, SHA256)
-        filename → malicious file name
-        hostname → affected hostname
+        ip -> source/destination IP address
+        domain -> suspicious domain
+        url -> malicious URL
+        hash -> file hash (MD5, SHA256)
+        filename -> malicious file name
+        hostname -> affected hostname
     """
 
     def __init__(self, hive: HiveClient) -> None:

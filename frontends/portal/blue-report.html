@@ -16,253 +16,262 @@
 </head>
 <body>
 <div class="shell">
-  <nav class="nav">
-    <a class="brand" href="blue-home.html"><img src="assets/ATTENSELOGO.png" alt="Attense"><b>ATTENSE BLUE</b></a>
-    <div class="nav-actions">
-      <a class="btn" href="blue-home.html">Home</a>
-      <button class="btn" id="clearRooms" type="button">Clear Data</button>
-    </div>
-  </nav>
+ <nav class="nav">
+ <a class="brand" href="blue-home.html"><img src="assets/ATTENSELOGO.png" alt="Attense"><b>ATTENSE BLUE</b></a>
+ <div class="nav-actions">
+ <a class="btn" href="blue-home.html">Home</a>
+ <a class="btn" href="blue-report.html">Rooms</a>
+ <button class="btn" id="clearRooms" type="button">Clear Data</button>
+ </div>
+ </nav>
 
-  <main class="wrap">
-    <section class="hero">
-      <div class="panel">
-        <span class="kicker">Access Granted</span>
-        <h1>Blue Team report console</h1>
-        <p class="muted">This is the portal destination after authentication. Invite your teammates by email for a team room, or enter a solo room for an individual run.</p>
-        <div class="stats">
-          <div class="stat"><strong id="roomCount">0</strong><span>Entries created</span></div>
-          <div class="stat"><strong id="inviteCount">0</strong><span>Invitations</span></div>
-          <div class="stat"><strong id="roleStat">SOC</strong><span>Saved role</span></div>
-        </div>
-      </div>
-      <aside class="panel profile">
-        <div class="profile-row"><span>User</span><b id="profileName">Blue operator</b></div>
-        <div class="profile-row"><span>Email</span><b id="profileEmail">Not provided</b></div>
-        <div class="profile-row"><span>Role</span><b id="profileRole">SOC Analyst</b></div>
-        <div class="profile-row"><span>Company</span><b id="profileCompany">Independent</b></div>
-      </aside>
-    </section>
+ <main class="wrap">
+ <section class="hero">
+ <div class="panel">
+ <span class="kicker">Access Granted</span>
+ <h1>Blue Team report console</h1>
+ <p class="muted">This is the portal destination after authentication. Invite your teammates by email for a team room, or enter a solo room for an individual run.</p>
+ <div class="stats">
+ <div class="stat"><strong id="roomCount">0</strong><span>Entries created</span></div>
+ <div class="stat"><strong id="inviteCount">0</strong><span>Invitations</span></div>
+ <div class="stat"><strong id="roleStat">SOC</strong><span>Saved role</span></div>
+ </div>
+ </div>
+ <aside class="panel profile">
+ <div class="profile-row"><span>User</span><b id="profileName">Blue operator</b></div>
+ <div class="profile-row"><span>Email</span><b id="profileEmail">Not provided</b></div>
+ <div class="profile-row"><span>Role</span><b id="profileRole">SOC Analyst</b></div>
+ <div class="profile-row"><span>Company</span><b id="profileCompany">Independent</b></div>
+ </aside>
+ </section>
 
-    <section class="grid">
-      <div class="panel">
-        <span class="kicker">Choose Entry</span>
-        <div class="mode-tabs" role="tablist" aria-label="Blue team entry mode">
-          <button class="mode-tab active" id="teamModeBtn" type="button">Invite team</button>
-          <button class="mode-tab" id="soloModeBtn" type="button">Enter alone</button>
-        </div>
+ <section class="grid">
+ <div class="panel">
+ <span class="kicker">Choose Entry</span>
+ <div class="mode-tabs" role="tablist" aria-label="Blue team entry mode">
+ <button class="mode-tab active" id="teamModeBtn" type="button">Invite team</button>
+ <button class="mode-tab" id="soloModeBtn" type="button">Enter alone</button>
+ </div>
 
-        <div class="mode-panel active" id="teamPanel">
-          <div class="field">
-            <label for="teamEmails">Teammate emails</label>
-            <textarea id="teamEmails" placeholder="analyst1@company.com&#10;analyst2@company.com"></textarea>
-          </div>
-          <div class="field">
-            <label for="teamRoomName">Team room name</label>
-            <input class="input" id="teamRoomName" type="text" placeholder="e.g. Blue Response Team">
-          </div>
-          <button class="btn primary" id="sendInvites" type="button">Send Invitations</button>
-        </div>
+ <div class="mode-panel active" id="teamPanel">
+ <div class="field">
+ <label for="teamEmails">Teammate emails</label>
+ <textarea id="teamEmails" placeholder="analyst1@company.com&#10;analyst2@company.com"></textarea>
+ </div>
+ <div class="field">
+ <label for="teamRoomName">Team room name</label>
+ <input class="input" id="teamRoomName" type="text" placeholder="e.g. Blue Response Team">
+ </div>
+ <button class="btn primary" id="sendInvites" type="button">Send Invitations</button>
+ </div>
 
-        <div class="mode-panel" id="soloPanel">
-          <div class="field">
-            <label for="roomName">Solo room name</label>
-            <input class="input" id="roomName" type="text" placeholder="e.g. Solo Response Room">
-          </div>
-          <div class="field">
-            <label for="scenario">Scenario</label>
-            <select id="scenario">
-              <option value="phishing">Phishing escalation</option>
-              <option value="ransomware">Ransomware containment</option>
-              <option value="insider">Insider threat</option>
-              <option value="web">Web intrusion</option>
-            </select>
-          </div>
-          <button class="btn primary" id="createSoloRoom" type="button">Enter Solo Room</button>
-        </div>
-        <div class="toast" id="toast"></div>
-      </div>
+ <div class="mode-panel" id="soloPanel">
+ <div class="field">
+ <label for="roomName">Solo room name</label>
+ <input class="input" id="roomName" type="text" placeholder="e.g. Solo Response Room">
+ </div>
+ <div class="field">
+ <label for="scenario">Scenario</label>
+ <select id="scenario">
+ <option value="phishing">Phishing escalation</option>
+ <option value="ransomware">Ransomware containment</option>
+ <option value="insider">Insider threat</option>
+ <option value="web">Web intrusion</option>
+ </select>
+ </div>
+ <button class="btn primary" id="createSoloRoom" type="button">Enter Solo Room</button>
+ </div>
+ <div class="toast" id="toast"></div>
+ </div>
 
-      <div class="panel">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px">
-          <span class="kicker">Your Entries</span>
-          <span class="badge">Local portal data</span>
-        </div>
-        <div class="room-list" id="rooms"></div>
-      </div>
-    </section>
-  </main>
+ <div class="panel">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px">
+ <span class="kicker">Your Entries</span>
+ <span class="badge">Local portal data</span>
+ </div>
+ <div class="room-list" id="rooms"></div>
+ </div>
+ </section>
+ </main>
 
 </div>
 <script>
 (function(){
-  const roleNames = { ciso: 'CISO', soc: 'SOC Analyst', ir: 'IR Lead', th: 'Threat Hunter' };
-  const scenarioNames = { phishing: 'Phishing escalation', ransomware: 'Ransomware containment', insider: 'Insider threat', web: 'Web intrusion' };
-  const BLUE_UI_URL = 'http://127.0.0.1:3100/';
-  const getProfile = () => {
-    try { return JSON.parse(localStorage.getItem('attense_blue_profile') || '{}'); }
-    catch (_) { return {}; }
-  };
-  const getRooms = () => {
-    try { return JSON.parse(localStorage.getItem('attense_blue_rooms') || '[]'); }
-    catch (_) { return []; }
-  };
-  const saveRooms = rooms => localStorage.setItem('attense_blue_rooms', JSON.stringify(rooms));
-  const getInvitations = () => {
-    try { return JSON.parse(localStorage.getItem('attense_blue_invitations') || '[]'); }
-    catch (_) { return []; }
-  };
-  const saveInvitations = invitations => localStorage.setItem('attense_blue_invitations', JSON.stringify(invitations));
-  const profile = getProfile();
-  const role = profile.role || localStorage.getItem('attense_blue_role') || 'soc';
-  document.getElementById('profileName').textContent = profile.name || 'Blue operator';
-  document.getElementById('profileEmail').textContent = profile.email || localStorage.getItem('attense_blue_email') || 'Not provided';
-  document.getElementById('profileRole').textContent = roleNames[role] || role.toUpperCase();
-  document.getElementById('profileCompany').textContent = profile.company || 'Independent';
-  document.getElementById('roleStat').textContent = (roleNames[role] || role).split(' ')[0].toUpperCase();
+ const roleNames = { ciso: 'CISO', soc: 'SOC Analyst', ir: 'IR Lead', th: 'Threat Hunter' };
+ const scenarioNames = { phishing: 'Phishing escalation', ransomware: 'Ransomware containment', insider: 'Insider threat', web: 'Web intrusion' };
+ const BLUE_UI_URL = 'http://127.0.0.1:3100/';
+ const REPORT_URL = 'blue-report.html';
+ const getProfile = () => {
+ try { return JSON.parse(localStorage.getItem('attense_blue_profile') || '{}'); }
+ catch (_) { return {}; }
+ };
+ const getRooms = () => {
+ try { return JSON.parse(localStorage.getItem('attense_blue_rooms') || '[]'); }
+ catch (_) { return []; }
+ };
+ const saveRooms = rooms => localStorage.setItem('attense_blue_rooms', JSON.stringify(rooms));
+ const getInvitations = () => {
+ try { return JSON.parse(localStorage.getItem('attense_blue_invitations') || '[]'); }
+ catch (_) { return []; }
+ };
+ const saveInvitations = invitations => localStorage.setItem('attense_blue_invitations', JSON.stringify(invitations));
+ const profile = getProfile();
+ const role = profile.role || localStorage.getItem('attense_blue_role') || 'soc';
+ document.getElementById('profileName').textContent = profile.name || 'Blue operator';
+ document.getElementById('profileEmail').textContent = profile.email || localStorage.getItem('attense_blue_email') || 'Not provided';
+ document.getElementById('profileRole').textContent = roleNames[role] || role.toUpperCase();
+ document.getElementById('profileCompany').textContent = profile.company || 'Independent';
+ document.getElementById('roleStat').textContent = (roleNames[role] || role).split(' ')[0].toUpperCase();
 
-  const roomsEl = document.getElementById('rooms');
-  const countEl = document.getElementById('roomCount');
-  const toastEl = document.getElementById('toast');
-  const invitationsEl = document.getElementById('invitations');
-  const inviteCountEl = document.getElementById('inviteCount');
+ const roomsEl = document.getElementById('rooms');
+ const countEl = document.getElementById('roomCount');
+ const toastEl = document.getElementById('toast');
+ const invitationsEl = document.getElementById('invitations');
+ const inviteCountEl = document.getElementById('inviteCount');
 
-  const showToast = message => {
-    toastEl.textContent = message;
-    toastEl.classList.add('show');
-    setTimeout(() => toastEl.classList.remove('show'), 3600);
-  };
+ const showToast = message => {
+ toastEl.textContent = message;
+ toastEl.classList.add('show');
+ setTimeout(() => toastEl.classList.remove('show'), 3600);
+ };
 
-  function enterBlueUi(room) {
-    const params = new URLSearchParams({
-      portalRoom: room.id,
-      roomName: room.name,
-      mode: room.mode,
-      scenario: room.scenario || 'phishing',
-      hiveUrl: room.hiveLaunchUrl || room.hive_launch_url || 'http://127.0.0.1:9000/',
-    });
-    window.location.href = `${BLUE_UI_URL}?${params.toString()}`;
-  }
+ function enterBlueUi(room) {
+ const params = new URLSearchParams({
+ portalRoom: room.id,
+ roomName: room.name,
+ mode: room.mode,
+ scenario: room.scenario || 'phishing',
+ hiveUrl: room.hiveLaunchUrl || room.hive_launch_url || 'http://127.0.0.1:9000/',
+ });
+ const token = localStorage.getItem('attense_session_token') || '';
+ if (token) params.set('token', token);
+ window.location.href = `${BLUE_UI_URL}?${params.toString()}`;
+ }
 
-  function renderRooms(){
-    const rooms = getRooms();
-    countEl.textContent = String(rooms.length);
-    if (!rooms.length) {
-      roomsEl.innerHTML = '<div class="empty">No entries yet. Join your team or enter a solo room to continue.</div>';
-      return;
-    }
-    roomsEl.innerHTML = rooms.map(room => `
-      <div class="room">
-        <div>
-          <h3>${room.name}</h3>
-          <p>${room.id} - ${room.mode === 'team' ? `Team ${room.teamCode}` : scenarioNames[room.scenario] || room.scenario} - Created ${room.createdAt}</p>
-        </div>
-        <button class="btn primary" type="button" data-enter-room="${room.id}">Enter Blue UI</button>
-      </div>
-    `).join('');
-  }
+ function renderRooms(){
+ const rooms = getRooms();
+ countEl.textContent = String(rooms.length);
+ if (!rooms.length) {
+ roomsEl.innerHTML = '<div class="empty">No entries yet. Join your team or enter a solo room to continue.</div>';
+ return;
+ }
+ roomsEl.innerHTML = rooms.map(room => `
+ <div class="room">
+ <div>
+ <h3>${room.name}</h3>
+ <p>${room.id} - ${room.mode === 'team' ? `Team ${room.teamCode}` : scenarioNames[room.scenario] || room.scenario} - Created ${room.createdAt}</p>
+ </div>
+ <button class="btn primary" type="button" data-enter-room="${room.id}">Enter Blue UI</button>
+ </div>
+ `).join('');
+ }
 
-  const setMode = mode => {
-    const team = mode === 'team';
-    document.getElementById('teamModeBtn').classList.toggle('active', team);
-    document.getElementById('soloModeBtn').classList.toggle('active', !team);
-    document.getElementById('teamPanel').classList.toggle('active', team);
-    document.getElementById('soloPanel').classList.toggle('active', !team);
-  };
+ const setMode = mode => {
+ const team = mode === 'team';
+ document.getElementById('teamModeBtn').classList.toggle('active', team);
+ document.getElementById('soloModeBtn').classList.toggle('active', !team);
+ document.getElementById('teamPanel').classList.toggle('active', team);
+ document.getElementById('soloPanel').classList.toggle('active', !team);
+ };
 
-  document.getElementById('teamModeBtn').addEventListener('click', () => setMode('team'));
-  document.getElementById('soloModeBtn').addEventListener('click', () => setMode('solo'));
-  roomsEl.addEventListener('click', event => {
-    const button = event.target.closest('[data-enter-room]');
-    if (!button) return;
-    const room = getRooms().find(item => item.id === button.dataset.enterRoom);
-    if (room) enterBlueUi(room);
-  });
-  const parseEmails = value => Array.from(new Set(value.split(/[\s,;]+/).map(email => email.trim().toLowerCase()).filter(Boolean)));
-  const isEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+ document.getElementById('teamModeBtn').addEventListener('click', () => setMode('team'));
+ document.getElementById('soloModeBtn').addEventListener('click', () => setMode('solo'));
+ roomsEl.addEventListener('click', event => {
+ const button = event.target.closest('[data-enter-room]');
+ if (!button) return;
+ const room = getRooms().find(item => item.id === button.dataset.enterRoom);
+ if (room) enterBlueUi(room);
+ });
+ const parseEmails = value => Array.from(new Set(value.split(/[\s,;]+/).map(email => email.trim().toLowerCase()).filter(Boolean)));
+ const isEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-  function renderInvitations(){
-    const invitations = getInvitations();
-    inviteCountEl.textContent = String(invitations.length);
-    if (!invitations.length) {
-      invitationsEl.innerHTML = '<div class="empty">No invitations yet.</div>';
-      return;
-    }
-    invitationsEl.innerHTML = invitations.map(invite => `
-      <div class="invite">
-        <div>
-          <h3>${invite.email}</h3>
-          <p>${invite.roomName} - Invite ${invite.code} - ${invite.createdAt}</p>
-        </div>
-        <span class="badge">Pending</span>
-      </div>
-    `).join('');
-  }
+ function renderInvitations(){
+ const invitations = getInvitations();
+ inviteCountEl.textContent = String(invitations.length);
+ if (!invitations.length) {
+ invitationsEl.innerHTML = '<div class="empty">No invitations yet.</div>';
+ return;
+ }
+ invitationsEl.innerHTML = invitations.map(invite => `
+ <div class="invite">
+ <div>
+ <h3>${invite.email}</h3>
+ <p>${invite.roomName} - Invite ${invite.code} - ${invite.createdAt}</p>
+ </div>
+ <span class="badge">Pending</span>
+ </div>
+ `).join('');
+ }
 
-  document.getElementById('sendInvites').addEventListener('click', () => {
-    const emailsInput = document.getElementById('teamEmails');
-    const roomInput = document.getElementById('teamRoomName');
-    const emails = parseEmails(emailsInput.value);
-    const invalid = emails.filter(email => !isEmail(email));
-    if (!emails.length) { showToast('Enter at least one teammate email.'); return; }
-    if (invalid.length) { showToast(`Invalid email: ${invalid[0]}`); return; }
-    const roomName = roomInput.value.trim() || 'Blue Team Room';
-    const teamId = 'TEAM-' + Math.floor(1000 + Math.random() * 9000);
-    const createdAt = new Date().toLocaleString();
-    const rooms = getRooms();
-    const room = {
-      id: teamId,
-      name: roomName,
-      mode: 'team',
-      teamCode: teamId,
-      scenario: 'phishing',
-      createdAt,
-      hiveLaunchUrl: 'http://127.0.0.1:9000/',
-    };
-    rooms.unshift(room);
-    saveRooms(rooms);
-    const invitations = getInvitations();
-    emails.forEach(email => invitations.unshift({ id: `${teamId}-${email}`, teamId, roomName, email, code: Math.floor(100000 + Math.random() * 900000).toString(), status: 'pending', channel: 'in-app', createdAt }));
-    saveInvitations(invitations);
-    emailsInput.value = '';
-    roomInput.value = '';
-    showToast(`${emails.length} in-app invitation${emails.length === 1 ? '' : 's'} created. Opening Blue UI...`);
-    renderRooms();
-    renderInvitations();
-    setTimeout(() => enterBlueUi(room), 900);
-  });
+ document.getElementById('sendInvites').addEventListener('click', () => {
+ const emailsInput = document.getElementById('teamEmails');
+ const roomInput = document.getElementById('teamRoomName');
+ const emails = parseEmails(emailsInput.value);
+ const invalid = emails.filter(email => !isEmail(email));
+ if (!emails.length) { showToast('Enter at least one teammate email.'); return; }
+ if (invalid.length) { showToast(`Invalid email: ${invalid[0]}`); return; }
+ const roomName = roomInput.value.trim() || 'Blue Team Room';
+ const teamId = 'TEAM-' + Math.floor(1000 + Math.random() * 9000);
+ const createdAt = new Date().toLocaleString();
+ const rooms = getRooms();
+ const room = {
+ id: teamId,
+ name: roomName,
+ mode: 'team',
+ teamCode: teamId,
+ scenario: 'phishing',
+ createdAt,
+ hiveLaunchUrl: 'http://127.0.0.1:9000/',
+ };
+ rooms.unshift(room);
+ saveRooms(rooms);
+ const invitations = getInvitations();
+ emails.forEach(email => invitations.unshift({ id: `${teamId}-${email}`, teamId, roomName, email, code: Math.floor(100000 + Math.random() * 900000).toString(), status: 'pending', channel: 'in-app', createdAt }));
+ saveInvitations(invitations);
+ emailsInput.value = '';
+ roomInput.value = '';
+ showToast(`${emails.length} in-app invitation${emails.length === 1 ? '' : 's'} created. Opening Blue UI...`);
+ renderRooms();
+ renderInvitations();
+ setTimeout(() => enterBlueUi(room), 900);
+ });
 
-  document.getElementById('createSoloRoom').addEventListener('click', () => {
-    const nameInput = document.getElementById('roomName');
-    const scenario = document.getElementById('scenario').value;
-    const name = nameInput.value.trim() || 'Solo Blue Room';
-    const rooms = getRooms();
-    const id = 'SOLO-' + Math.floor(1000 + Math.random() * 9000);
-    const room = {
-      id,
-      name,
-      mode: 'solo',
-      scenario,
-      createdAt: new Date().toLocaleString(),
-      hiveLaunchUrl: 'http://127.0.0.1:9000/',
-    };
-    rooms.unshift(room);
-    saveRooms(rooms);
-    nameInput.value = '';
-    showToast(`Solo room ${id} is ready. Opening Blue UI...`);
-    renderRooms();
-    setTimeout(() => enterBlueUi(room), 900);
-  });
+ document.getElementById('createSoloRoom').addEventListener('click', () => {
+ const nameInput = document.getElementById('roomName');
+ const scenario = document.getElementById('scenario').value;
+ const name = nameInput.value.trim() || 'Solo Blue Room';
+ const rooms = getRooms();
+ const id = 'SOLO-' + Math.floor(1000 + Math.random() * 9000);
+ const room = {
+ id,
+ name,
+ mode: 'solo',
+ scenario,
+ createdAt: new Date().toLocaleString(),
+ hiveLaunchUrl: 'http://127.0.0.1:9000/',
+ };
+ rooms.unshift(room);
+ saveRooms(rooms);
+ nameInput.value = '';
+ showToast(`Solo room ${id} is ready. Opening Blue UI...`);
+ renderRooms();
+ setTimeout(() => enterBlueUi(room), 900);
+ });
 
-  document.getElementById('clearRooms').addEventListener('click', () => {
-    saveRooms([]);
-    saveInvitations([]);
-    renderRooms();
-    renderInvitations();
-  });
+ document.getElementById('clearRooms').addEventListener('click', () => {
+ saveRooms([]);
+ saveInvitations([]);
+ renderRooms();
+ renderInvitations();
+ });
 
-  renderRooms();
-  renderInvitations();
+ document.querySelector('.brand').addEventListener('click', event => {
+ event.preventDefault();
+ window.location.href = REPORT_URL;
+ });
+
+ renderRooms();
+ renderInvitations();
 })();
 </script>
 </body>

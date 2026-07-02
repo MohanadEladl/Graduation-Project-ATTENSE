@@ -1,5 +1,5 @@
 """
-backend/identity.py — Resolve a red-team operator's real identity.
+backend/identity.py - Resolve a red-team operator's real identity.
 
 The frontend forwards whatever session token it captured at login (see
 frontends/red-team/src/routes/Login.jsx) as X-Session-Token. We validate it

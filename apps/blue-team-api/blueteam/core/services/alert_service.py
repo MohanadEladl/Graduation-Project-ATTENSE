@@ -1,10 +1,10 @@
 """
-alert_service.py — Alert Service (Blue Team Core)
+alert_service.py - Alert Service (Blue Team Core)
 ===================================================
 Handles all alert-related analyst actions:
-    raise_alert()        → system/SIEM raises an alert (EVENT: alert_raised)
-    investigate_alert()  → analyst starts triage     (EVENT: alert_investigation_started)
-    deny_alert()         → analyst marks false +ve   (EVENT: alert_denied)
+    raise_alert() -> system/SIEM raises an alert (EVENT: alert_raised)
+    investigate_alert() -> analyst starts triage (EVENT: alert_investigation_started)
+    deny_alert() -> analyst marks false +ve (EVENT: alert_denied)
 
 Each function:
     1. Delegates validation to core/validation/alert_validator.py
@@ -56,12 +56,24 @@ def raise_alert(
     Emits: alert_raised
 
     If *auto_create_case* is True, the new alert is immediately promoted to a
-    case (alert → case). That fires TheHive's CaseCreated webhook, which makes
-    the Blue Team backend auto-attach the attacker activity log — so an attack
+    case (alert -> case). That fires TheHive's CaseCreated webhook, which makes
+    the Blue Team backend auto-attach the attacker activity log - so an attack
     surfaces as a fully-populated case with no manual analyst step.
     """
+    from ...config.constants import TERMINAL_STATUSES, EVENT_ALERT_RAISED
+
     incident, store = emitter.get_or_create(room_id, body.incident_id, body.scenario_id)
-    validate_raise_alert(incident, store)
+    # A closed incident genuinely can't take new alerts.
+    if incident.status in TERMINAL_STATUSES:
+        raise ValueError(
+            f"Cannot raise alert on incident '{incident.incident_id}': "
+            f"already in terminal status '{incident.status}'."
+        )
+    # Every Wazuh detection becomes its own TheHive alert, but only the FIRST
+    # one drives the incident lifecycle (the alert_raised event that starts the
+    # detection timer / TTD). Subsequent detections still surface in TheHive
+    # without corrupting the incident's scoring.
+    is_first_detection = not store.has_event(incident.incident_id, EVENT_ALERT_RAISED)
 
     event = build_raise_alert_event(
         incident=incident,
@@ -72,7 +84,8 @@ def raise_alert(
         severity=body.severity,
         raw_log=body.raw_log,
     )
-    emitter.emit(incident, store, event)
+    if is_first_detection:
+        emitter.emit(incident, store, event)
 
     # Convert Cortex-Lite enrichment report IOCs to TheHive artifacts format,
     # attaching the actual AbuseIPDB/VirusTotal findings to each observable so
@@ -96,6 +109,7 @@ def raise_alert(
             severity=body.severity,
             artifacts=artifacts,
             enrichment_summary=enrichment_report.enrichment_note,
+            source_ref=body.source_ref,
         )
         alert_id = res.get("id") or res.get("_id")
         if alert_id:
@@ -103,7 +117,7 @@ def raise_alert(
                 "[AlertService] Alert created in TheHive: alert_id=%s for incident '%s'.",
                 alert_id, incident.incident_id,
             )
-            # Auto-promote alert → case so the incident surfaces automatically
+            # Auto-promote alert -> case so the incident surfaces automatically
             # (the CaseCreated webhook then triggers attacker-log attachment).
             if auto_create_case:
                 case = hive.promote_alert_to_case(alert_id)
@@ -129,11 +143,13 @@ def raise_alert(
         )
 
     logger.info(
-        "[AlertService] Alert RAISED for incident '%s' — rule='%s', severity='%s'.",
-        incident.incident_id, body.rule_name, body.severity,
+        "[AlertService] Alert %s for incident '%s' - rule='%s', severity='%s'.",
+        "RAISED" if is_first_detection else "ADDED", incident.incident_id,
+        body.rule_name, body.severity,
     )
+    verb = "Alert raised" if is_first_detection else "Additional detection alerted"
     return ActionResponse.from_event(incident, event,
-        f"Alert raised by '{body.siem_id}' (rule={body.rule_name}, severity={body.severity}).")
+        f"{verb} by '{body.siem_id}' (rule={body.rule_name}, severity={body.severity}).")
 
 
 def investigate_alert(body: InvestigateAlertRequest, emitter: EventEmitter, room_id: str) -> ActionResponse:
@@ -165,7 +181,7 @@ def investigate_alert(body: InvestigateAlertRequest, emitter: EventEmitter, room
 
 def deny_alert(body: DenyAlertRequest, emitter: EventEmitter, room_id: str) -> ActionResponse:
     """
-    Analyst marks the alert as a false positive. Incident ends here — no TTD recorded.
+    Analyst marks the alert as a false positive. Incident ends here - no TTD recorded.
 
     Called by: human analyst (via Hive or UI)
     Pre-condition: alert_investigation_started must already exist.

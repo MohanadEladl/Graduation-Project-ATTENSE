@@ -1,5 +1,5 @@
 """
-test_member_scoring.py — Unit tests for per-analyst scoring
+test_member_scoring.py - Unit tests for per-analyst scoring
 (pipeline/scoring_engine.py::score_members) and the team-average wiring
 in pipeline/bridge.py::run_bridge.
 
@@ -14,17 +14,19 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from attense_core.evaluation.attack_rules import ATTACK_RULE_DATA_DIR
+
 import pytest
 
 _HERE = Path(__file__).parent.resolve()
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.incidents.incident import Incident
+from attense_core.models.event import Event
+from attense_core.models.incident import Incident
 from pipeline.scoring_engine import score_incident, score_members
 
-_DATA_FILE = _HERE / "ATTENSE_app" / "AI" / "Data" / "APP-01-XSS.json"
+_DATA_FILE = ATTACK_RULE_DATA_DIR / "APP-01-XSS.json"
 
 _ALERT_ET = {
     "alert_raised", "alert_investigation_started", "incident_confirmed",
@@ -64,16 +66,16 @@ def _scenario(rule_data: dict, sid: str) -> dict:
     return next(s for s in rule_data["scenarios"] if s["scenario_id"] == sid)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# - 
 # XSS-S1 fixture already has 4 distinct blue_team analysts in its event_log:
-#   analyst-1 -> alert_investigation_started
-#   analyst-2 -> incident_confirmed
-#   analyst-3 -> containment_initiated, containment_succeeded
-#   incident-commander -> evidence_preserved, eradication_completed,
-#                          recovery_validated, lessons_learned_recorded
+# analyst-1 -> alert_investigation_started
+# analyst-2 -> incident_confirmed
+# analyst-3 -> containment_initiated, containment_succeeded
+# incident-commander -> evidence_preserved, eradication_completed,
+# recovery_validated, lessons_learned_recorded
 # Every rule passes team-wide in this fixture (the "good response" scenario),
 # so this proves attribution correctness without score differences masking it.
-# ═══════════════════════════════════════════════════════════════════════════
+# - 
 
 class TestAttributionOnCleanResponse:
     @staticmethod
@@ -136,12 +138,12 @@ class TestAttributionOnCleanResponse:
         assert "analyst-3" in rule.evidence[0]
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# - 
 # Synthetic two-analyst incident with a deliberate personal failure, to prove
 # scores actually differentiate (not just statuses).
-#   analyst-slow : investigation way past MTTA (600s)        -> R01 triggered
-#   analyst-fast : contains well within TTC                  -> R04/R05 passed
-# ═══════════════════════════════════════════════════════════════════════════
+# analyst-slow : investigation way past MTTA (600s) -> R01 triggered
+# analyst-fast : contains well within TTC -> R04/R05 passed
+# - 
 
 def _make_event(incident_id, scenario_id, event_type, actor_id, actor_type, offset_sec):
     t0 = datetime(2025, 6, 1, 10, 0, 0)
@@ -157,7 +159,7 @@ class TestScoreDifferentiationAndTeamAverage:
     @staticmethod
     @pytest.fixture(scope="class")
     def setup(rule_data):
-        scenario = _scenario(rule_data, "XSS-S1")  # mtta=600s, ttc_expected=8640s
+        scenario = _scenario(rule_data, "XSS-S1") # mtta=600s, ttc_expected=8640s
         incident_id, scenario_id = "diff-test", "XSS-S1"
         events = [
             _make_event(incident_id, scenario_id, "alert_raised", "wazuh", "system", 0),
@@ -217,3 +219,5 @@ class TestNoMembersFallback:
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+

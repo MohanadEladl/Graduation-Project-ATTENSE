@@ -181,9 +181,9 @@ for _tid, _info in MITRE_TECHNIQUES.items():
         _tid, _info["name"], _info["tactic"], _info["url"],
         _info["keywords"], [kw.lower() for kw in _info["keywords"]],
     ))
-    _summary_parts.append(f"  {_tid} [{_info['tactic']}] {_info['name']}: {', '.join(_info['keywords'][:5])}")
+    _summary_parts.append(f" {_tid} [{_info['tactic']}] {_info['name']}: {', '.join(_info['keywords'][:5])}")
     for _stid, _stname in _info.get("subtechniques", {}).items():
-        _summary_parts.append(f"    └─ {_stid}: {_stname}")
+        _summary_parts.append(f" +- {_stid}: {_stname}")
 _TECHNIQUE_SUMMARY = "\n".join(_summary_parts)
 del _summary_parts
 

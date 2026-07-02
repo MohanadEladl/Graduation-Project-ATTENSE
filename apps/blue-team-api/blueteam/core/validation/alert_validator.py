@@ -1,15 +1,15 @@
 """
-alert_validator.py — Alert Validation Rules
+alert_validator.py - Alert Validation Rules
 =============================================
 Pre-condition checks for all alert-related actions.
-INVALID requests die at the gate — they never reach the Blue Team core.
+INVALID requests die at the gate - they never reach the Blue Team core.
 
 Raises ValueError with a descriptive message on any violation.
 """
 
 from __future__ import annotations
 
-from ATTENSE_app.incidents.incident import Incident
+from attense_core.models.incident import Incident
 
 
 def validate_raise_alert(incident: Incident, store) -> None:
@@ -86,5 +86,6 @@ def validate_deny_alert(incident: Incident, store) -> None:
         )
     if store.has_event(incident.incident_id, EVENT_INCIDENT_CONFIRMED):
         raise ValueError(
-            f"Incident '{incident.incident_id}' has already been confirmed — cannot deny."
+        f"Incident '{incident.incident_id}' has already been confirmed - cannot deny."
         )
+

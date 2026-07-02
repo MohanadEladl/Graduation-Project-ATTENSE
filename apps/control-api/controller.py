@@ -6,10 +6,10 @@ import time
 
 import uvicorn
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.events.standard_event import StandardEvent
-from ATTENSE_app.incidents.incident import Incident
-from ATTENSE_app.reports.report import generate_report
+from attense_core.models.event import Event
+from attense_core.models.standard_event import StandardEvent
+from attense_core.models.incident import Incident
+from attense_core.evaluation.reports import generate_report
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +45,7 @@ class AttenseController:
         if not store_dir:
             return
         try:
-            from ATTENSE_app.persistence.event_repository import EventRepository
+            from attense_core.repositories.events import EventRepository
 
             self.event_repository = EventRepository(store_dir)
             logger.info(f"Durable event store enabled at {store_dir}")
@@ -119,6 +119,13 @@ class AttenseController:
             # failures are logged, never propagated, so the in-memory path above
             # is the source of truth until reads are switched over (steps 6-7).
             self._durable_write(event_data)
+            try:
+                from core import mission_store
+
+                if event.actor_type == "red_team" or event.event_type == "malicious_action_executed":
+                    mission_store.record_red_action(event_data, incident_id=incident_id)
+            except Exception as e:
+                logger.warning(f"Could not dual-write red action for incident {incident_id}: {e}")
 
         except Exception as e:
             logger.error(f"Failed to process event: {e}", exc_info=True)
@@ -192,3 +199,4 @@ class AttenseController:
                 logger.error(f"Error reading data file: {e}")
             
             time.sleep(POLL_INTERVAL)
+

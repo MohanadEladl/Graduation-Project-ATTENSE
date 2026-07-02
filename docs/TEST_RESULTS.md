@@ -19,7 +19,7 @@
 
 ## Executed commands and results
 
-### Unit tests — passed
+### Unit tests - passed
 
 ```powershell
 py -m unittest discover -s tests/unit -p "test_*.py" -v
@@ -29,7 +29,7 @@ Result: **94 tests passed**. This covers standard-event contracts, incident
 state transitions, metrics, event-store behaviour, scenario validation, and
 data validation.
 
-### Blue Team API integration — passed
+### Blue Team API integration - passed
 
 ```powershell
 py -m unittest discover -s tests/integration/blue-team-api -p "test_room_isolation.py" -v
@@ -37,7 +37,7 @@ py -m unittest discover -s tests/integration/blue-team-api -p "test_room_isolati
 
 Result: **11 tests passed**. Room isolation and room-header validation passed.
 
-### Signal Mapper correlation integration — passed
+### Signal Mapper correlation integration - passed
 
 ```powershell
 py -m unittest discover -s tests/integration/signal-mapper -p "test_signalmapper_correlation.py" -v
@@ -46,7 +46,7 @@ py -m unittest discover -s tests/integration/signal-mapper -p "test_signalmapper
 Result: **7 tests passed**. Wazuh correlation and source-event identifiers
 passed.
 
-### Red Team API integration — passed
+### Red Team API integration - passed
 
 ```powershell
 py -m unittest discover -s tests/integration/red-team-api -p "test_*.py" -v
@@ -55,7 +55,7 @@ py -m unittest discover -s tests/integration/red-team-api -p "test_*.py" -v
 Result: **2 tests passed**. Event payload shape and the attack start-time TTD
 anchor passed.
 
-### Zero-day agent and mapper suitability — environment blocked
+### Zero-day agent and mapper suitability - environment blocked
 
 ```powershell
 py -m pytest tests/zeroday_agent/ tests/integration/signal-mapper/test_mapper_suitability.py -v
@@ -66,7 +66,7 @@ Result: **17 passed, 1 setup error**. `test_generate_report` needs pytest's
 directory. A rerun with `--basetemp D:\tmp\attense-pytest` was also denied.
 No application assertion failed.
 
-### Control API integration — environment blocked
+### Control API integration - environment blocked
 
 ```powershell
 py -m unittest discover -s tests/integration/control-api -p "test_*.py" -v
@@ -81,7 +81,7 @@ The broad discovery command also loads `test_webhook_local.py`. It is documented
 in `tests/README.md` as a manual diagnostic script that requires a live webhook
 endpoint; its connection-refused output is excluded from automated results.
 
-### Infrastructure checks — passed
+### Infrastructure checks - passed
 
 ```powershell
 py scripts/generate_event_schema.py --check

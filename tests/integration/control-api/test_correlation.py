@@ -28,8 +28,8 @@ _CORE_ROOT = os.path.join(_REPO_ROOT, "packages", "attense-core")
 if _CORE_ROOT not in sys.path:
     sys.path.insert(0, _CORE_ROOT)
 
-from ATTENSE_app.events.standard_event import StandardEvent
-from ATTENSE_app.persistence.event_repository import EventRepository
+from attense_core.models.standard_event import StandardEvent
+from attense_core.repositories.events import EventRepository
 
 T0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
 
@@ -106,9 +106,9 @@ class CorrelationIntegrationTests(unittest.TestCase):
         self.assertEqual(self.repo.all_incident_ids(), ["INC-EX-1"])
 
         proj = self.repo.get_projection("INC-EX-1")
-        self.assertEqual(proj.start_time, T0)                       # attack start
+        self.assertEqual(proj.start_time, T0) # attack start
         self.assertEqual(proj.detection_time, T0 + timedelta(minutes=3))
-        self.assertEqual(proj.ttd_seconds, 180.0)                  # correct, non-zero
+        self.assertEqual(proj.ttd_seconds, 180.0) # correct, non-zero
 
     def test_external_id_kept_separate_from_incident_id(self):
         self.repo.append(event("malicious_action_executed", 0, actor_type="red_team"))
@@ -116,8 +116,8 @@ class CorrelationIntegrationTests(unittest.TestCase):
                                outcome="detected", source_event_id="1778258112.30741"))
         alert = [e for e in self.repo.get_events("INC-EX-1")
                  if e.event_type.value == "alert_raised"][0]
-        self.assertEqual(alert.incident_id, "INC-EX-1")            # ATTENSE id
-        self.assertEqual(alert.source_event_id, "1778258112.30741")  # external id, separate
+        self.assertEqual(alert.incident_id, "INC-EX-1") # ATTENSE id
+        self.assertEqual(alert.source_event_id, "1778258112.30741") # external id, separate
 
     def test_source_event_id_survives_restart(self):
         self.repo.append(event("alert_raised", 0, source="signal-store", target_type="alert",
@@ -128,3 +128,4 @@ class CorrelationIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

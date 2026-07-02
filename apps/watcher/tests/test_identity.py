@@ -8,12 +8,12 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT))
 
-from identity import _extract_name, _slugify  # noqa: E402
+from identity import _extract_name, _slugify # noqa: E402
 
 
 class IdentityTests(unittest.TestCase):
     def test_slugify_normalizes_human_names(self):
-        self.assertEqual(_slugify("  Alice A. Smith  "), "alice-a-smith")
+        self.assertEqual(_slugify(" Alice A. Smith "), "alice-a-smith")
 
     def test_slugify_uses_safe_default_for_blank_name(self):
         self.assertEqual(_slugify("---"), "analyst")

@@ -8,7 +8,7 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT))
 
-from app.mitre_attack import get_technique_summary, match_techniques  # noqa: E402
+from app.mitre_attack import get_technique_summary, match_techniques # noqa: E402
 
 
 class MitreAttackTests(unittest.TestCase):

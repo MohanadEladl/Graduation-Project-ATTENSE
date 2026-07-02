@@ -1,49 +1,20 @@
 """
-pipeline/bridge.py — Evaluation Bridge
+pipeline/bridge.py - Evaluation Bridge
 
 Loads events from two sources for a given incident_id:
-  1. /attense/data/mapped_events.jsonl   — Wazuh/SIEM events (actor_type: system)
-  2. /attense/actions/analyst-*.jsonl    — Analyst actions  (actor_type: blue_team)
+    1. /attense/data/mapped_events.jsonl - Wazuh/SIEM events (actor_type: system)
+    2. /attense/actions/analyst-*.jsonl - Analyst actions (actor_type: blue_team)
 
-Maps our internal event types to ATTENSE ALLOWED_EVENT_TYPES, builds Event
-objects, feeds them into an Incident in timestamp order, then calls
-generate_report() and score_incident() and returns the merged dict plus the
-sorted events list.
+Maps internal event types to ATTENSE allowed event types, builds Event objects,
+feeds them into an Incident in timestamp order, then calls generate_report()
+and score_incident(). The return value is the merged report dict plus the
+sorted event list.
 
-Returned dict — two clearly distinct evaluation concepts
----------------------------------------------------------
-outcome   (str, uppercase)  — timestamp-presence-based classification from
-                              report.py: SUCCESS / PARTIAL / FAILURE /
-                              FALSE_POSITIVE / INCOMPLETE
-verdict   (str, lowercase)  — score-based band from scoring_engine.py:
-                              excellent / acceptable / needs_review / failed
+Returned dict concepts:
+    outcome - uppercase timestamp-presence classification from report.py
+    verdict - lowercase score band from scoring_engine.py
 
-These are different things and must never be merged or treated as equivalent.
-
-Additional scoring keys in the returned dict
---------------------------------------------
-final_score               float
-verdict                   str   (see above)
-penalty_total             int
-ttc_factor                float
-ttc_actual_sec            float | None
-response_difficulty_bonus float
-scoring_rules             list[dict]  — all 9 rules with status + evidence;
-                          the Gemini report layer reads this for grounded
-                          per-rule feedback
-
-Event type mapping
-------------------
-Analyst action types         → ATTENSE ALLOWED_EVENT_TYPES
-investigation_started        → alert_investigation_started
-incident_confirmed           → incident_confirmed          (identity)
-containment_initiated        → containment_initiated       (identity)
-containment_succeeded        → containment_succeeded       (identity)
-incident_ended               → incident_ended              (identity)
-alert_denied                 → alert_denied                (identity)
-
-Wazuh mapped_events are expected to already carry valid ATTENSE event types
-(the signal-store emits alert_raised / malicious_action_executed etc.).
+These are different fields and must not be merged.
 """
 
 from __future__ import annotations
@@ -55,22 +26,27 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-# Ensure ATTENSE_app is importable when run from /app
+# Ensure service-local modules are importable when run from /app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from attense_core.models.event import Event
 from attense_core.models.incident import Incident
 from attense_core.evaluation.reports import generate_report
 from pipeline.scoring_engine import (
-    ScoringResult,
-    _determine_verdict,
-    score_incident,
-    score_members,
+ScoringResult,
+_determine_verdict,
+score_incident,
+score_members,
 )
-from ATTENSE_app.AI.live_thresholds import compute_live_thresholds
+from attense_core.evaluation.attack_rules import (
+ATTACK_RULE_DATA_DIR as _RULE_DATA_DIR,
+ATTACK_RULE_FILES as _ATTACK_RULE_FILES,
+load_attack_rule_data,
+)
+from attense_core.evaluation.live_thresholds import compute_live_thresholds
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-ACTIONS_DIR   = os.environ.get("ACTIONS_LOG_DIR",  "/attense/actions")
+# Paths
+ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
 MAPPED_EVENTS = os.environ.get("ATTENSE_DATA_PATH", "/attense/data/mapped_events.jsonl")
 # Phase 3 durable store. Holds every event that passed through
 # controller.process_event() -- the Wazuh file-tail AND the red-team's
@@ -79,43 +55,12 @@ MAPPED_EVENTS = os.environ.get("ATTENSE_DATA_PATH", "/attense/data/mapped_events
 # the Wazuh-only behaviour.
 EVENT_STORE_DIR = os.environ.get("ATTENSE_EVENT_STORE_DIR")
 
-_RULE_DATA_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ATTENSE_app", "AI", "Data")
-)
 
-_ATTACK_RULE_FILES: dict[str, str] = {
-    "APP-01": "APP-01-XSS.json",
-    "APP-02": "APP-02-CMDI.json",
-    "APP-03": "APP-03-DIR.json",
-    "APP-04": "APP-04-FUP.json",
-    "APP-05": "APP-05-CSRF.json",
-    "APP-06": "APP-06-BA.json",
-}
-
-# ── Rule data loader ──────────────────────────────────────────────────────────
+# Rule data loader
 
 def _load_rule_data(scenario_id: str) -> dict:
-    """
-    Derive the attack type from a scenario_id such as 'XSS-S1' or 'CMDI-S2',
-    then load and return the corresponding rule JSON.
-
-    Raises ValueError (not FileNotFoundError) for:
-      - unrecognised attack type prefix
-      - rule file present in the map but missing on disk
-    """
-    filename = _ATTACK_RULE_FILES.get(scenario_id)
-    if filename is None:
-        raise ValueError(
-            f"No rule file registered for scenario_id '{scenario_id}'. "
-            f"Known IDs: {sorted(_ATTACK_RULE_FILES)}"
-        )
-    path = os.path.join(_RULE_DATA_DIR, filename)
-    if not os.path.isfile(path):
-        raise ValueError(
-            f"Rule file for scenario_id '{scenario_id}' not found on disk: {path}"
-        )
-    with open(path, encoding="utf-8") as fh:
-        return json.load(fh)
+    """Load scoring rule data from the canonical attense_core package."""
+    return load_attack_rule_data(scenario_id)
 
 
 def _scoring_to_dict(result: ScoringResult) -> dict:
@@ -124,43 +69,43 @@ def _scoring_to_dict(result: ScoringResult) -> dict:
 
     Key naming note
     ---------------
-    'verdict'  (lowercase band: excellent/acceptable/needs_review/failed)
+    'verdict' (lowercase band: excellent/acceptable/needs_review/failed)
                lives here and is score-based.
-    'outcome'  (uppercase: SUCCESS/PARTIAL/FAILURE/FALSE_POSITIVE/INCOMPLETE)
+    'outcome' (uppercase: SUCCESS/PARTIAL/FAILURE/FALSE_POSITIVE/INCOMPLETE)
                comes from report.py and is timestamp-presence-based.
-    Both will coexist in the merged report dict — they must never be confused.
+               Both will coexist in the merged report dict; they must never be confused.
     """
     return {
-        "final_score":               result.final_score,
-        "verdict":                   result.verdict,
-        "penalty_total":             result.penalty_total,
-        "ttc_factor":                result.ttc_factor,
-        "ttc_actual_sec":            result.ttc_actual_sec,
+        "final_score": result.final_score,
+        "verdict": result.verdict,
+        "penalty_total": result.penalty_total,
+        "ttc_factor": result.ttc_factor,
+        "ttc_actual_sec": result.ttc_actual_sec,
         "response_difficulty_bonus": result.response_difficulty_bonus,
         "scoring_rules": [
             {
-                "rule_id":       r.rule_id,
-                "description":   r.description,
+                "rule_id": r.rule_id,
+                "description": r.description,
                 "penalty_points": r.penalty_points,
-                "status":        r.status,
-                "evidence":      r.evidence,
+                "status": r.status,
+                "evidence": r.evidence,
             }
             for r in result.rules
         ],
     }
 
 
-# ── Live-incident alert severity ──────────────────────────────────────────────
+# Live-incident alert severity
 
-# classifier vocabulary → scoring_engine vocabulary
+# classifier vocabulary -> scoring_engine vocabulary
 # The signal-store classifier emits "critical"; _SEVERITY_RANK in scoring_engine uses "very_high".
 # Passing "critical" through unchanged would make _SEVERITY_RANK.get("critical", 0) return 0,
 # silently treating every critical-severity denial as below-medium and never triggering R09.
 _SEVERITY_NORMALIZE: dict[str, str] = {
-    "low":       "low",
-    "medium":    "medium",
-    "high":      "high",
-    "critical":  "very_high",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "critical": "very_high",
     "very_high": "very_high",
 }
 
@@ -168,7 +113,7 @@ _SEVERITY_NORMALIZE: dict[str, str] = {
 def _extract_alert_severity(events: list[Event]) -> str:
     """
     Read alert_severity from the first alert_raised event's metadata.
-    Normalises "critical" → "very_high" to match scoring_engine's _SEVERITY_RANK vocabulary.
+    Normalises "critical" to "very_high" to match scoring_engine's _SEVERITY_RANK vocabulary.
     Raises ValueError rather than defaulting if the event or field is absent.
     """
     alert_ev = next((e for e in events if e.event_type == "alert_raised"), None)
@@ -190,23 +135,23 @@ def _extract_alert_severity(events: list[Event]) -> str:
     return normalized
 
 
-# ── Event type mapping ────────────────────────────────────────────────────────
+# Event type mapping
 ANALYST_EVENT_MAP: dict[str, str] = {
-    "investigation_started":    "alert_investigation_started",  # watcher name → canonical
-    "incident_confirmed":       "incident_confirmed",
-    "containment_initiated":    "containment_initiated",
-    "containment_succeeded":    "containment_succeeded",
-    "incident_ended":           "incident_ended",
-    "alert_denied":             "alert_denied",
-    # v2.0.0 — post-containment events (identity mappings — names are already canonical)
-    "evidence_preserved":       "evidence_preserved",
-    "eradication_completed":    "eradication_completed",
-    "recovery_validated":       "recovery_validated",
-    "dismissal_approved":       "dismissal_approved",
+"investigation_started": "alert_investigation_started", # watcher name -> canonical
+    "incident_confirmed": "incident_confirmed",
+    "containment_initiated": "containment_initiated",
+    "containment_succeeded": "containment_succeeded",
+    "incident_ended": "incident_ended",
+    "alert_denied": "alert_denied",
+    # v2.0.0 post-containment events (identity mappings; names are already canonical)
+    "evidence_preserved": "evidence_preserved",
+    "eradication_completed": "eradication_completed",
+    "recovery_validated": "recovery_validated",
+    "dismissal_approved": "dismissal_approved",
     "lessons_learned_recorded": "lessons_learned_recorded",
 }
 
-# Detection events → target_type "alert"; containment/attack → "service"
+# Detection events use target_type "alert"; containment/attack use "service"
 _DETECTION_EVENTS = {
     "alert_raised",
     "alert_investigation_started",
@@ -241,7 +186,7 @@ def _to_datetime(ts) -> datetime:
     return datetime.now()
 
 
-# ── Loaders ───────────────────────────────────────────────────────────────────
+# Loaders
 
 
 def _normalise_scoring_anchor(value: Optional[str]) -> Optional[datetime]:
@@ -321,17 +266,17 @@ def _load_wazuh_events(incident_id: str) -> list[Event]:
                     or "sandbox-target"
                 )
                 events.append(Event(
-                    event_id    = d.get("event_id", f"wazuh-{idx}"),
+                    event_id = d.get("event_id", f"wazuh-{idx}"),
                     incident_id = incident_id,
                     scenario_id = d.get("scenario_id", "APP-00"),
-                    actor_id    = d.get("actor_id", "wazuh"),
-                    target_id   = target_id,
-                    event_type  = d["event_type"],
-                    actor_type  = "system",
+                    actor_id = d.get("actor_id", "wazuh"),
+                    target_id = target_id,
+                    event_type = d["event_type"],
+                    actor_type = "system",
                     target_type = _target_type(d["event_type"]),
-                    timestamp   = _to_datetime(d.get("timestamp")),
-                    outcome     = d.get("outcome"),
-                    metadata    = meta,
+                    timestamp = _to_datetime(d.get("timestamp")),
+                    outcome = d.get("outcome"),
+                    metadata = meta,
                 ))
             except (KeyError, ValueError):
                 continue
@@ -381,24 +326,24 @@ def _load_analyst_events(incident_id: str) -> list[Event]:
                     continue
                 if d.get("incident_id") != incident_id:
                     continue
-                raw_et  = d.get("event_type", "")
-                mapped  = ANALYST_EVENT_MAP.get(raw_et)
+                raw_et = d.get("event_type", "")
+                mapped = ANALYST_EVENT_MAP.get(raw_et)
                 if not mapped:
                     continue
                 try:
                     events.append(Event(
-                        event_id    = f"act-{d['analyst_id']}-{idx}",
+                        event_id = f"act-{d['analyst_id']}-{idx}",
                         incident_id = incident_id,
                         scenario_id = d.get("scenario_id", "APP-00"),
-                        actor_id    = d["analyst_id"],
-                        target_id   = "sandbox-target",
-                        event_type  = mapped,
-                        actor_type  = "blue_team",
+                        actor_id = d["analyst_id"],
+                        target_id = "sandbox-target",
+                        event_type = mapped,
+                        actor_type = "blue_team",
                         target_type = _target_type(mapped),
-                        timestamp   = _to_datetime(d.get("stored_at") or d.get("timestamp")),
-                        outcome     = _outcome(mapped),
-                        metadata    = {
-                            "detail":       d.get("detail", ""),
+                        timestamp = _to_datetime(d.get("stored_at") or d.get("timestamp")),
+                        outcome = _outcome(mapped),
+                        metadata = {
+                            "detail": d.get("detail", ""),
                             "t_offset_sec": d.get("t_offset_sec", 0),
                         },
                     ))
@@ -409,32 +354,32 @@ def _load_analyst_events(incident_id: str) -> list[Event]:
 
 def member_events(member_actor_id: str, events: list[Event]) -> list[Event]:
     """Events scoped to one analyst's personal report: every non-blue_team
-    event (system/red-team — needed for timing context and incident
+    event (system/red-team; needed for timing context and incident
     narrative) plus ONLY this analyst's own blue_team actions, not a
     teammate's. Used to build the per-member markdown report's event list."""
     return [
-        ev for ev in events
-        if ev.actor_type != "blue_team" or ev.actor_id == member_actor_id
+    ev for ev in events
+    if ev.actor_type != "blue_team" or ev.actor_id == member_actor_id
     ]
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
+# Public entry point
 
 def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
     """
     Load all events for incident_id, build an Incident, then:
-      1. Call generate_report() → 10-key dict including 'outcome' (uppercase,
+        1. Call generate_report() returns a 10-key dict including 'outcome' (uppercase,
          timestamp-presence-based: SUCCESS/PARTIAL/FAILURE/FALSE_POSITIVE/INCOMPLETE)
-      2. Call score_incident() → ScoringResult with 'verdict' (lowercase,
+         2. Call score_incident() returns ScoringResult with 'verdict' (lowercase,
          score-based: excellent/acceptable/needs_review/failed) plus full
          rule breakdown and numeric scores
       3. Merge both into a single dict and return it with the sorted event list.
 
     The two evaluation concepts are kept under distinct keys:
-      outcome  — from report.py   (classification of what happened)
-      verdict  — from scoring_engine.py (quality of the response)
+        outcome - from report.py (classification of what happened)
+        verdict - from scoring_engine.py (quality of the response)
     """
-    wazuh   = _load_wazuh_events(incident_id)
+    wazuh = _load_wazuh_events(incident_id)
     durable = _load_durable_events(incident_id)
     analyst = _load_analyst_events(incident_id)
 
@@ -468,11 +413,11 @@ def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
             "scenario_id": scenario_id,
             "computed_thresholds": {
                 "mtta_threshold_sec": live["mtta_threshold_sec"],
-                "ttc_expected_sec":   live["ttc_expected_sec"],
-                "ttc_max_sec":        live["ttc_max_sec"],
+                "ttc_expected_sec": live["ttc_expected_sec"],
+                "ttc_max_sec": live["ttc_max_sec"],
             },
             "alert_severity": _extract_alert_severity(all_events),
-            "detection":      {"difficulty": live["detection_difficulty"]},
+            "detection": {"difficulty": live["detection_difficulty"]},
         }
         rule_data = {**rule_data, "scenarios": rule_data.get("scenarios", []) + [synthetic]}
 
@@ -493,24 +438,24 @@ def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
     # scored against the same 9 rules, attributed by who actually performed
     # each rule's qualifying action (see scoring_engine.score_members). When
     # the incident has at least one analyst, the team's headline final_score
-    # and verdict become the AVERAGE of the individual members' scores —
+    # and verdict become the AVERAGE of the individual members' scores;
     # per-rule penalty_total/scoring_rules/ttc_factor/response_difficulty_bonus
     # above stay as the whole-incident breakdown (still useful context for
     # what happened), only the headline score/verdict are replaced.
     # Incidents with no blue_team actor at all (e.g. nobody ever responded)
-    # keep today's whole-incident score — there is nothing to average.
+    # keep today's whole-incident score; there is nothing to average.
     member_results = score_members(
-        incident,
-        all_events,
-        rule_data,
-        scoring_started_at=scoring_started_at,
+    incident,
+    all_events,
+    rule_data,
+    scoring_started_at=scoring_started_at,
     )
     if member_results:
         member_avg = round(
-            sum(r.final_score for r in member_results.values()) / len(member_results), 2
+        sum(r.final_score for r in member_results.values()) / len(member_results), 2
         )
         report["final_score"] = member_avg
-        report["verdict"]     = _determine_verdict(member_avg, rule_data["scoring"]["verdict_bands"])
+        report["verdict"] = _determine_verdict(member_avg, rule_data["scoring"]["verdict_bands"])
         report["team_score_basis"] = "average_of_members"
         report["member_scores"] = {
             analyst_id: _scoring_to_dict(result)
@@ -531,7 +476,12 @@ def run_bridge(incident_id: str) -> tuple[dict, list[Event]]:
         "blue_started_by": room.get("blue_started_by"),
     }
     report["analyst_contributions"] = _analyst_contributions(all_events, scoring_started_at)
-    report["mitre_attack"]       = rule_data.get("mitre_attack", {})
+    report["mitre_attack"] = rule_data.get("mitre_attack", {})
     report["response_framework"] = rule_data.get("response_framework", {})
 
     return report, all_events
+
+
+
+
+

@@ -1,5 +1,5 @@
 """
-utils/http_client.py — Shared HTTP session (legacy compatibility).
+utils/http_client.py - Shared HTTP session (legacy compatibility).
 
 The new BaseModule has its own _get / _post helpers.
 This module is kept for any standalone utility scripts.

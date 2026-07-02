@@ -1,9 +1,9 @@
 # =============================================================================
-# ATTENSE Cyber Range â€” infra/compose.base.yml
+# ATTENSE Cyber Range --- infra/compose.base.yml
 # =============================================================================
 # Core application services: the vulnerable target, the red-team/blue-team
 # exercise path, and the detection pipeline. Always run together with
-# compose.security.yml (TheHive/Cortex/Wazuh) and compose.ai.yml (Ollama) â€”
+# compose.security.yml (TheHive/Cortex/Wazuh) and compose.ai.yml (Ollama) ---
 # this file alone hard-depends on services defined there (the base/security/ai
 # `depends_on` edges are not yet decoupled; see MIGRATION.md).
 #
@@ -19,7 +19,7 @@ x-default-logging: &default-logging
 
 services:
 
-  # â”€â”€ Target: Nginx + Flask vulnerable app + Wazuh agent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- Target: Nginx + Flask vulnerable app + Wazuh agent ---
   target-agent:
     build:
       context: ../apps/target-lab
@@ -32,7 +32,7 @@ services:
     depends_on:
       wazuh-manager:
         condition: service_healthy
-    # Wazuh's firewall-drop active-response runs iptables on this agent â€”
+    # Wazuh's firewall-drop active-response runs iptables on this agent ---
     # iptables needs NET_ADMIN, which containers don't have by default.
     cap_add:
       - NET_ADMIN
@@ -49,7 +49,7 @@ services:
     networks:
       - attense_net
 
-  # â”€â”€ Signal Store â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- Signal Store ---
   signal-store:
     build:
       context: ../apps/signal-mapper
@@ -57,6 +57,13 @@ services:
     hostname: signal-store
     restart: unless-stopped
     logging: *default-logging
+    # Wazuh writes alerts.json owned by uid/gid 999 (wazuh), mode 640. Add gid
+    # 999 as a supplementary group so the mapper (uid 1000) can READ the alerts
+    # file it tails, without changing its own user (so mapped_events.jsonl stays
+    # owned by appuser). Without this the tail worker gets Permission denied and
+    # no real Wazuh detection is ever forwarded to TheHive.
+    group_add:
+      - "999"
     depends_on:
       wazuh-manager:
         condition: service_healthy
@@ -85,7 +92,7 @@ services:
     networks:
       - attense_net
 
-  # â”€â”€ Attense App â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- Attense App ---
   # Build-only prerequisite for dynamically created Blue Team room containers.
   blueteam-image:
     build:
@@ -127,6 +134,10 @@ services:
       ATTENSE_EVENT_STORE_DIR: /attense/temp/event_store
       DATABASE_URL: "postgresql://${POSTGRES_USER:-attense}:${POSTGRES_PASSWORD:-attense-dev-password}@postgres:5432/${POSTGRES_DB:-attense}"
       POSTGRES_SCHEMA: attense
+      # Base URL analysts use to reach the Blue Team UI. Embedded in every
+      # TheHive alert/case as the "Return to ATTENSE report" link so an analyst
+      # can jump back to the report from inside TheHive.
+      ATTENSE_BLUE_URL: "${ATTENSE_BLUE_URL:-http://localhost:3100}"
       # TheHive integration
       HIVE_URL: "http://thehive:9000"
       VIRUSTOTAL_API_KEY: "${VIRUSTOTAL_API_KEY}"
@@ -164,7 +175,7 @@ services:
     networks:
       - attense_net
 
-  # â”€â”€ AttackBox: Lightweight local pen-test tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- AttackBox: Lightweight local pen-test tools ---
   attackbox:
     build:
       context: ../attackbox
@@ -184,7 +195,7 @@ services:
     networks:
       - attense_net
 
-  # â”€â”€ OWASP ZAP: Local proxy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- OWASP ZAP: Local proxy ---
   zap:
     image: ghcr.io/zaproxy/zaproxy:stable
     container_name: attense_zap
@@ -210,7 +221,7 @@ services:
       retries: 5
       start_period: 90s
 
-  # â”€â”€ Red Team Backend: FastAPI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- Red Team Backend: FastAPI ---
   red-team-backend:
     build:
       context: ../apps/red-team-api
@@ -248,7 +259,7 @@ services:
       - red_team_logs:/red-team/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      - "127.0.0.1:8000:8000"  # loopback only â€” not exposed to the LAN
+      - "127.0.0.1:8000:8000"  # loopback only --- not exposed to the LAN
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
       interval: 15s
@@ -258,7 +269,7 @@ services:
     networks:
       - attense_net
 
-  # â”€â”€ Red Team Frontend: React + Vite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- Red Team Frontend: React + Vite ---
   red-team-frontend:
     build:
       context: ../frontends/red-team
@@ -269,7 +280,7 @@ services:
     depends_on:
       - red-team-backend
     ports:
-      - "127.0.0.1:3000:8080"  # loopback only â€” not exposed to the LAN
+      - "127.0.0.1:3000:8080"  # loopback only --- not exposed to the LAN
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
@@ -323,7 +334,7 @@ services:
     networks:
       - attense_net
   # Blue Team endpoints provided by attense-app (embedded API; frontend added above)
-  # â”€â”€ Watcher Agent: SOC analyst terminal monitor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # --- Watcher Agent: SOC analyst terminal monitor ---
   # Tails the host audit log, classifies analyst commands via Ollama, and posts
   # classified SOC actions to attense-app:8010/blueteam/analyst-action.
   # The red-team operator creates a session via POST /session/watcher on

