@@ -27,12 +27,13 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from .dependencies import get_event_emitter, get_attacker_log_attacher, get_settings
+from .dependencies import get_event_emitter, get_attacker_log_attacher, get_hive_client, get_settings
 from ..config.settings import Settings
 from ..config.constants import CONTAINMENT_INVESTIGATION_MIN_SECONDS
 from ..core.blueactions.hive_event_translator import HiveEventTranslator
 from ..core.blueactions.attacker_log_attacher import AttackerLogAttacher
 from ..infrastructure.eventstore.event_emitter import EventEmitter
+from ..infrastructure.thehive.hive_client import HiveClient
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ async def receive_hive_webhook(
     request: Request,
     emitter: EventEmitter = Depends(get_event_emitter),
     attacher: AttackerLogAttacher = Depends(get_attacker_log_attacher),
+    hive: HiveClient = Depends(get_hive_client),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """
@@ -231,6 +233,13 @@ async def receive_hive_webhook(
     if object_type.strip().lower() == "case" and operation.strip().lower() == "create":
         object_data = payload.get("object", {})
         case_id = object_data.get("id") or object_data.get("_id") or payload.get("objectId")
+        # Every case - including alerts the analyst imported manually in the
+        # Hive UI - gets the visible way back to the ATTENSE report (description
+        # link block + '<- Return to ATTENSE report' task). Idempotent.
+        try:
+            hive.ensure_return_link(case_id, incident_id)
+        except Exception as exc:
+            logger.warning("[Webhook] Could not add return link to case %s: %s", case_id, exc)
         attacher.attach(case_id, incident)
 
     return {

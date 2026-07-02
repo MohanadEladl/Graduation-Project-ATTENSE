@@ -121,11 +121,14 @@ def raise_alert(
             # (the CaseCreated webhook then triggers attacker-log attachment).
             if auto_create_case:
                 case = hive.promote_alert_to_case(alert_id)
-                if case.get("id") or case.get("_id"):
+                case_id = case.get("id") or case.get("_id")
+                if case_id:
                     logger.info(
                         "[AlertService] Alert %s auto-promoted to case %s (incident '%s').",
-                        alert_id, case.get("id") or case.get("_id"), incident.incident_id,
+                        alert_id, case_id, incident.incident_id,
                     )
+                    # The analyst's way back from TheHive to the ATTENSE report.
+                    hive.ensure_return_link(case_id, incident.incident_id)
                 else:
                     logger.warning(
                         "[AlertService] Auto-promote of alert %s returned no case id: %s",
