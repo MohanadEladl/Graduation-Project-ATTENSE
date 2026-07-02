@@ -155,6 +155,54 @@ class HiveClient:
         """
         return self._post(f"/api/alert/{alert_id}/createCase", {})
 
+    RETURN_LINK_MARKER = "Return to ATTENSE report dashboard"
+
+    def ensure_return_link(self, case_id: str, incident_id: str) -> bool:
+        """
+        Guarantee the case gives the analyst a visible way back to the ATTENSE
+        Blue Team report: a link block at the TOP of the case description plus
+        a dedicated '⬅ Return to ATTENSE report' task in the case's task list.
+
+        TheHive has no custom UI buttons, so these two markdown surfaces are
+        the "button". Idempotent: skipped when the description already carries
+        the link (covers double-firing from auto-promote + CaseCreated webhook).
+
+        Returns True if the link was added, False if skipped/failed.
+        """
+        if not case_id:
+            return False
+        case = self._get(f"/api/case/{case_id}")
+        if not isinstance(case, dict) or not case:
+            # Can't read the current description; patching blind would erase it.
+            logger.warning(
+                "[HiveClient] Could not fetch case %s to add the return link.", case_id
+            )
+            return False
+        description = case.get("description") or ""
+        if self.RETURN_LINK_MARKER in description:
+            return False
+
+        return_url = f"{ATTENSE_BLUE_URL}/?view=reports&incidentId={incident_id}"
+        link_block = f"### ⬅ [{self.RETURN_LINK_MARKER}]({return_url})"
+        self._patch(
+            f"/api/case/{case_id}",
+            {"description": f"{link_block}\n\n{description}".strip()},
+        )
+        self._post(
+            f"/api/case/{case_id}/task",
+            {
+                "title": "⬅ Return to ATTENSE report",
+                "group": "attense",
+                "description": (
+                    "When the investigation is done, open the ATTENSE Blue Team "
+                    f"report for this incident:\n\n[{self.RETURN_LINK_MARKER}]({return_url})\n\n"
+                    "Then use **Finish Incident & View Report** in the ATTENSE portal "
+                    "to close the exercise and generate the scored report."
+                ),
+            },
+        )
+        return True
+
     def add_observable(self, case_id: str, data_type: str, value: str) -> dict:
         """
         Add an observable (IOC) to a Hive case.

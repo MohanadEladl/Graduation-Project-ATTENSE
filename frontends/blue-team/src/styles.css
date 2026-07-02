@@ -260,3 +260,15 @@ h1, h2, h3, p { margin: 0; }
 .dc-hive-launch-actions button.finish { border-color: rgba(67,211,159,.5); background: rgba(67,211,159,.16); }
 .dc-hive-launch-actions button.finish:hover { background: rgba(67,211,159,.26); }
 .dc-hive-launch-actions button.ghost { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.025); color: #9ca3b7; font-weight: 700; }
+.dc-hive-session-bar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 18px; padding: 12px 16px; border-radius: 14px; border: 1px solid rgba(74,134,232,.45); background: linear-gradient(160deg,rgba(18,26,44,.98),rgba(9,12,22,.98)); box-shadow: 0 18px 48px rgba(0,0,0,.55); animation: fu .35s cubic-bezier(.22,1,.36,1) both; }
+.dc-hive-session-info { display: flex; align-items: center; gap: 10px; }
+.dc-hive-session-info i { width: 9px; height: 9px; border-radius: 50%; background: #4a86e8; animation: hivepulse 1.6s ease-in-out infinite; }
+.dc-hive-session-info strong { display: block; font-size: 13px; font-weight: 800; color: #f7f8ff; }
+.dc-hive-session-info span { display: block; margin-top: 2px; font-size: 11px; color: #9ca3b7; }
+.dc-hive-session-actions { display: flex; align-items: center; gap: 10px; }
+.dc-hive-session-actions button { min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(74,134,232,.5); background: rgba(74,134,232,.16); color: #f7f8ff; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.dc-hive-session-actions button:hover { background: rgba(74,134,232,.26); }
+.dc-hive-session-actions button.finish { border-color: rgba(67,211,159,.5); background: rgba(67,211,159,.16); }
+.dc-hive-session-actions button.finish:hover { background: rgba(67,211,159,.26); }
+@keyframes hivepulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(74,134,232,.18); } 50% { box-shadow: 0 0 0 7px rgba(74,134,232,.08); } }
+@media (max-width: 720px) { .dc-hive-session-bar { flex-direction: column; gap: 10px; width: min(100% - 24px, 420px); } }
