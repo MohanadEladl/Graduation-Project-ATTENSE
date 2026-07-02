@@ -16,9 +16,9 @@ for _p in (_PKG_ROOT, _CORE_ROOT):
         sys.path.insert(0, _p)
 
 from datetime import datetime, timedelta
-from ATTENSE_app.incidents.incident import Incident
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.reports.report import generate_report
+from attense_core.models.incident import Incident
+from attense_core.models.event import Event
+from attense_core.evaluation.reports import generate_report
 #test outcomes with metrix 
 def test_success_case():
     print("Running Success Case...")
@@ -133,3 +133,4 @@ if __name__ == "__main__":
     test_failure_case()
     test_false_positive_case()
     test_incomplete_case()
+

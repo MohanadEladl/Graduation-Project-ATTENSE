@@ -1,5 +1,5 @@
 """
-hive_client.py — TheHive Integration Client
+hive_client.py - TheHive Integration Client
 =============================================
 Handles all communication with TheHive case management platform.
 
@@ -11,10 +11,13 @@ when HIVE_URL is not set or unreachable.
 from __future__ import annotations
 
 import logging
+import os
+import uuid
 
 import httpx
 
 logger = logging.getLogger(__name__)
+ATTENSE_BLUE_URL = os.getenv('ATTENSE_BLUE_URL', 'http://127.0.0.1:3100').rstrip('/')
 
 
 class HiveClient:
@@ -24,8 +27,8 @@ class HiveClient:
     Parameters
     ----------
     base_url : Base URL of the Hive instance (e.g. http://localhost:9000).
-    api_key  : Hive API key for authentication.
-    timeout  : HTTP request timeout in seconds.
+    api_key : Hive API key for authentication.
+    timeout : HTTP request timeout in seconds.
     """
 
     def __init__(
@@ -48,16 +51,17 @@ class HiveClient:
         Parameters
         ----------
         incident_id : Internal incident identifier.
-        title       : Case title displayed in Hive.
-        severity    : One of low | medium | high | critical.
+        title : Case title displayed in Hive.
+        severity : One of low | medium | high | critical.
 
         Returns
         -------
         The Hive API response dict, or an empty dict on failure.
         """
+        return_url = f"{ATTENSE_BLUE_URL}/?view=reports&incidentId={incident_id}"
         payload = {
             "title": title,
-            "description": f"Automated case for incident {incident_id}",
+            "description": f"### ⬅ [Return to ATTENSE report dashboard]({return_url})\n\nAutomated case for incident {incident_id}",
             "severity": self._map_severity(severity),
             "tags": [incident_id, f"attense:incident-{incident_id}"],
         }
@@ -70,23 +74,28 @@ class HiveClient:
         severity: str,
         artifacts: list[dict],
         enrichment_summary: str = "",
+        source_ref: str | None = None,
     ) -> dict:
         """
         Create a new alert in TheHive.
 
         Parameters
         ----------
-        incident_id        : Internal incident identifier.
-        title               : Alert title.
-        severity            : One of low | medium | high | critical.
-        artifacts           : List of observable dicts.
-        enrichment_summary  : Cortex-Lite's human-readable threat-intel summary
+        incident_id : Internal incident identifier.
+        title : Alert title.
+        severity : One of low | medium | high | critical.
+        artifacts : List of observable dicts.
+        enrichment_summary : Cortex-Lite's human-readable threat-intel summary
                                (AbuseIPDB/VirusTotal), appended to the alert
                                description so it's visible at a glance.
         """
-        description = f"Automated alert for incident {incident_id}"
+        return_url = f"{ATTENSE_BLUE_URL}/?view=reports&incidentId={incident_id}"
+        description = f"### ⬅ [Return to ATTENSE report dashboard]({return_url})\n\nAutomated alert for incident {incident_id}"
         if enrichment_summary:
             description += f"\n\nThreat intel summary: {enrichment_summary}"
+        # TheHive dedups alerts by (type, source, sourceRef). Use a unique
+        # sourceRef per detection so every Wazuh detection surfaces as its own
+        # alert, while the incident tag keeps them grouped/searchable.
         payload = {
             "title": title,
             "description": description,
@@ -94,7 +103,7 @@ class HiveClient:
             "tags": [incident_id, f"attense:incident-{incident_id}"],
             "type": "siem",
             "source": "wazuh",
-            "sourceRef": incident_id,
+            "sourceRef": source_ref or f"{incident_id}-{uuid.uuid4().hex[:10]}",
             "artifacts": artifacts,
         }
         return self._post("/api/alert", payload)
@@ -104,7 +113,7 @@ class HiveClient:
         Update the severity of an existing Hive case by finding it via tags.
         """
         logger.info(
-            "[HiveClient] Updating case severity for incident '%s' → %s",
+            "[HiveClient] Updating case severity for incident '%s' -> %s",
             incident_id, severity,
         )
         cases = self._get("/api/case")
@@ -136,7 +145,7 @@ class HiveClient:
 
     def promote_alert_to_case(self, alert_id: str) -> dict:
         """
-        Promote an existing TheHive alert into a case (alert → case).
+        Promote an existing TheHive alert into a case (alert -> case).
 
         Mirrors the analyst's "Import alert as case" action. The new case
         inherits the alert's tags (incl. attense:incident-<id>), so the
@@ -152,9 +161,9 @@ class HiveClient:
 
         Parameters
         ----------
-        case_id   : Hive case ID.
+        case_id : Hive case ID.
         data_type : Observable type (ip, domain, hash, etc.).
-        value     : Observable value.
+        value : Observable value.
         """
         payload = {
             "dataType": data_type,
@@ -166,7 +175,7 @@ class HiveClient:
         """
         Create a task on a Hive case.
 
-        Used to hold the chronological "Attacker Activity Log" — each attacker
+        Used to hold the chronological "Attacker Activity Log" - each attacker
         action is later appended as a task log via ``add_task_log``.
 
         Returns the Hive API response dict (includes the new task ``id``), or
@@ -191,9 +200,9 @@ class HiveClient:
         payload = {"message": message}
         return self._post(f"/api/case/task/{task_id}/log", payload)
 
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
     # Internal helpers
-    # ──────────────────────────────────────────────────────────────────────────
+    # --------------------------------------------------------------------------
 
     def _get(self, path: str) -> list | dict:
         """Send a GET request to the Hive API. Returns [] or {} on error."""
@@ -244,7 +253,7 @@ class HiveClient:
 
     @staticmethod
     def _map_severity(severity: str) -> int:
-        """Map string severity to Hive numeric severity (1–4)."""
+        """Map string severity to Hive numeric severity (1-4)."""
         return {"low": 1, "medium": 2, "high": 3, "critical": 4}.get(
             severity.lower(), 2
         )

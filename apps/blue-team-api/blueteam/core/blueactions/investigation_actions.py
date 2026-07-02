@@ -1,5 +1,5 @@
 """
-investigation_actions.py — Investigation & Incident Event Builders
+investigation_actions.py - Investigation & Incident Event Builders
 ===================================================================
 Pure functions that construct Event objects for investigation and
 incident confirmation actions.
@@ -10,8 +10,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.incidents.incident import Incident
+from attense_core.models.event import Event
+from attense_core.models.incident import Incident
 
 
 def _new_event_id() -> str:
@@ -29,7 +29,7 @@ def build_confirm_incident_event(
     Build an incident_confirmed event representing a true-positive escalation.
 
     This is the CRITICAL TTD anchor:
-    TTD = this event's timestamp − malicious_action_executed timestamp
+        TTD = this event's timestamp - malicious_action_executed timestamp
 
     Actor: blue_team (analyst)
     Target: the alert being confirmed
@@ -52,3 +52,4 @@ def build_confirm_incident_event(
         outcome="detected",
         metadata=meta,
     )
+

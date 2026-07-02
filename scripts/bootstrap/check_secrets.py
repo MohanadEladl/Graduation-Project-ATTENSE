@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-check_secrets.py — Env/secrets pre-flight checker
+check_secrets.py - Env/secrets pre-flight checker
 =====================================================
 Validates the env files that back docker-compose.yml before you bring the
 stack up:
 
 1. Every required key is present and non-empty.
-2. THEHIVE_ADMIN_PASSWORD is not still TheHive's stock "secret" default —
+2. THEHIVE_ADMIN_PASSWORD is not still TheHive's stock "secret" default -
    that superadmin account can see every company's org/cases, so leaving it
    default is a real cross-tenant leak the moment more than one person has
    access to this deployment. This is the only default-value check that
    fails the run.
 3. Every OTHER credential still at its shipped default (Cortex/Wazuh admin
    passwords, webhook/play secrets, ZAP's key, the containment token) is
-   reported as a warning, not a failure — those are single shared infra
+   reported as a warning, not a failure - those are single shared infra
    pieces with no per-company data to leak, so leaving them default in a
    solo local lab is a reasonable, deliberate choice.
 4. HIVE_API_KEY actually authenticates against a running TheHive instance.
@@ -178,21 +178,21 @@ def _try_hive_key_http(hive_url: str, key: str) -> list[str] | None:
 def _try_hive_key_via_container(key: str) -> list[str] | None:
     """Run the same check from inside attense-app instead of the host. TheHive's
     port is not published (public-exposure hardening), so the host can no
-    longer reach it directly — attense-app is on attense_net and can."""
+    longer reach it directly - attense-app is on attense_net and can."""
     container = os.getenv("ATTENSE_APP_CONTAINER", "attense_app")
     probe = (
         "import sys, urllib.request, urllib.error\n"
         "req = urllib.request.Request('http://thehive:9000/api/user/current', "
         "headers={'Authorization': 'Bearer ' + sys.argv[1]})\n"
         "try:\n"
-        "    with urllib.request.urlopen(req, timeout=5) as r:\n"
-        "        print(f'HTTP_STATUS={r.status}')\n"
-        "        sys.exit(0 if r.status == 200 else 2)\n"
+        " with urllib.request.urlopen(req, timeout=5) as r:\n"
+        " print(f'HTTP_STATUS={r.status}')\n"
+        " sys.exit(0 if r.status == 200 else 2)\n"
         "except urllib.error.HTTPError as e:\n"
-        "    print(f'HTTP_STATUS={e.code}')\n"
-        "    sys.exit(2)\n"
+        " print(f'HTTP_STATUS={e.code}')\n"
+        " sys.exit(2)\n"
         "except Exception:\n"
-        "    sys.exit(99)\n"
+        " sys.exit(99)\n"
     )
     try:
         result = subprocess.run(
@@ -200,11 +200,11 @@ def _try_hive_key_via_container(key: str) -> list[str] | None:
             capture_output=True, text=True, timeout=15,
         )
     except Exception:
-        return None  # docker itself unavailable here; let caller report generic failure
+        return None # docker itself unavailable here; let caller report generic failure
     if result.returncode == 0:
         return []
     if result.returncode == 99:
-        return None  # couldn't reach TheHive even internally; not a key problem
+        return None # couldn't reach TheHive even internally; not a key problem
     if result.returncode == 2:
         status_line = next(
             (line for line in result.stdout.splitlines() if line.startswith("HTTP_STATUS=")),
@@ -226,7 +226,7 @@ def _try_hive_key_via_container(key: str) -> list[str] | None:
 def check_hive_key_live(env: dict[str, tuple[str, Path]]) -> list[str]:
     key = env.get("HIVE_API_KEY", ("", None))[0]
     if not key:
-        return []  # already reported by check_required
+        return [] # already reported by check_required
 
     host_url = os.getenv("HIVE_URL", "http://localhost:9000").rstrip("/")
     result = _try_hive_key_http(host_url, key)
@@ -247,7 +247,7 @@ def check_hive_key_live(env: dict[str, tuple[str, Path]]) -> list[str]:
 def check_cortex_key_live(env: dict[str, tuple[str, Path]]) -> list[str]:
     key = env.get("CORTEX_API_KEY", ("", None))[0]
     if not key:
-        return []  # already reported by check_required
+        return [] # already reported by check_required
 
     cortex_url = os.getenv("CORTEX_URL", "http://localhost:9001").rstrip("/")
     request = urllib.request.Request(
@@ -302,13 +302,13 @@ def main() -> int:
     if warnings:
         print("Secrets check warnings (not fatal):\n")
         for warning in warnings:
-            print(f"  - {warning}")
+            print(f" - {warning}")
         print()
 
     if problems:
         print("Secrets check FAILED:\n")
         for problem in problems:
-            print(f"  - {problem}")
+            print(f" - {problem}")
         print(
             f"\n{len(problems)} problem(s) found across "
             f"{', '.join(str(p.relative_to(ROOT)) for p in ENV_FILES if p.exists())}."

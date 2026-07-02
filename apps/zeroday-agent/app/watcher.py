@@ -1,5 +1,5 @@
 """
-Continuous Watcher — runs the Zero-Day Detection Agent every N seconds.
+Continuous Watcher - runs the Zero-Day Detection Agent every N seconds.
 Usage: python -m app.watcher --interval 60
 """
 
@@ -16,7 +16,7 @@ logger = logging.getLogger("zeroday-agent.watcher")
 def watch(interval: int):
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s  %(message)s",
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -28,7 +28,7 @@ def watch(interval: int):
 
     while True:
         run_count += 1
-        logger.info("Scan #%d — %s", run_count, datetime.now().strftime("%H:%M:%S"))
+        logger.info("Scan #%d - %s", run_count, datetime.now().strftime("%H:%M:%S"))
 
         try:
             analysis, report_path = run_agent()
@@ -37,7 +37,7 @@ def watch(interval: int):
                 mitre = analysis.get("closest_mitre_technique", {})
                 logger.critical(
                     "ZERO-DAY #%d detected! Report: %s | "
-                    "Closest MITRE: %s — %s | Match Level: %s",
+                    "Closest MITRE: %s - %s | Match Level: %s",
                     zero_day_count, report_path,
                     mitre.get("id"), mitre.get("name"),
                     mitre.get("match_level"),

@@ -1,5 +1,5 @@
 """
-backend/skill_store.py — Persistent learner skill graph for ATTENSE.
+backend/skill_store.py - Persistent learner skill graph for ATTENSE.
 
 Maintains a JSON file at /data/skills.json (inside the container) that tracks
 each learner's attempts, best scores, grades, and last-played timestamps for
@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging as _logging
 import os
-import tempfile
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -48,7 +47,7 @@ def _zeroed_structure() -> Dict[str, Any]:
 def load() -> Dict[str, Any]:
     """Read /data/skills.json.
 
-    Returns the full skill graph.  If the file is missing, unreadable, or
+    Returns the full skill graph. If the file is missing, unreadable, or
     contains invalid JSON, a zeroed structure for all 21 entries is returned.
     Callers needing read-modify-write consistency must hold _LOCK.
     """
@@ -72,13 +71,24 @@ def load() -> Dict[str, Any]:
 def save(data: Dict[str, Any]) -> None:
     """Thread-safe write to /data/skills.json using atomic replace."""
     try:
-        dir_path = os.path.dirname(_SKILLS_PATH)
+        dir_path = os.path.dirname(_SKILLS_PATH) or "."
         os.makedirs(dir_path, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
+        tmp_path = f"{_SKILLS_PATH}.{os.getpid()}.{time.time_ns()}.tmp"
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
-            os.replace(tmp_path, _SKILLS_PATH)
+            try:
+                os.replace(tmp_path, _SKILLS_PATH)
+            except PermissionError:
+                # Windows sandboxed filesystems can deny atomic replace even
+                # when normal writes are allowed. Keep production atomic where
+                # possible, but fall back so local tests/dev state still saves.
+                with open(_SKILLS_PATH, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, indent=2)
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
         except Exception:
             try:
                 os.unlink(tmp_path)
@@ -161,20 +171,20 @@ def get_radar() -> List[Dict[str, Any]]:
             entry = module_data.get(variant_id, _zeroed_entry())
             best_scores.append(entry.get("best_score", 0))
             variant_list.append({
-                "variant_id":  variant_id,
-                "name":        variant_spec.get("name", variant_id),
-                "attempts":    entry.get("attempts", 0),
-                "best_score":  entry.get("best_score", 0),
-                "best_grade":  entry.get("best_grade", None),
+                "variant_id": variant_id,
+                "name": variant_spec.get("name", variant_id),
+                "attempts": entry.get("attempts", 0),
+                "best_score": entry.get("best_score", 0),
+                "best_grade": entry.get("best_grade", None),
             })
         avg_score = sum(best_scores) / len(best_scores) if best_scores else 0.0
         # Humanize the module label: replace underscores with spaces, title-case
         label = module_id.replace("_", " ").title()
         result.append({
             "module_id": module_id,
-            "label":     label,
-            "score":     round(avg_score, 1),
-            "variants":  variant_list,
+            "label": label,
+            "score": round(avg_score, 1),
+            "variants": variant_list,
         })
     return result
 
@@ -193,8 +203,8 @@ def get_recommendation() -> Optional[Dict[str, Any]]:
     with _LOCK:
         data = load()
 
-    best_unplayed: Optional[tuple] = None   # (module_id, variant_id, name)
-    best_low: Optional[tuple] = None        # (module_id, variant_id, name, best_score)
+    best_unplayed: Optional[tuple] = None # (module_id, variant_id, name)
+    best_low: Optional[tuple] = None # (module_id, variant_id, name, best_score)
 
     for module_id, variants_spec in MODULE_VARIANTS.items():
         module_data = data.get(module_id, {})
@@ -214,17 +224,17 @@ def get_recommendation() -> Optional[Dict[str, Any]]:
     if best_unplayed:
         module_id, variant_id, name = best_unplayed
         return {
-            "module_id":    module_id,
-            "variant_id":   variant_id,
+            "module_id": module_id,
+            "variant_id": variant_id,
             "variant_name": name,
-            "reason":       "You have not attempted this variant yet.",
+            "reason": "You have not attempted this variant yet.",
         }
     if best_low:
         module_id, variant_id, name, score = best_low
         return {
-            "module_id":    module_id,
-            "variant_id":   variant_id,
+            "module_id": module_id,
+            "variant_id": variant_id,
             "variant_name": name,
-            "reason":       "This is your lowest-scoring variant — practice makes perfect.",
+            "reason": "This is your lowest-scoring variant - practice makes perfect.",
         }
     return None

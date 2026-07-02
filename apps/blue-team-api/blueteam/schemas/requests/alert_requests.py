@@ -1,8 +1,8 @@
 """
-alert_requests.py — Alert Request Schemas
+alert_requests.py - Alert Request Schemas
 ==========================================
 Pydantic models for alert-related API endpoints.
-These enforce the input shape — invalid requests die at the gate.
+These enforce the input shape - invalid requests die at the gate.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ class RaiseAlertRequest(_IncidentContext):
     rule_name: str | None = Field(default=None, description="Detection rule that fired.", examples=["web_brute_force"])
     severity: str = Field(default="high", description="Alert severity.", examples=["low", "medium", "high", "critical"])
     raw_log: str | None = Field(default=None, description="Raw log line that triggered the rule.")
+    source_ref: str | None = Field(default=None, description="Stable per-detection reference (e.g. mapper event_id); TheHive dedups alerts on it so redelivered detections don't duplicate.")
 
 
 class InvestigateAlertRequest(_IncidentContext):

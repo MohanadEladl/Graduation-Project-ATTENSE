@@ -28,7 +28,7 @@ with open(LOG, "a", errors="replace") as fh:
         line = f'type=EXECVE msg=audit({epoch:.3f}:100{i}): argc={len(args)} {a_fields}\n'
         fh.write(line)
         fh.flush()
-        print(f"[inject] t+{i*3}s  {' '.join(args)}")
+        print(f"[inject] t+{i*3}s {' '.join(args)}")
         time.sleep(3)
 
 print("[inject] done")

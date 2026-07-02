@@ -1,5 +1,5 @@
 """
-ATTENSE_app/AI/live_thresholds.py — Live-incident threshold resolver
+attense_core/evaluation/live_thresholds.py ??? Live-incident threshold resolver
 
 Provides canonical cvss_base_score and detection_difficulty per attack type
 (APP-01 through APP-06) and computes the three thresholds that the scoring
@@ -79,3 +79,4 @@ def compute_live_thresholds(scenario_id: str) -> dict:
         "ttc_max_sec":          ttc_max,
         "mtta_threshold_sec":   mtta,
     }
+

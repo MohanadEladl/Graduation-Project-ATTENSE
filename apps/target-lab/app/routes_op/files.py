@@ -1,14 +1,14 @@
 """
-routes_op/files.py — Operator-mode HARDER traversal + upload.
+routes_op/files.py - Operator-mode HARDER traversal + upload.
 
 Traversal:
   * The `path` parameter is rejected outright if it contains `..`.
-  * Absolute paths (starting with `/`) ARE accepted — the bypass is to
+  * Absolute paths (starting with `/`) ARE accepted - the bypass is to
     pass `/etc/passwd` directly instead of `../../etc/passwd`.
 
 Upload:
   * Hard-blocks .php, .exe, .sh, .py, .pl, .cgi, .jsp, .jspx, .asp, .aspx
-  * Allows .phtml, .svg, .html, .htm, .js — those are the bypasses.
+  * Allows .phtml, .svg, .html, .htm, .js - those are the bypasses.
 
 Same evidence event types so lab_progress.py is unchanged.
 """
@@ -21,27 +21,22 @@ from flask import Blueprint, request, render_template_string, current_app
 logger = logging.getLogger("target.files_op")
 files_op_bp = Blueprint("files_op", __name__)
 
-from routes.files import _READ_PAGE, _UPLOAD_PAGE  # noqa: E402
+from routes.files import _READ_PAGE, _UPLOAD_PAGE # noqa: E402
 
 # Reuse the guided-mode UPLOAD_DIR (already created at import time by routes.files).
-import routes.files as _guided_files  # noqa: E402
+import routes.files as _guided_files # noqa: E402
+from route_security import (
+OPERATOR_BLOCKED_UPLOAD_EXTENSIONS,
+OPERATOR_DANGEROUS_BUT_ACCEPTED_EXTENSIONS,
+has_extension,
+has_sensitive_file_content,
+has_traversal_pattern,
+) # noqa: E402
 
-BASE_DIR    = _guided_files.BASE_DIR
-UPLOAD_DIR  = _guided_files.UPLOAD_DIR
+BASE_DIR = _guided_files.BASE_DIR
+UPLOAD_DIR = _guided_files.UPLOAD_DIR
 
-# Block list for the harder upload — extensions a real defender would
-# blacklist. The intent is the learner has to go AROUND the list (.phtml,
-# .svg, .html) to still get a dangerous payload through.
-_HARD_BLOCKED_EXT = (
-    ".php", ".phps", ".exe", ".sh", ".py", ".pl", ".cgi",
-    ".jsp", ".jspx", ".asp", ".aspx",
-)
-_DANGEROUS_BUT_ACCEPTED = (
-    ".phtml", ".svg", ".html", ".htm", ".js",
-)
-
-
-# ── Directory traversal ─────────────────────────────────────────────────────
+# -- Directory traversal -----------------------------------------------------
 @files_op_bp.route("/read")
 def read_file():
     raw = request.args.get("path", "readme.txt")
@@ -51,10 +46,10 @@ def read_file():
     via = current_app.detect_via()
 
     logger.info(json.dumps({
-        "event":      "file_read_request",
-        "endpoint":   "/op/files/read",
+        "event": "file_read_request",
+        "endpoint": "/op/files/read",
         "path_param": raw,
-        "source_ip":  request.remote_addr,
+        "source_ip": request.remote_addr,
     }))
 
     evidence.record(
@@ -66,10 +61,8 @@ def read_file():
         extra={"path_param": raw, "backend": "operator"},
     )
 
-    low = raw.lower()
-    # Credit the learner for ATTEMPTING traversal even when we reject ..
-    if (".." in raw) or "%2e%2e" in low or path.startswith("/etc/") \
-            or path.startswith("/proc/") or "passwd" in low or "shadow" in low:
+    # Credit the learner for ATTEMPTING traversal even when we reject ...
+    if has_traversal_pattern(raw):
         evidence.record(
             "traversal_pattern_observed",
             module_id="dir_traversal",
@@ -90,17 +83,16 @@ def read_file():
     try:
         with open(full_path, "r", errors="replace") as f:
             content = f.read(4096)
-        SENSITIVE = ("root:", "/bin/bash", "/bin/sh", "daemon:", "nobody:")
-        if any(s in content for s in SENSITIVE):
-            evidence.record(
-                "sensitive_file_disclosed",
-                module_id="dir_traversal",
-                path="/op/files/read", method="GET",
-                source_ip=request.remote_addr,
-                via=via,
-                severity="critical",
-                extra={"path_param": raw[:200], "backend": "operator"},
-            )
+            if has_sensitive_file_content(content):
+                evidence.record(
+                    "sensitive_file_disclosed",
+                    module_id="dir_traversal",
+                    path="/op/files/read", method="GET",
+                    source_ip=request.remote_addr,
+                    via=via,
+                    severity="critical",
+                    extra={"path_param": raw[:200], "backend": "operator"},
+                )
     except FileNotFoundError:
         content = f"[ERROR] File not found: {full_path}"
     except PermissionError:
@@ -111,7 +103,7 @@ def read_file():
     return render_template_string(_READ_PAGE, path=raw, content=content)
 
 
-# ── File upload ─────────────────────────────────────────────────────────────
+# -- File upload -------------------------------------------------------------
 @files_op_bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
     import evidence
@@ -135,10 +127,8 @@ def upload_file():
         )
 
     filename = file.filename
-    fn_lower = filename.lower()
-
     # HARDER: hard-block obvious server-side execution extensions.
-    if any(fn_lower.endswith(ext) for ext in _HARD_BLOCKED_EXT):
+    if has_extension(filename, OPERATOR_BLOCKED_UPLOAD_EXTENSIONS):
         return render_template_string(
             _UPLOAD_PAGE,
             message=f'<div class="error-msg">Extension blocked by policy: {filename}</div>',
@@ -148,8 +138,8 @@ def upload_file():
     file.save(save_path)
 
     logger.warning(json.dumps({
-        "event":     "file_upload_saved",
-        "filename":  filename,
+        "event": "file_upload_saved",
+        "filename": filename,
         "save_path": save_path,
     }))
 
@@ -163,7 +153,7 @@ def upload_file():
                "backend": "operator"},
     )
 
-    if any(fn_lower.endswith(ext) for ext in _DANGEROUS_BUT_ACCEPTED):
+    if has_extension(filename, OPERATOR_DANGEROUS_BUT_ACCEPTED_EXTENSIONS):
         evidence.record(
             "dangerous_extension_accepted",
             module_id="file_upload",

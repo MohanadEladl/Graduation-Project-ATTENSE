@@ -1,7 +1,7 @@
 """
-schema.py – StandardEvent schema for ATTENSE Signal Mapper.
+schema.py - StandardEvent schema for ATTENSE Signal Mapper.
 
-This is the canonical output model.  Every Wazuh alert that passes through
+This is the canonical output model. Every Wazuh alert that passes through
 the mapper is converted to a StandardEvent before being emitted.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-# ── Wazuh input models (loosely typed, defaults everywhere) ──────────────────
+# Wazuh input models (loosely typed, defaults everywhere)
 
 class WazuhRule(BaseModel):
     id: str = ""
@@ -42,7 +42,7 @@ class WazuhAlert(BaseModel):
     location: str = ""
     full_log: str = ""
     data: WazuhData = Field(default_factory=WazuhData)
-    # The original raw dict – excluded from serialisation
+    # The original raw dict, excluded from serialisation.
     raw: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
     @classmethod
@@ -79,7 +79,8 @@ class WazuhAlert(BaseModel):
         )
 
 
-# ── ATTENSE StandardEvent output schema ──────────────────────────────────────
-# DEPRECATED: StandardEvent is replaced by the canonical Event class 
-# in ATTENSE_app.events.event.
+# ATTENSE StandardEvent output schema
+# DEPRECATED: StandardEvent is replaced by the canonical Event class
+# in attense_core.models.event.
+
 

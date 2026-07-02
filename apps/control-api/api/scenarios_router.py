@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from ATTENSE_app.scenario_specs import get_scenario, load_scenarios
+from attense_core.scenarios import get_scenario, load_scenarios
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 
@@ -26,3 +26,4 @@ def get_scenario_spec(attack_id: str) -> dict:
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown scenario '{attack_id}'.")
     return spec.model_dump()
+

@@ -1,5 +1,5 @@
 """
-router.py — Blue Team API Router
+router.py - Blue Team API Router
 ==================================
 The ONLY layer exposed to the outside world.
 All external callers (Hive, frontend UI, sandbox, mapper) reach the
@@ -11,21 +11,21 @@ Router responsibilities (and ONLY these):
     3. Call the appropriate service
     4. Return the response
 
-Router does NOT contain business logic — it is traffic control only.
+Router does NOT contain business logic - it is traffic control only.
 
 Blue Team Workflow:
     [system] raise_alert()
-                 │
+                 |
                  ▼
     [human] investigate_alert()
-                 │
-          ┌──────┴──────┐
-          ▼             ▼
-    deny_alert()   confirm_incident()
-    (false +ve)        │
+                 |
+          +------+------+
+          ▼ ▼
+    deny_alert() confirm_incident()
+    (false +ve) |
                        ▼
               initiate_containment()
-                       │
+                       |
                        ▼
               complete_containment()
 """
@@ -60,9 +60,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/blueteam", tags=["Blue Team"])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # System / SIEM Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @router.post(
     "/raise-alert",
@@ -90,7 +90,7 @@ def api_raise_alert(
     Emits: `alert_raised`
     """
     try:
-        # ── Cortex-Lite: auto-enrich IOCs from the raw alert log ─────────────
+        # -- Cortex-Lite: auto-enrich IOCs from the raw alert log -------------
         enrichment_report = enrichment_svc.enrich_alert(
             raw_log=body.raw_log,
             siem_id=body.siem_id,
@@ -110,9 +110,9 @@ def api_raise_alert(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Blue Team Analyst Endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @router.post(
     "/investigate-alert",
@@ -148,7 +148,7 @@ def api_deny_alert(
     emitter: EventEmitter = Depends(get_event_emitter),
 ) -> ActionResponse:
     """
-    Analyst determines the alert is a false positive. Incident ends here — no TTD recorded.
+    Analyst determines the alert is a false positive. Incident ends here - no TTD recorded.
 
     Emits: `alert_denied`
     """
@@ -162,7 +162,7 @@ def api_deny_alert(
     "/confirm-incident",
     response_model=ActionResponse,
     status_code=status.HTTP_200_OK,
-    summary="Analyst confirms alert is a true positive — TTD is calculated here",
+    summary="Analyst confirms alert is a true positive - TTD is calculated here",
 )
 def api_confirm_incident(
     body: ConfirmIncidentRequest,
@@ -173,7 +173,7 @@ def api_confirm_incident(
     """
     Promotes alert to a confirmed incident. TTD (Time to Detect) is calculated at this point.
 
-    Emits: `incident_confirmed`  →  status becomes `DETECTED`
+    Emits: `incident_confirmed` -> status becomes `DETECTED`
     """
     try:
         return confirm_incident(body=body, emitter=emitter, hive=hive, room_id=room_id)
@@ -195,10 +195,10 @@ def api_initiate_containment(
 ) -> ActionResponse:
     """
     Analyst starts a containment action. Action depends on attack type:
-    - Command Injection → kill process / isolate host
-    - XSS              → block request / disable endpoint
-    - Directory Traversal → block path / restrict access
-    - Broken Auth      → lock account / invalidate session
+    - Command Injection -> kill process / isolate host
+    - XSS -> block request / disable endpoint
+    - Directory Traversal -> block path / restrict access
+    - Broken Auth -> lock account / invalidate session
 
     Emits: `containment_initiated`
     """
@@ -223,7 +223,7 @@ def api_complete_containment(
     System evaluates whether containment succeeded based on target correctness and timing.
 
     Emits: `containment_succeeded` | `containment_failed`
-    On success → status becomes `CONTAINED`
+    On success -> status becomes `CONTAINED`
     """
     try:
         return complete_containment(body=body, emitter=emitter, room_id=room_id)

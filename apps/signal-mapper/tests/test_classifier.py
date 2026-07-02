@@ -8,8 +8,8 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT))
 
-from app.classifier import classify  # noqa: E402
-from app.schema import WazuhAlert  # noqa: E402
+from app.classifier import classify # noqa: E402
+from app.schema import WazuhAlert # noqa: E402
 
 
 def alert(rule_id: str, level: int, description: str = "", groups: list[str] | None = None) -> WazuhAlert:

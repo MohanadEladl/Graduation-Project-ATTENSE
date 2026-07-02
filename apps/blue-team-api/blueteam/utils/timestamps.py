@@ -1,5 +1,5 @@
 """
-timestamps.py — Timestamp Utilities
+timestamps.py - Timestamp Utilities
 ======================================
 Helper functions for timestamp calculation and formatting.
 Used by metrics and reporting layers to compute TTD and TTC.
@@ -23,7 +23,7 @@ def seconds_between(start: Optional[datetime], end: Optional[datetime]) -> Optio
     Parameters
     ----------
     start : Start datetime (e.g. incident start_time or detection_time).
-    end   : End datetime (e.g. confirmation or containment timestamp).
+    end : End datetime (e.g. confirmation or containment timestamp).
 
     Returns
     -------
@@ -41,7 +41,7 @@ def calculate_ttd(incident) -> Optional[float]:
     """
     Calculate Time to Detect (TTD) for an incident.
 
-    TTD = detection_time − start_time (seconds)
+    TTD = detection_time - start_time (seconds)
 
     A shorter TTD means the Blue Team detected the attack faster.
     """
@@ -52,7 +52,7 @@ def calculate_ttc(incident) -> Optional[float]:
     """
     Calculate Time to Contain (TTC) for an incident.
 
-    TTC = containment_time − detection_time (seconds)
+    TTC = containment_time - detection_time (seconds)
 
     A shorter TTC means the Blue Team contained the threat faster.
     """

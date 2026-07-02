@@ -1,5 +1,5 @@
 """
-pipeline/scoring_engine.py — Incident scoring engine
+pipeline/scoring_engine.py - Incident scoring engine
 
 Evaluates a completed incident against the 9 response rules defined in an
 attack-scenario JSON file (schema v2.0.0) and returns a ScoringResult.
@@ -8,9 +8,9 @@ Public API
 ----------
 score_incident(incident, events, rule_data) -> ScoringResult
 
-    incident  — Incident object (provides scenario_id for scenario lookup)
-    events    — timestamp-ordered list of Event objects for this incident
-    rule_data — full attack JSON dict (e.g. APP-01-XSS.json loaded as dict)
+    incident - Incident object (provides scenario_id for scenario lookup)
+    events - timestamp-ordered list of Event objects for this incident
+    rule_data - full attack JSON dict (e.g. APP-01-XSS.json loaded as dict)
                 caller handles file I/O; this function is pure
 
 Logic is derived from the manual trace of XSS-S1 / XSS-S2 / XSS-S3 and
@@ -26,7 +26,7 @@ from typing import Literal, Optional
 from attense_core.models.event import Event
 from attense_core.models.incident import Incident
 
-# ── Types ──────────────────────────────────────────────────────────────────────
+# -- Types ----------------------------------------------------------------------
 
 RuleStatus = Literal["triggered", "passed", "not_applicable"]
 
@@ -49,7 +49,7 @@ _DIFFICULTY_NUMERIC: dict[str, int] = {
 class RuleResult:
     rule_id: str
     description: str
-    penalty_points: int   # applied penalty: negative when triggered, 0 otherwise
+    penalty_points: int # applied penalty: negative when triggered, 0 otherwise
     status: RuleStatus
     evidence: list[str] = field(default_factory=list)
 
@@ -61,16 +61,21 @@ class ScoringResult:
     penalty_total: int
     ttc_factor: float
     ttc_actual_sec: Optional[float]
-    response_difficulty_bonus: float
+    response_difficulty_bonus: float # the EFFECTIVE bonus actually applied
+    # (raw bonus * compliance_ratio -- see
+    # _compliance_ratio below)
+    raw_difficulty_bonus: float # the bonus before compliance scaling,
+    # used to derive each member's own
+    # effective bonus in score_members()
     rules: list[RuleResult]
 
 
-# ── Event index ────────────────────────────────────────────────────────────────
+# -- Event index ----------------------------------------------------------------
 
 def _build_event_index(t0: datetime, events: list[Event]) -> dict[str, float]:
     """
     First-occurrence offset (seconds from t0) per event_type.
-    Absent event types are simply not in the dict; callers use .get() → None.
+    Absent event types are simply not in the dict; callers use .get() -> None.
     """
     index: dict[str, float] = {}
     for ev in events:
@@ -79,7 +84,7 @@ def _build_event_index(t0: datetime, events: list[Event]) -> dict[str, float]:
     return index
 
 
-# ── Intermediate result ────────────────────────────────────────────────────────
+# -- Intermediate result --------------------------------------------------------
 
 @dataclass
 class _Check:
@@ -87,10 +92,10 @@ class _Check:
     evidence: list[str]
 
 
-# ── Rule functions (R01–R09) ───────────────────────────────────────────────────
+# -- Rule functions (R01-R09) ---------------------------------------------------
 # Each receives only the offsets and thresholds it needs and returns a _Check.
 # "not_applicable" means the rule's prerequisite event was never present,
-# so the rule neither passed nor failed — the response never reached that phase.
+# so the rule neither passed nor failed - the response never reached that phase.
 
 def _r01(inv_offset: Optional[float], mtta_threshold: float) -> _Check:
     """Alert triage started within the difficulty-adjusted MTTA threshold."""
@@ -138,7 +143,7 @@ def _r03(
     if confirmed_offset is None:
         return _Check(
             "not_applicable",
-            ["incident_confirmed absent — rule does not apply"],
+            ["incident_confirmed absent - rule does not apply"],
         )
     if evidence_offset is None:
         return _Check(
@@ -159,7 +164,7 @@ def _r03(
     suffix = (
         f"before containment_initiated at t={containment_init_offset:.0f}s"
         if containment_init_offset is not None
-        else "(no containment initiated — ordering check skipped)"
+        else "(no containment initiated - ordering check skipped)"
     )
     return _Check(
         "passed",
@@ -207,7 +212,7 @@ def _r06(
     if containment_ok_offset is None:
         return _Check(
             "not_applicable",
-            ["containment_succeeded absent — rule does not apply"],
+            ["containment_succeeded absent - rule does not apply"],
         )
     if eradication_offset is None:
         return _Check(
@@ -239,7 +244,7 @@ def _r07(
     if eradication_offset is None:
         return _Check(
             "not_applicable",
-            ["eradication_completed absent — rule does not apply"],
+            ["eradication_completed absent - rule does not apply"],
         )
     if recovery_offset is None:
         return _Check(
@@ -271,7 +276,7 @@ def _r08(
     if recovery_offset is None:
         return _Check(
             "not_applicable",
-            ["recovery_validated absent — rule does not apply"],
+            ["recovery_validated absent - rule does not apply"],
         )
     if lessons_offset is None:
         return _Check(
@@ -302,13 +307,13 @@ def _r09(
 ) -> _Check:
     """Medium-or-higher alerts not denied without documented approval."""
     if denied_offset is None:
-        return _Check("not_applicable", ["alert_denied absent — rule does not apply"])
+        return _Check("not_applicable", ["alert_denied absent - rule does not apply"])
     if _SEVERITY_RANK.get(alert_severity, 0) < _SEVERITY_RANK["medium"]:
         return _Check(
             "not_applicable",
             [
                 f"alert_severity='{alert_severity}' is below medium"
-                " — severity gate not met, rule does not apply",
+                " - severity gate not met, rule does not apply",
             ],
         )
     if dismissal_offset is not None and dismissal_offset <= denied_offset:
@@ -328,7 +333,7 @@ def _r09(
     )
 
 
-# ── Rule dispatcher ────────────────────────────────────────────────────────────
+# -- Rule dispatcher ------------------------------------------------------------
 
 def _dispatch(
     suffix: str,
@@ -338,16 +343,16 @@ def _dispatch(
     alert_severity: str,
 ) -> _Check:
     """Route a rule ID suffix (e.g. 'R01') to its check function."""
-    inv       = idx.get("alert_investigation_started")
-    conf      = idx.get("incident_confirmed")
+    inv = idx.get("alert_investigation_started")
+    conf = idx.get("incident_confirmed")
     dismissal = idx.get("dismissal_approved")
-    evid      = idx.get("evidence_preserved")
-    cont_in   = idx.get("containment_initiated")
-    cont_ok   = idx.get("containment_succeeded")
-    erad      = idx.get("eradication_completed")
-    recovery  = idx.get("recovery_validated")
-    lessons   = idx.get("lessons_learned_recorded")
-    denied    = idx.get("alert_denied")
+    evid = idx.get("evidence_preserved")
+    cont_in = idx.get("containment_initiated")
+    cont_ok = idx.get("containment_succeeded")
+    erad = idx.get("eradication_completed")
+    recovery = idx.get("recovery_validated")
+    lessons = idx.get("lessons_learned_recorded")
+    denied = idx.get("alert_denied")
 
     if suffix == "R01":
         return _r01(inv, mtta_threshold)
@@ -370,7 +375,7 @@ def _dispatch(
     raise ValueError(f"Unknown rule suffix: {suffix!r}")
 
 
-# ── Scoring helpers ────────────────────────────────────────────────────────────
+# -- Scoring helpers ------------------------------------------------------------
 
 def _compute_ttc_factor(
     ttc_actual: Optional[float],
@@ -378,9 +383,9 @@ def _compute_ttc_factor(
     ttc_max: float,
 ) -> float:
     """
-    1.0  — containment_succeeded at or before ttc_expected
-    linear decay — between ttc_expected and ttc_max
-    0.0  — containment absent, or after ttc_max
+    1.0 - containment_succeeded at or before ttc_expected
+    linear decay - between ttc_expected and ttc_max
+    0.0 - containment absent, or after ttc_max
     """
     if ttc_actual is None or ttc_actual > ttc_max:
         return 0.0
@@ -412,7 +417,27 @@ def _determine_verdict(score: float, verdict_bands: dict) -> str:
     return "failed"
 
 
-# ── Public entry point ─────────────────────────────────────────────────────────
+def _compliance_ratio(rules: list[RuleResult]) -> float:
+    """Fraction of APPLICABLE rules (excluding not_applicable) that passed.
+
+    Used to scale response_difficulty_bonus so a fast-but-incomplete response
+    can no longer fully mask triggered-rule penalties: previously the bonus
+    (up to +25) was added after the penalty and before the final clamp(0,100),
+    so e.g. a -20 penalty plus a +25 bonus both clamped to the same 100 as a
+    perfect response with the same bonus -- the penalty became invisible in
+    the headline score even though it's still listed in the rule breakdown.
+    Scaling the bonus by how much of the response was actually compliant
+    keeps it as a genuine speed/skill reward without letting it erase process
+    gaps. 1.0 when there are no applicable rules (nothing could have failed).
+    """
+    applicable = [r for r in rules if r.status != "not_applicable"]
+    if not applicable:
+        return 1.0
+    passed = sum(1 for r in applicable if r.status == "passed")
+    return passed / len(applicable)
+
+
+# -- Public entry point ---------------------------------------------------------
 
 def score_incident(
     incident: Incident,
@@ -425,16 +450,16 @@ def score_incident(
 
     Parameters
     ----------
-    incident  : Incident — provides scenario_id for scenario lookup
-    events    : list[Event] — timestamp-ordered events for this incident
-    rule_data : dict — full attack JSON (e.g. APP-01-XSS.json); no file I/O here
+    incident : Incident - provides scenario_id for scenario lookup
+    events : list[Event] - timestamp-ordered events for this incident
+    rule_data : dict - full attack JSON (e.g. APP-01-XSS.json); no file I/O here
 
     Returns
     -------
     ScoringResult with final_score, verdict, penalty_total, ttc_factor,
     response_difficulty_bonus, and per-rule status + evidence.
     """
-    # ── Locate scenario ───────────────────────────────────────────────────────
+    # -- Locate scenario -------------------------------------------------------
     scenario = next(
         (s for s in rule_data.get("scenarios", []) if s["scenario_id"] == incident.scenario_id),
         None,
@@ -446,15 +471,15 @@ def score_incident(
             f" (available: {available})"
         )
 
-    thresholds     = scenario["computed_thresholds"]
+    thresholds = scenario["computed_thresholds"]
     mtta_threshold = float(thresholds["mtta_threshold_sec"])
-    ttc_expected   = float(thresholds["ttc_expected_sec"])
-    ttc_max        = float(thresholds["ttc_max_sec"])
+    ttc_expected = float(thresholds["ttc_expected_sec"])
+    ttc_max = float(thresholds["ttc_max_sec"])
     alert_severity = scenario["alert_severity"]
-    difficulty     = scenario["detection"]["difficulty"]
-    verdict_bands  = rule_data["scoring"]["verdict_bands"]
+    difficulty = scenario["detection"]["difficulty"]
+    verdict_bands = rule_data["scoring"]["verdict_bands"]
 
-    # ── t0 = first alert_raised event ────────────────────────────────────────
+    # -- t0 = first alert_raised event ----------------------------------------
     t0_event = next((e for e in events if e.event_type == "alert_raised"), None)
     if scoring_started_at is not None:
         t0 = scoring_started_at
@@ -467,50 +492,170 @@ def score_incident(
 
     idx = _build_event_index(t0, events)
 
-    # ── Evaluate rules ────────────────────────────────────────────────────────
+    # -- Evaluate rules --------------------------------------------------------
     rule_results: list[RuleResult] = []
     penalty_total = 0
 
     for rule_def in rule_data["incident_response_rules"]:
-        rule_id  = rule_def["id"]
-        max_pts  = rule_def["penalty_points"]   # always negative in schema
-        suffix   = rule_id.split("-")[-1]        # "XSS-R01" → "R01"
+        rule_id = rule_def["id"]
+        max_pts = rule_def["penalty_points"] # always negative in schema
+        suffix = rule_id.split("-")[-1] # "XSS-R01" -> "R01"
 
-        check   = _dispatch(suffix, idx, mtta_threshold, ttc_max, alert_severity)
+        check = _dispatch(suffix, idx, mtta_threshold, ttc_max, alert_severity)
         applied = max_pts if check.status == "triggered" else 0
         penalty_total += applied
 
         rule_results.append(
             RuleResult(
-                rule_id       = rule_id,
-                description   = rule_def["description"],
+                rule_id = rule_id,
+                description = rule_def["description"],
                 penalty_points = applied,
-                status        = check.status,
-                evidence      = check.evidence,
+                status = check.status,
+                evidence = check.evidence,
             )
         )
 
-    # ── TTC factor ────────────────────────────────────────────────────────────
+    # -- TTC factor ------------------------------------------------------------
     ttc_actual = idx.get("containment_succeeded")
     ttc_factor = _compute_ttc_factor(ttc_actual, ttc_expected, ttc_max)
 
-    # ── Difficulty bonus ──────────────────────────────────────────────────────
-    bonus = _compute_difficulty_bonus(
+    # -- Difficulty bonus ------------------------------------------------------
+    # Raw bonus is scaled by how many of the APPLICABLE rules actually passed
+    # (see _compliance_ratio) so a triggered rule's penalty can't be fully
+    # masked by a large speed/difficulty bonus before the final clamp.
+    raw_bonus = _compute_difficulty_bonus(
         idx.get("containment_succeeded"),
         difficulty,
         idx.get("alert_investigation_started"),
     )
+    compliance_ratio = _compliance_ratio(rule_results)
+    bonus = raw_bonus * compliance_ratio
 
-    # ── Final score: clamp(round((100 + penalty) * ttc_factor + bonus, 2), 0, 100)
-    raw   = (100 + penalty_total) * ttc_factor + bonus
+    # -- Final score: clamp(round((100 + penalty) * ttc_factor + bonus, 2), 0, 100)
+    raw = (100 + penalty_total) * ttc_factor + bonus
     score = max(0.0, min(100.0, round(raw, 2)))
 
     return ScoringResult(
-        final_score               = score,
-        verdict                   = _determine_verdict(score, verdict_bands),
-        penalty_total             = penalty_total,
-        ttc_factor                = ttc_factor,
-        ttc_actual_sec            = ttc_actual,
+        final_score = score,
+        verdict = _determine_verdict(score, verdict_bands),
+        penalty_total = penalty_total,
+        ttc_factor = ttc_factor,
+        ttc_actual_sec = ttc_actual,
         response_difficulty_bonus = bonus,
-        rules                     = rule_results,
+        raw_difficulty_bonus = raw_bonus,
+        rules = rule_results,
     )
+
+
+# -- Per-member scoring -------------------------------------------------------
+#
+# The 9 rules are evaluated against the whole incident timeline above -- they
+# describe one shared incident lifecycle, not one person's. To produce a fair
+# personal scorecard per analyst, we reuse that same whole-team evaluation
+# (so timing/ordering checks see the real, complete timeline) and then
+# re-attribute each rule's outcome by WHO performed its qualifying action:
+#
+# - this analyst performed it -> keep the team-wide status/penalty
+# - a teammate performed it -> not_applicable for this analyst
+# - nobody performed it on the team -> not_applicable for everyone
+# (a step the whole team skipped isn't one person's personal failure)
+#
+# TTC factor and difficulty bonus are inherently incident-level (how fast the
+# TEAM closed the incident, not one person), so every member's score applies
+# the SAME team-wide ttc_factor/response_difficulty_bonus on top of their own
+# personalized penalty_total.
+
+# rule suffix -> the event_type whose first-occurrence actor "owns" that
+# rule's outcome. R02 is handled separately (confirmed OR dismissal, same
+# priority order _r02 itself uses).
+_RULE_RESPONSIBLE_EVENT: dict[str, str] = {
+    "R01": "alert_investigation_started",
+    "R03": "evidence_preserved",
+    "R04": "containment_initiated",
+    "R05": "containment_succeeded",
+    "R06": "eradication_completed",
+    "R07": "recovery_validated",
+    "R08": "lessons_learned_recorded",
+    "R09": "alert_denied",
+}
+
+
+def _build_actor_index(events: list[Event]) -> dict[str, str]:
+    """First-occurrence actor_id per event_type for rule attribution."""
+    index: dict[str, str] = {}
+    for ev in events:
+        if ev.event_type not in index:
+            index[ev.event_type] = ev.actor_id
+    return index
+
+
+def _responsible_actor(suffix: str, idx_actor: dict[str, str]) -> Optional[str]:
+    """The actor_id who owns rule *suffix*'s outcome, or None if no one did."""
+    if suffix == "R02":
+        return idx_actor.get("incident_confirmed") or idx_actor.get("dismissal_approved")
+    event_type = _RULE_RESPONSIBLE_EVENT.get(suffix)
+    return idx_actor.get(event_type) if event_type else None
+
+
+def score_members(
+    incident: Incident,
+    events: list[Event],
+    rule_data: dict,
+    scoring_started_at: Optional[datetime] = None,
+) -> dict[str, ScoringResult]:
+    """
+    Score each individual Blue Team analyst's personal contribution to the
+    incident response. See module note above for the attribution rules.
+
+    Returns {} if the incident has no blue_team-actor events.
+    """
+    team_result = score_incident(incident, events, rule_data, scoring_started_at)
+    idx_actor = _build_actor_index(events)
+
+    members = sorted({ev.actor_id for ev in events if ev.actor_type == "blue_team"})
+    if not members:
+        return {}
+
+    verdict_bands = rule_data["scoring"]["verdict_bands"]
+    results: dict[str, ScoringResult] = {}
+    for member in members:
+        member_rules: list[RuleResult] = []
+        penalty_total = 0
+
+        for rule in team_result.rules:
+            if rule.status == "not_applicable":
+                member_rules.append(rule)
+                continue
+
+            suffix = rule.rule_id.split("-")[-1]
+            owner = _responsible_actor(suffix, idx_actor)
+            if owner == member:
+                member_rules.append(rule)
+                penalty_total += rule.penalty_points
+            else:
+                attribution = f"performed by {owner}" if owner else "not performed by anyone on the team"
+                member_rules.append(RuleResult(
+                    rule_id=rule.rule_id,
+                    description=rule.description,
+                    penalty_points=0,
+                    status="not_applicable",
+                    evidence=[f"Not this analyst's action ({attribution})."],
+                ))
+
+        member_compliance = _compliance_ratio(member_rules)
+        member_bonus = team_result.raw_difficulty_bonus * member_compliance
+        raw = (100 + penalty_total) * team_result.ttc_factor + member_bonus
+        score = max(0.0, min(100.0, round(raw, 2)))
+
+        results[member] = ScoringResult(
+            final_score=score,
+            verdict=_determine_verdict(score, verdict_bands),
+            penalty_total=penalty_total,
+            ttc_factor=team_result.ttc_factor,
+            ttc_actual_sec=team_result.ttc_actual_sec,
+            response_difficulty_bonus=member_bonus,
+            raw_difficulty_bonus=team_result.raw_difficulty_bonus,
+            rules=member_rules,
+        )
+
+    return results

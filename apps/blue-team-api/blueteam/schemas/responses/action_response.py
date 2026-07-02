@@ -1,5 +1,5 @@
 """
-action_response.py — Standard API Response Envelope
+action_response.py - Standard API Response Envelope
 =====================================================
 Returned by every Blue Team endpoint.
 Provides a consistent response shape regardless of which action was taken.
@@ -7,8 +7,8 @@ Provides a consistent response shape regardless of which action was taken.
 
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from ATTENSE_app.incidents.incident import Incident
-from ATTENSE_app.events.event import Event
+from attense_core.models.incident import Incident
+from attense_core.models.event import Event
 
 
 class ActionResponse(BaseModel):
@@ -43,10 +43,10 @@ class ActionResponse(BaseModel):
 
         Parameters
         ----------
-        incident    : The incident after applying the event.
-        event       : The event that was just created and stored.
-        message     : Optional human-readable summary message.
-        enrichment  : Optional Cortex-Lite threat intelligence report dict.
+        incident : The incident after applying the event.
+        event : The event that was just created and stored.
+        message : Optional human-readable summary message.
+        enrichment : Optional Cortex-Lite threat intelligence report dict.
         """
         return cls(
             ok=True,
@@ -58,3 +58,4 @@ class ActionResponse(BaseModel):
             message=message,
             enrichment=enrichment,
         )
+

@@ -1,5 +1,5 @@
 # =============================================================================
-# ATTENSE Cyber Range — infra/compose.dev.yml
+# ATTENSE Cyber Range - infra/compose.dev.yml
 # =============================================================================
 # Development overrides: bind-mounted source trees. Applied on top of the root
 # stack, these make local source code the code executed in containers. Image
@@ -63,7 +63,7 @@ services:
     volumes:
       - ./apps/zeroday-agent/app:/app/app
 
-  attense-react:
+  attense-portal:
     volumes:
       - ./frontends/portal/src:/app/src
       - ./frontends/portal/public:/app/public

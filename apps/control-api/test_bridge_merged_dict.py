@@ -1,8 +1,8 @@
 """
-test_bridge_merged_dict.py — Synthetic demonstration of the merged dict.
+test_bridge_merged_dict.py - Synthetic demonstration of the merged dict.
 
 Exercises the full run_bridge() integration path using XSS-S1 events built
-from the JSON fixture (no Docker, no Gemini).  The test bypasses the
+from the JSON fixture (no Docker, no Gemini). The test bypasses the
 file-system loaders (_load_wazuh_events / _load_analyst_events) that need
 live containers and instead calls the internal helpers directly.
 
@@ -16,21 +16,23 @@ import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from attense_core.evaluation.attack_rules import ATTACK_RULE_DATA_DIR
 from pprint import pformat
 
 _HERE = Path(__file__).parent.resolve()
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.incidents.incident import Incident
-from ATTENSE_app.reports.report import generate_report
+from attense_core.models.event import Event
+from attense_core.models.incident import Incident
+from attense_core.evaluation.reports import generate_report
 from pipeline.bridge import _load_rule_data, _scoring_to_dict
 from pipeline.scoring_engine import score_incident
 
-# ── Build a real XSS-S1 incident from the JSON fixture ───────────────────────
+# - Build a real XSS-S1 incident from the JSON fixture - 
 
-_DATA_FILE = _HERE / "ATTENSE_app" / "AI" / "Data" / "APP-01-XSS.json"
+_DATA_FILE = ATTACK_RULE_DATA_DIR / "APP-01-XSS.json"
 
 _ALERT_ET = {
     "alert_raised",
@@ -57,34 +59,34 @@ def _build_xss_s1() -> tuple[Incident, list[Event]]:
     for i, entry in enumerate(scenario["event_log"]):
         et = entry["event_type"]
         events.append(Event(
-            event_id    = f"ev-{i:03d}",
+            event_id = f"ev-{i:03d}",
             incident_id = "demo-incident-001",
             scenario_id = "XSS-S1",
-            actor_id    = entry.get("actor_id", "system"),
-            target_id   = "sandbox-target",
-            event_type  = et,
-            actor_type  = entry["actor_type"],
+            actor_id = entry.get("actor_id", "system"),
+            target_id = "sandbox-target",
+            event_type = et,
+            actor_type = entry["actor_type"],
             target_type = _target_type(et),
-            timestamp   = t0 + timedelta(seconds=entry["t_offset_sec"]),
-            outcome     = entry["outcome"],
-            metadata    = {"detail": entry.get("detail", ""), "t_offset_sec": entry["t_offset_sec"]},
+            timestamp = t0 + timedelta(seconds=entry["t_offset_sec"]),
+            outcome = entry["outcome"],
+            metadata = {"detail": entry.get("detail", ""), "t_offset_sec": entry["t_offset_sec"]},
         ))
 
     # XSS-S1 fixture ends at lessons_learned_recorded (t=4800s) with no incident_ended.
     # outcome.py requires status=="ENDED" (set only by incident_ended) to return "SUCCESS".
     # Add the terminal event here so the test reflects a complete incident lifecycle.
     events.append(Event(
-        event_id    = "ev-terminal",
+        event_id = "ev-terminal",
         incident_id = "demo-incident-001",
         scenario_id = "XSS-S1",
-        actor_id    = "incident-commander",
-        target_id   = "sandbox-target",
-        event_type  = "incident_ended",
-        actor_type  = "blue_team",
+        actor_id = "incident-commander",
+        target_id = "sandbox-target",
+        event_type = "incident_ended",
+        actor_type = "blue_team",
         target_type = "alert",
-        timestamp   = t0 + timedelta(seconds=5100),
-        outcome     = "success",
-        metadata    = {"detail": "Incident formally closed after lessons-learned review.", "t_offset_sec": 5100},
+        timestamp = t0 + timedelta(seconds=5100),
+        outcome = "success",
+        metadata = {"detail": "Incident formally closed after lessons-learned review.", "t_offset_sec": 5100},
     ))
 
     incident = Incident("demo-incident-001", "XSS-S1")
@@ -97,13 +99,13 @@ def _build_xss_s1() -> tuple[Incident, list[Event]]:
 def main() -> None:
     incident, all_events, rule_data = _build_xss_s1()
 
-    # Step 1: generate_report() — same as bridge.py does
+    # Step 1: generate_report() - same as bridge.py does
     report = generate_report(incident)
 
-    # Step 2: score_incident() — same as bridge.py does
+    # Step 2: score_incident() - same as bridge.py does
     scoring = score_incident(incident, all_events, rule_data)
 
-    # Step 3: merge — same as bridge.py does (report.update(...))
+    # Step 3: merge - same as bridge.py does (report.update(...))
     report.update(_scoring_to_dict(scoring))
 
     # Print the merged dict with non-serialisable types converted for display
@@ -115,23 +117,23 @@ def main() -> None:
         return str(obj)
 
     print("\n" + "=" * 72)
-    print("MERGED DICT — run_bridge() output for XSS-S1 (demo-incident-001)")
+    print("MERGED DICT - run_bridge() output for XSS-S1 (demo-incident-001)")
     print("=" * 72)
     print(json.dumps(report, default=serialise, indent=2))
 
-    # ── Assertions ─────────────────────────────────────────────────────────────
+    # - Assertions - 
     # report.py keys
-    assert report["incident_id"]  == "demo-incident-001"
-    assert report["scenario_id"]  == "XSS-S1"
-    assert report["outcome"]      == "SUCCESS"                 # uppercase — timestamp-based
+    assert report["incident_id"] == "demo-incident-001"
+    assert report["scenario_id"] == "XSS-S1"
+    assert report["outcome"] == "SUCCESS" # uppercase - timestamp-based
     assert isinstance(report["ttd"], timedelta)
     assert isinstance(report["ttc"], timedelta)
 
     # scoring_engine keys
-    assert report["final_score"]  == 100.0
-    assert report["verdict"]      == "excellent"              # lowercase — score-based
+    assert report["final_score"] == 100.0
+    assert report["verdict"] == "excellent" # lowercase - score-based
     assert report["penalty_total"] == 0
-    assert report["ttc_factor"]   == 1.0
+    assert report["ttc_factor"] == 1.0
     assert report["ttc_actual_sec"] is not None
     assert report["response_difficulty_bonus"] > 0
     assert len(report["scoring_rules"]) == 9
@@ -154,3 +156,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

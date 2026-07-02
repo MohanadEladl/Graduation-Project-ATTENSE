@@ -44,7 +44,7 @@ class ResponseCoordinator:
     ----------
     emitter : EventEmitter
         Shared event store wrapper; all events are published here.
-    hive    : HiveClient
+    hive : HiveClient
         Hive integration for case management updates.
     sandbox : TargetConnector
         Sandbox connector retained for interactive containment endpoints.

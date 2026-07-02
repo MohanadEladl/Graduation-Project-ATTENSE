@@ -1,7 +1,7 @@
 """
-isolation_manager.py — Host Isolation Manager
+isolation_manager.py - Host Isolation Manager
 ===============================================
-Handles full host network isolation — the most drastic containment action.
+Handles full host network isolation - the most drastic containment action.
 Used for Command Injection and severe compromises where the host must
 be cut off from the network entirely.
 """
@@ -43,7 +43,7 @@ class IsolationManager:
         """
         Restrict access to a resource without full isolation.
 
-        Used for: Directory Traversal — limit file system access paths.
+        Used for: Directory Traversal - limit file system access paths.
         """
         logger.info("[IsolationManager] Restricting access for: %s", target_id)
         return self.connector.execute_containment(target_id, "restrict_access")

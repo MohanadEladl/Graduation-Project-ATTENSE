@@ -1,23 +1,23 @@
 """
-webhook_router.py — BlueTeam Internal Webhook Receiver
+webhook_router.py - BlueTeam Internal Webhook Receiver
 =======================================================
 Receives POST events emitted by TheHive when analysts act in the Hive UI.
 
 Since TheHive runs inside the SAME container ( supervisord),
 it communicates with this endpoint via localhost:
 
-    TheHive notifier → POST http://localhost:8010/internal/webhook/hive
+    TheHive notifier -> POST http://localhost:8010/internal/webhook/hive
 
 This endpoint is INTERNAL to the BlueTeam component.
-ATTENSE Core never calls it — it is Hive calling back into BlueTeam.
+ATTENSE Core never calls it - it is Hive calling back into BlueTeam.
 
 Flow:
     Analyst action in Hive UI
-    → Hive emits webhook
-    → POST /internal/webhook/hive
-    → HiveEventTranslator.extract_incident_id() + translate()
-    → ATTENSE Event created
-    → EventEmitter.emit() → incident state / metrics updated
+    -> Hive emits webhook
+    -> POST /internal/webhook/hive
+    -> HiveEventTranslator.extract_incident_id() + translate()
+    -> ATTENSE Event created
+    -> EventEmitter.emit() -> incident state / metrics updated
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 webhook_router = APIRouter(
     prefix="/internal/webhook",
-    tags=["Webhook (Internal — Hive → ATTENSE)"],
+    tags=["Webhook (Internal - Hive -> ATTENSE)"],
 )
 
 _translator = HiveEventTranslator()
@@ -49,15 +49,15 @@ def _check_dismissal_approval(event, store, incident_id: str) -> bool:
     Enforce second-party approval: the actor who logs the dismissal approval
     must differ from the actor who issued the preceding alert_denied.
 
-    Returns True  → approval is from a different actor; proceed with emit.
-    Returns False → self-approval detected; caller must reject without emitting.
+    Returns True -> approval is from a different actor; proceed with emit.
+    Returns False -> self-approval detected; caller must reject without emitting.
     """
     prior_denials = [
         e for e in store.get_events(incident_id)
         if e.event_type == "alert_denied"
     ]
     if not prior_denials:
-        # No prior denial on record — let the approval through (may be out-of-order).
+        # No prior denial on record - let the approval through (may be out-of-order).
         return True
     last_denial = max(prior_denials, key=lambda e: e.timestamp)
     if event.actor_id == last_denial.actor_id:
@@ -73,7 +73,7 @@ def _check_dismissal_approval(event, store, incident_id: str) -> bool:
 def _annotate_investigation_gap(event, store, incident_id: str) -> None:
     """
     Flag a containment_initiated event that fired with little or no prior
-    investigation on this incident. Scoring-only — never blocks the action;
+    investigation on this incident. Scoring-only - never blocks the action;
     the analyst already triggered the responder in TheHive by the time this
     webhook arrives.
     """
@@ -124,8 +124,8 @@ async def receive_hive_webhook(
     4. Look up the existing (Incident, EventStore) pair.
     5. Emit the translated event into the ATTENSE event store.
     """
-    # ── Authenticate: the request must carry TheHive's shared bearer secret ──
-    # TheHive is configured (thehive/application.conf → webhook `auth`) to send
+    # -- Authenticate: the request must carry TheHive's shared bearer secret --
+    # TheHive is configured (thehive/application.conf -> webhook `auth`) to send
     # `Authorization: Bearer <WEBHOOK_SECRET>` on every webhook. Reject anything
     # else so no other caller can inject analyst actions / state transitions.
     # Constant-time compare to avoid leaking the secret via timing.
@@ -147,14 +147,14 @@ async def receive_hive_webhook(
         return {"status": "error", "reason": "invalid_json"}
 
     object_type = payload.get("objectType", "?")
-    operation   = payload.get("operation", "?")
+    operation = payload.get("operation", "?")
     logger.debug("[Webhook] Received Hive event: %s/%s", object_type, operation)
 
     # Step 1: Resolve the ATTENSE incident_id from the Hive payload
     incident_id = _translator.extract_incident_id(payload)
     if incident_id is None:
         logger.debug(
-            "[Webhook] No ATTENSE incident_id found in %s/%s payload — ignoring",
+            "[Webhook] No ATTENSE incident_id found in %s/%s payload - ignoring",
             object_type, operation,
         )
         return {"status": "ignored", "reason": "no_incident_id"}
@@ -212,7 +212,7 @@ async def receive_hive_webhook(
         if not _check_dismissal_approval(event, store, incident_id):
             return {"status": "rejected", "reason": "self_approval_not_permitted"}
 
-    # Step 4: Emit — persists the event and updates incident state
+    # Step 4: Emit - persists the event and updates incident state
     try:
         emitter.emit(incident, store, event)
     except Exception as exc:
@@ -220,12 +220,12 @@ async def receive_hive_webhook(
         return {"status": "error", "reason": str(exc)}
 
     logger.info(
-        "[Webhook] Hive %s/%s → ATTENSE '%s' emitted for incident '%s'",
+        "[Webhook] Hive %s/%s -> ATTENSE '%s' emitted for incident '%s'",
         object_type, operation, event.event_type, incident_id,
     )
 
     # Step 5: On case creation (alert promoted to a case), attach the attacker's
-    # activity log + IOCs to the new case. Read-only enrichment — attach-once,
+    # activity log + IOCs to the new case. Read-only enrichment - attach-once,
     # never breaks the webhook. TheHive 4.1.x sends lowercase objectType/operation
     # ('case'/'create').
     if object_type.strip().lower() == "case" and operation.strip().lower() == "create":

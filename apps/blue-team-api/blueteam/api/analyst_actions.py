@@ -1,5 +1,5 @@
 """
-routers/analyst_actions.py — Analyst Action Endpoints
+routers/analyst_actions.py - Analyst Action Endpoints
 ======================================================
 Receives structured SOC actions from the Watcher Agent running on each
 analyst machine and stores them for scoring / replay.
@@ -16,7 +16,7 @@ Endpoints
 POST /blueteam/analyst-action
     Watcher Agent posts one classified action at a time.
 
-GET  /blueteam/analyst-actions/{incident_id}
+GET /blueteam/analyst-actions/{incident_id}
     Returns all analyst actions for an incident, ordered by t_offset_sec.
 """
 
@@ -33,6 +33,7 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
+import httpx
 from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
 
@@ -40,22 +41,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/blueteam", tags=["Analyst Actions"])
 
-# ── Directory config ──────────────────────────────────────────────────────────
+# -- Directory config ----------------------------------------------------------
 ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
+
+# -- Control-API dual-write ----------------------------------------------------
+_CONTROL_API_URL = os.getenv("ATTENSE_APP_URL", "http://attense-app:8020").rstrip("/")
+_EVENTS_SECRET = os.getenv("RED_TEAM_EVENTS_SECRET", "")
 
 
 def get_analyst_log_path(analyst_id: str) -> str:
     """Each analyst gets their own daily log file."""
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    safe_id  = analyst_id.replace("/", "-").replace("\\", "-")
+    safe_id = analyst_id.replace("/", "-").replace("\\", "-")
     return os.path.join(ACTIONS_DIR, f"{safe_id}_{date_str}.jsonl")
 
 
-# ── 7-day auto-cleanup ────────────────────────────────────────────────────────
+# -- 7-day auto-cleanup --------------------------------------------------------
 
 def cleanup_old_logs(retention_days: int = 7) -> None:
     """Delete analyst log files older than retention_days."""
-    cutoff  = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     pattern = os.path.join(ACTIONS_DIR, "*.jsonl")
     for path in glob.glob(pattern):
         try:
@@ -67,7 +72,7 @@ def cleanup_old_logs(retention_days: int = 7) -> None:
             logger.warning("[analyst-action] Could not delete %s: %s", path, exc)
 
 
-# ── Per-analyst JSONL persistence ────────────────────────────────────────────
+# -- Per-analyst JSONL persistence --------------------------------------------
 
 def _append_to_disk(record: dict) -> None:
     path = get_analyst_log_path(record["analyst_id"])
@@ -86,8 +91,8 @@ def _load_from_disk() -> defaultdict[str, List[dict]]:
     """
     store: defaultdict[str, List[dict]] = defaultdict(list)
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    pattern  = os.path.join(ACTIONS_DIR, f"*_{date_str}.jsonl")
-    total    = 0
+    pattern = os.path.join(ACTIONS_DIR, f"*_{date_str}.jsonl")
+    total = 0
     for path in glob.glob(pattern):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -104,56 +109,56 @@ def _load_from_disk() -> defaultdict[str, List[dict]]:
     return store
 
 
-# ── In-memory store  (incident_id → list of action dicts) ────────────────────
+# -- In-memory store (incident_id -> list of action dicts) --------------------
 _actions: defaultdict[str, List[dict]] = _load_from_disk()
 
 
-# ── Enums / Models ────────────────────────────────────────────────────────────
+# -- Enums / Models ------------------------------------------------------------
 
 class AnalystEventType(str, Enum):
-    investigation_started    = "investigation_started"
-    incident_confirmed       = "incident_confirmed"
-    containment_initiated    = "containment_initiated"
-    containment_succeeded    = "containment_succeeded"
-    incident_ended           = "incident_ended"
-    alert_denied             = "alert_denied"
-    # v2.0.0 — post-containment events (3 from watcher, 2 from TheHive webhook)
-    evidence_preserved       = "evidence_preserved"
-    eradication_completed    = "eradication_completed"
-    recovery_validated       = "recovery_validated"
-    dismissal_approved       = "dismissal_approved"
+    investigation_started = "investigation_started"
+    incident_confirmed = "incident_confirmed"
+    containment_initiated = "containment_initiated"
+    containment_succeeded = "containment_succeeded"
+    incident_ended = "incident_ended"
+    alert_denied = "alert_denied"
+    # v2.0.0 - post-containment events (3 from watcher, 2 from TheHive webhook)
+    evidence_preserved = "evidence_preserved"
+    eradication_completed = "eradication_completed"
+    recovery_validated = "recovery_validated"
+    dismissal_approved = "dismissal_approved"
     lessons_learned_recorded = "lessons_learned_recorded"
 
 
 class AnalystActionRequest(BaseModel):
-    analyst_id:     str              = Field(..., description="Analyst identifier, e.g. analyst-alice")
-    incident_id:    str              = Field(..., description="Incident this action belongs to")
-    scenario_id:    str              = Field(..., description="Scenario ID, e.g. APP-02")
-    event_type:     AnalystEventType = Field(..., description="Classified SOC action type")
-    t_offset_sec:   int              = Field(..., description="Seconds since session start")
-    detail:         str              = Field(..., description="One-sentence description of the action")
-    timestamp:      Optional[float]  = Field(default=None, description="Unix epoch; defaults to now")
+    analyst_id: str = Field(..., description="Analyst identifier, e.g. analyst-alice")
+    incident_id: str = Field(..., description="Incident this action belongs to")
+    scenario_id: str = Field(..., description="Scenario ID, e.g. APP-02")
+    event_type: AnalystEventType = Field(..., description="Classified SOC action type")
+    t_offset_sec: int = Field(..., description="Seconds since session start")
+    detail: str = Field(..., description="One-sentence description of the action")
+    timestamp: Optional[float] = Field(default=None, description="Unix epoch; defaults to now")
 
 
 class AnalystActionResponse(BaseModel):
-    ok:             bool
-    analyst_id:     str
-    incident_id:    str
-    scenario_id:    str
-    event_type:     str
-    t_offset_sec:   int
-    detail:         str
-    timestamp:      float
-    stored_at:      float
+    ok: bool
+    analyst_id: str
+    incident_id: str
+    scenario_id: str
+    event_type: str
+    t_offset_sec: int
+    detail: str
+    timestamp: float
+    stored_at: float
 
 
 class AnalystActionsListResponse(BaseModel):
-    incident_id:    str
-    count:          int
-    actions:        List[dict]
+    incident_id: str
+    count: int
+    actions: List[dict]
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# -- Endpoints -----------------------------------------------------------------
 
 @router.post(
     "/analyst-action",
@@ -171,21 +176,35 @@ def _persist(body: AnalystActionRequest) -> dict:
     ts = body.timestamp if body.timestamp is not None else stored_at
 
     record = {
-        "analyst_id":   body.analyst_id,
-        "incident_id":  body.incident_id,
-        "scenario_id":  body.scenario_id,
-        "event_type":   body.event_type.value,
+        "analyst_id": body.analyst_id,
+        "incident_id": body.incident_id,
+        "scenario_id": body.scenario_id,
+        "event_type": body.event_type.value,
         "t_offset_sec": body.t_offset_sec,
-        "detail":       body.detail,
-        "timestamp":    ts,
-        "stored_at":    stored_at,
+        "detail": body.detail,
+        "timestamp": ts,
+        "stored_at": stored_at,
     }
 
     _actions[body.incident_id].append(record)
     _append_to_disk(record)
+    if _EVENTS_SECRET:
+        try:
+            httpx.post(
+                f"{_CONTROL_API_URL}/api/missions/blue-action",
+                json=record,
+                headers={"Authorization": f"Bearer {_EVENTS_SECRET}"},
+                timeout=2.0,
+            )
+        except Exception:
+            logger.exception(
+                "[analyst-action] Failed to dual-write action to database: incident=%s event_type=%s",
+                record.get("incident_id"),
+                record.get("event_type"),
+            )
 
     logger.info(
-        "[analyst-action] analyst=%s  incident=%s  event_type=%s  t_offset=%ds",
+        "[analyst-action] analyst=%s incident=%s event_type=%s t_offset=%ds",
         body.analyst_id, body.incident_id, body.event_type.value, body.t_offset_sec,
     )
     return record
@@ -194,9 +213,9 @@ def _persist(body: AnalystActionRequest) -> dict:
 def store_analyst_action(action: dict) -> dict:
     """
     Store an analyst action dict produced by analyst_action_extractor.py
-    (Hive webhook → analyst action).
+    (Hive webhook -> analyst action).
 
-    CALLER CONTRACT — self-approval guard:
+    CALLER CONTRACT - self-approval guard:
     If action["event_type"] == "dismissal_approved", the caller (webhook_router)
     MUST call _check_dismissal_approval() against the EventStore BEFORE calling
     this function. This function has no access to the event store and cannot

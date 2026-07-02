@@ -1,12 +1,12 @@
 """
-backend/detections.py — bridge from signal-store (Wazuh alerts) to the UI.
+backend/detections.py - bridge from signal-store (Wazuh alerts) to the UI.
 
 One background task polls `GET /events` on the signal-store service,
 keeps a ring buffer of the most recent detections, and fans every new
 event out to all connected WebSocket subscribers.
 
 The broker is "best-effort": if signal-store is down we just keep
-retrying. No buffering on disk — the goal is live visibility in the
+retrying. No buffering on disk - the goal is live visibility in the
 workspace, not an authoritative event archive (that's signal-store's
 job).
 """
@@ -23,7 +23,7 @@ import requests
 logger = logging.getLogger("red-team.detections")
 
 _MAX_RING = 500
-_POLL_INTERVAL = 1.0  # seconds
+_POLL_INTERVAL = 1.0 # seconds
 _SIGNAL_STORE_URL = os.getenv("SIGNAL_STORE_URL", "http://signal-store:8000")
 
 
@@ -42,7 +42,7 @@ class DetectionBroker:
         self._last_poll: float = 0.0
         self._reachable: bool = False
 
-    # ── Lifecycle ────────────────────────────────────────────────────────────
+    # -- Lifecycle ------------------------------------------------------------
     def start(self) -> None:
         if self._task and not self._task.done():
             return
@@ -59,15 +59,15 @@ class DetectionBroker:
             except (asyncio.CancelledError, Exception):
                 pass
 
-    # ── State accessors ──────────────────────────────────────────────────────
+    # -- State accessors ------------------------------------------------------
     def status(self) -> dict:
         return {
-            "reachable":    self._reachable,
-            "last_poll":    self._last_poll,
-            "last_error":   self._last_error,
-            "buffered":     len(self._ring),
-            "subscribers":  len(self._subs),
-            "source":       self._base_url,
+            "reachable": self._reachable,
+            "last_poll": self._last_poll,
+            "last_error": self._last_error,
+            "buffered": len(self._ring),
+            "subscribers": len(self._subs),
+            "source": self._base_url,
         }
 
     def recent(self, *, since: Optional[float] = None, limit: int = 100) -> list[dict]:
@@ -77,7 +77,7 @@ class DetectionBroker:
             items = [e for e in items if _event_ts(e) >= since]
         return items[-limit:]
 
-    # ── Subscription ─────────────────────────────────────────────────────────
+    # -- Subscription ---------------------------------------------------------
     async def subscribe(self) -> tuple[str, asyncio.Queue]:
         import uuid
         sub_id = uuid.uuid4().hex[:8]
@@ -90,7 +90,7 @@ class DetectionBroker:
         async with self._lock:
             self._subs.pop(sub_id, None)
 
-    # ── Polling loop ─────────────────────────────────────────────────────────
+    # -- Polling loop ---------------------------------------------------------
     async def _run(self) -> None:
         # Seed the ring once so connecting subscribers get history.
         await self._bootstrap()
@@ -99,7 +99,7 @@ class DetectionBroker:
                 await self._poll_once()
                 self._reachable = True
                 self._last_error = None
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc: # noqa: BLE001
                 self._reachable = False
                 self._last_error = str(exc)
                 logger.debug("signal-store poll failed: %s", exc)
@@ -124,7 +124,7 @@ class DetectionBroker:
                 self._record(ev, broadcast=False)
             self._reachable = True
             logger.info("DetectionBroker bootstrap: %d events", len(events))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc: # noqa: BLE001
             self._last_error = str(exc)
             logger.info("DetectionBroker bootstrap failed: %s", exc)
 
@@ -137,7 +137,7 @@ class DetectionBroker:
         for ev in new:
             self._record(ev, broadcast=True)
 
-    # ── Internal ─────────────────────────────────────────────────────────────
+    # -- Internal -------------------------------------------------------------
     def _record(self, ev: dict, *, broadcast: bool) -> None:
         eid = _event_id(ev)
         if not eid or eid in self._seen_ids:
@@ -157,7 +157,7 @@ class DetectionBroker:
                     pass
 
 
-# ── utilities ────────────────────────────────────────────────────────────────
+# -- utilities ----------------------------------------------------------------
 def _event_id(ev: Any) -> str:
     if not isinstance(ev, dict):
         return ""

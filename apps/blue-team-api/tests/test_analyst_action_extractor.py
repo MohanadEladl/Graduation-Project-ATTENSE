@@ -8,7 +8,7 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT))
 
-from blueteam.core.blueactions.analyst_action_extractor import extract_analyst_action  # noqa: E402
+from blueteam.core.blueactions.analyst_action_extractor import extract_analyst_action # noqa: E402
 
 
 class AnalystActionExtractorTests(unittest.TestCase):

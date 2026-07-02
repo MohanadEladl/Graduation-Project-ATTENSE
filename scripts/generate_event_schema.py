@@ -2,11 +2,11 @@
 
 Phase 2 of ATTENSE_Refactoring_Optimization_Report.md: "Generate the JSON Schema
 from the model." `StandardEvent` is the single source of truth; the committed
-`ATTENSE_app/events/standard_event.schema.json` is a generated artifact, never
+`packages/attense-core/attense_core/models/standard_event.schema.json` is a generated artifact, never
 hand-edited. Run this whenever the model changes (and in CI to detect drift):
 
-    python scripts/generate_event_schema.py            # write the schema file
-    python scripts/generate_event_schema.py --check     # fail if out of date
+    python scripts/generate_event_schema.py # write the schema file
+    python scripts/generate_event_schema.py --check # fail if out of date
 
 The `--check` mode is structural-only-friendly: it regenerates and compares, so
 keep regeneration deterministic (it is: model_json_schema() is stable input).
@@ -24,7 +24,7 @@ _CORE_ROOT = os.path.abspath(
 if _CORE_ROOT not in sys.path:
     sys.path.insert(0, _CORE_ROOT)
 
-from attense_core.models.standard_event import StandardEvent  # noqa: E402
+from attense_core.models.standard_event import StandardEvent # noqa: E402
 
 SCHEMA_PATH = os.path.join(
     _CORE_ROOT, "attense_core", "models", "standard_event.schema.json"
@@ -71,3 +71,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+

@@ -129,9 +129,46 @@ def _store_red_team_profile(cur, user_id: int, key_secret: str) -> None:
     )
 
 
-def username_exists(username: str) -> bool:
+def username_exists(username: str, company_id: Optional[str] = None) -> bool:
     with connection() as conn, conn.cursor() as cur:
-        cur.execute('SELECT 1 FROM "User" WHERE username = %s', (username,))
+        if company_id is None:
+            cur.execute('SELECT 1 FROM "User" WHERE lower(username) = lower(%s)', (username,))
+        else:
+            cur.execute(
+                'SELECT 1 FROM "User" WHERE lower(username) = lower(%s) AND company_id = %s',
+                (username, int_id(company_id, "company_id")),
+            )
+        return cur.fetchone() is not None
+
+
+def email_exists(email: str, company_id: Optional[str] = None) -> bool:
+    with connection() as conn, conn.cursor() as cur:
+        if company_id is None:
+            cur.execute('SELECT 1 FROM "User" WHERE lower(email) = lower(%s)', (email,))
+        else:
+            cur.execute(
+                'SELECT 1 FROM "User" WHERE lower(email) = lower(%s) AND company_id = %s',
+                (email, int_id(company_id, "company_id")),
+            )
+        return cur.fetchone() is not None
+
+
+def account_exists(username: str, email: str, company_id: Optional[str] = None) -> bool:
+    with connection() as conn, conn.cursor() as cur:
+        if company_id is None:
+            cur.execute(
+                'SELECT 1 FROM "User" WHERE lower(username) = lower(%s) OR lower(email) = lower(%s)',
+                (username, email),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT 1 FROM "User"
+                WHERE company_id = %s
+                AND (lower(username) = lower(%s) OR lower(email) = lower(%s))
+                """,
+                (int_id(company_id, "company_id"), username, email),
+            )
         return cur.fetchone() is not None
 
 
@@ -179,8 +216,8 @@ def register_user(
         if company_store.get_company(str(db_company_id)) is None:
             raise ValueError("Company does not exist")
 
-    if username_exists(username):
-        raise ValueError(f"Username already exists: {username}")
+            if account_exists(username, email):
+                raise ValueError(f"Account already exists for {username}")
 
     if role not in HIVE_KEY_ROLES:
         hive_key = None
@@ -208,13 +245,17 @@ def register_user(
                 _store_red_team_profile(cur, row["user_id"], key_secret)
             return _public(_user_from_row(row))
     except psycopg.errors.UniqueViolation as exc:
-        raise ValueError(f"Username or email already exists: {username}") from exc
+        raise ValueError(f"Account already exists for {username}") from exc
 
 
 def login_user(username: str, password: str) -> Optional[dict]:
     key_secret = encryption_key()
+    identifier = username.strip()
     with connection() as conn, conn.cursor() as cur:
-        cur.execute(USER_SELECT_WITH_HASH + ' WHERE u.username = %s', (key_secret, username))
+        cur.execute(
+        USER_SELECT_WITH_HASH + ' WHERE lower(u.username) = lower(%s) OR lower(u.email) = lower(%s)',
+        (key_secret, identifier, identifier),
+        )
         user = _user_from_row(cur.fetchone(), include_hash=True)
     if user is None:
         return None

@@ -1,4 +1,4 @@
-# Blue Team Component — Function Reference
+# Blue Team Component - Function Reference
 
 > Documentation for every Python file in the `blueteam/` service.
 > Organized by architectural layer, matching the structure from **Blue team Component.docx**.
@@ -9,45 +9,45 @@
 
 ```
 [system] raise_alert()
-              │
+              |
               ▼
 [human] investigate_alert()
-              │
-       ┌──────┴──────┐
+              |
+       +------+------+
        ▼             ▼
  deny_alert()   confirm_incident()
- (false +ve)         │  ← TTD calculated here
+ (false +ve)         |  <- TTD calculated here
                      ▼
             initiate_containment()
-                     │
+                     |
                      ▼
             complete_containment()
-                     │  ← TTC calculated here
+                     |  <- TTC calculated here
 ```
 
 ---
 
 ## `main.py`
 
-Entry point — creates the FastAPI application.
+Entry point - creates the FastAPI application.
 
 | Symbol | Type | Description |
 |--------|------|-------------|
 | `app` | `FastAPI` | The application instance with title, description, and version. |
-| `health()` | `GET /health` | Returns `{"status": "ok"}` — liveness check for container orchestrators. |
+| `health()` | `GET /health` | Returns `{"status": "ok"}` - liveness check for container orchestrators. |
 
 ---
 
 ## `api/router.py`
 
-**Traffic control only — no business logic.**
+**Traffic control only - no business logic.**
 Every external caller reaches the Blue Team through this file.
 
 | Function                        | Route                       | Description |
 |---------------------------------|-----------------------------|---------------------------------------------------------|
 | `api_raise_alert(body, emitter)` | `POST /blueteam raise-alert` | Passes SIEM alert data to `alert_service.raise_alert()`. Emits `alert_raised`. |
 | `api_investigate_alert(body, emitter)` | `POST /blueteam/investigate-alert` | Passes triage request to `alert_service.investigate_alert()`. Emits `alert_investigation_started`. |
-| `api_deny_alert(body, emitter)` | `POST /blueteam/deny-alert` | Passes false-positive decision to `alert_service.deny_alert()`. Emits `alert_denied`. Incident ends here — no TTD. |
+| `api_deny_alert(body, emitter)` | `POST /blueteam/deny-alert` | Passes false-positive decision to `alert_service.deny_alert()`. Emits `alert_denied`. Incident ends here - no TTD. |
 | `api_confirm_incident(body, emitter, hive)` | `POST /blueteam/confirm-incident` | Passes confirmation to `incident_service.confirm_incident()`. **TTD is calculated here.** Emits `incident_confirmed`. |
 | `api_initiate_containment(body, emitter, sandbox)` | `POST /blueteam/initiate-containment` | Passes containment request to `containment_service.initiate_containment()`. Emits `containment_initiated`. |
 | `api_complete_containment(body, emitter)` | `POST /blueteam/complete-containment` | Passes completion to `containment_service.complete_containment()`. System evaluates outcome. Emits `containment_succeeded` or `containment_failed`. |
@@ -56,7 +56,7 @@ Every external caller reaches the Blue Team through this file.
 
 ## `api/dependencies.py`
 
-Dependency injection providers — supplies shared components via FastAPI `Depends()`.
+Dependency injection providers - supplies shared components via FastAPI `Depends()`.
 
 | Function | Returns | Description |
 |----------|---------|-------------|
@@ -94,17 +94,17 @@ Business logic for all alert-related analyst actions.
 |----------|-------|-------------|
 | `raise_alert(body, emitter)` | `alert_raised` | Simulates SIEM detecting an anomaly. Validates incident not terminal and no duplicate alert. Builds and persists the event. |
 | `investigate_alert(body, emitter)` | `alert_investigation_started` | Analyst picks up alert for triage. Validates `alert_raised` exists and investigation not yet started. |
-| `deny_alert(body, emitter)` | `alert_denied` | Analyst marks alert as false positive. Validates investigation was started and incident not already confirmed. Incident ends here — no TTD. |
+| `deny_alert(body, emitter)` | `alert_denied` | Analyst marks alert as false positive. Validates investigation was started and incident not already confirmed. Incident ends here - no TTD. |
 
 ---
 
 ## `core/services/incident_service.py`
 
-Business logic for incident confirmation — the critical TTD step.
+Business logic for incident confirmation - the critical TTD step.
 
 | Function | Emits | Description |
 |----------|-------|-------------|
-| `confirm_incident(body, emitter, hive)` | `incident_confirmed` | Analyst confirms true positive. **TTD anchor — calculated as `detection_time − start_time`.** Updates Hive case severity. Status → `DETECTED`. |
+| `confirm_incident(body, emitter, hive)` | `incident_confirmed` | Analyst confirms true positive. **TTD anchor - calculated as `detection_time - start_time`.** Updates Hive case severity. Status -> `DETECTED`. |
 
 ---
 
@@ -115,13 +115,13 @@ Business logic for the containment phase.
 | Function | Emits | Description |
 |----------|-------|-------------|
 | `initiate_containment(body, emitter, sandbox)` | `containment_initiated` | Analyst triggers containment. Validates incident is `DETECTED`. Sends strategy command to sandbox. |
-| `complete_containment(body, emitter)` | `containment_succeeded` or `containment_failed` | **System (not analyst) evaluates outcome** based on: (1) correct target? (2) within 5 minutes? Outcomes: `success`, `partial` (late), `failure` (wrong target). TTC recorded on success. |
+| `complete_containment(body, emitter)` | `containment_succeeded` or `containment_failed` | **System (not analyst) evaluates outcome** based on: (1) correct target (2) within 5 minutes Outcomes: `success`, `partial` (late), `failure` (wrong target). TTC recorded on success. |
 
 ---
 
 ## `core/validation/alert_validator.py`
 
-Pre-condition guards — **invalid requests die here before reaching services**.
+Pre-condition guards - **invalid requests die here before reaching services**.
 
 | Function | Guards | Description |
 |----------|--------|-------------|
@@ -150,11 +150,11 @@ Pre-condition guards — **invalid requests die here before reaching services**.
 
 ## `core/blueactions/alert_actions.py`
 
-**Pure event-builder functions — no side effects. Only construct and return `Event` objects.**
+**Pure event-builder functions - no side effects. Only construct and return `Event` objects.**
 
 | Function | Event Type | Description |
 |----------|-----------|-------------|
-| `_new_event_id()` | — | Generates a short unique event ID: `evt-<12hex>`. |
+| `_new_event_id()` | - | Generates a short unique event ID: `evt-<12hex>`. |
 | `build_raise_alert_event(incident, siem_id, target_id, target_type, rule_name, severity, raw_log)` | `alert_raised` | Builds event with actor_type `system`, outcome `detected`. Attaches severity, rule_name, raw_log to metadata. |
 | `build_investigate_alert_event(incident, analyst_id, alert_id, notes)` | `alert_investigation_started` | Builds event with actor_type `blue_team`, outcome `unknown`. |
 | `build_deny_alert_event(incident, analyst_id, alert_id, notes)` | `alert_denied` | Builds event with actor_type `blue_team`, outcome `false_positive`. |
@@ -165,7 +165,7 @@ Pre-condition guards — **invalid requests die here before reaching services**.
 
 | Function | Event Type | Description |
 |----------|-----------|-------------|
-| `build_confirm_incident_event(incident, analyst_id, alert_id, severity, notes)` | `incident_confirmed` | Builds event with actor_type `blue_team`, outcome `detected`. **TTD anchor — this event's timestamp is used.** Severity + notes in metadata. |
+| `build_confirm_incident_event(incident, analyst_id, alert_id, severity, notes)` | `incident_confirmed` | Builds event with actor_type `blue_team`, outcome `detected`. **TTD anchor - this event's timestamp is used.** Severity + notes in metadata. |
 
 ---
 
@@ -174,7 +174,7 @@ Pre-condition guards — **invalid requests die here before reaching services**.
 | Function | Event Type | Description |
 |----------|-----------|-------------|
 | `build_initiate_containment_event(incident, analyst_id, target_id, target_type, strategy)` | `containment_initiated` | Builds event with outcome `None` (not yet known). Strategy in metadata. |
-| `build_complete_containment_event(incident, analyst_id, target_id, target_type, event_type, outcome, notes)` | `containment_succeeded` or `containment_failed` | Builds final outcome event. `system_evaluated: True` always in metadata — system decided the outcome, not the analyst. |
+| `build_complete_containment_event(incident, analyst_id, target_id, target_type, event_type, outcome, notes)` | `containment_succeeded` or `containment_failed` | Builds final outcome event. `system_evaluated: True` always in metadata - system decided the outcome, not the analyst. |
 
 ---
 
@@ -220,11 +220,11 @@ HTTP client for TheHive case management platform.
 | Method | Description |
 |--------|-------------|
 | `__init__(base_url, api_key, timeout)` | Configures base URL, Bearer auth header, and timeout. |
-| `create_case(incident_id, title, severity)` | Creates a Hive case via `POST /api/case`. Maps severity string → Hive numeric (1–4). |
-| `update_case_severity(incident_id, severity)` | Updates severity of an existing case (stubbed — logs + returns confirmation dict). |
+| `create_case(incident_id, title, severity)` | Creates a Hive case via `POST /api/case`. Maps severity string -> Hive numeric (1-4). |
+| `update_case_severity(incident_id, severity)` | Updates severity of an existing case (stubbed - logs + returns confirmation dict). |
 | `add_observable(case_id, data_type, value)` | Adds an IOC observable via `POST /api/case/{id}/artifact`. |
 | `_post(path, payload)` | Internal helper. Sends POST to Hive API, returns response JSON or `{}` on any failure (non-fatal). |
-| `_map_severity(severity)` | Converts `low/medium/high/critical` → Hive numeric `1/2/3/4`. |
+| `_map_severity(severity)` | Converts `low/medium/high/critical` -> Hive numeric `1/2/3/4`. |
 
 ---
 
@@ -236,7 +236,7 @@ High-level case lifecycle management on top of `HiveClient`.
 
 | Method | Description |
 |--------|-------------|
-| `__init__(hive)` | Stores HiveClient, initializes `_case_ids` cache (incident_id → hive_case_id). |
+| `__init__(hive)` | Stores HiveClient, initializes `_case_ids` cache (incident_id -> hive_case_id). |
 | `open_case(incident_id, title, severity)` | Creates Hive case for a confirmed incident, caches the returned case ID. Returns case ID or None on failure. |
 | `add_ioc(incident_id, data_type, value)` | Adds an IOC observable to the case for this incident. Looks up case ID from cache. Warns if no case exists. |
 
@@ -263,8 +263,8 @@ Convenience wrapper for adding IOC observables to Hive cases.
 Routes containment strategy commands to the sandbox target-agent via HTTP.
 
 ### `STRATEGY_ENDPOINT_MAP`
-Maps strategy name → HTTP endpoint on target-agent.
-Example: `"kill_process" → "/system/kill-process"`.
+Maps strategy name -> HTTP endpoint on target-agent.
+Example: `"kill_process" -> "/system/kill-process"`.
 
 ### `TargetConnector`
 
@@ -320,7 +320,7 @@ Manages network and application-level blocking.
 
 ## `schemas/requests/alert_requests.py`
 
-Pydantic request models — enforce input shape at the API boundary.
+Pydantic request models - enforce input shape at the API boundary.
 
 | Class | Endpoint | Key Fields |
 |-------|----------|------------|
@@ -367,13 +367,13 @@ Standard envelope returned by **every** Blue Team endpoint.
 
 | Method | Description |
 |--------|-------------|
-| `from_event(incident, event, message)` | Factory classmethod — builds a response from an `(Incident, Event)` pair. Avoids repeating field mapping in every service. |
+| `from_event(incident, event, message)` | Factory classmethod - builds a response from an `(Incident, Event)` pair. Avoids repeating field mapping in every service. |
 
 ---
 
 ## `config/settings.py`
 
-### `Settings` (Pydantic BaseSettings — reads from env vars / `.env` file)
+### `Settings` (Pydantic BaseSettings - reads from env vars / `.env` file)
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -381,7 +381,7 @@ Standard envelope returned by **every** Blue Team endpoint.
 | `environment` | `"development"` | Runtime environment (`development`, `production`). |
 | `log_level` | `"INFO"` | Logging verbosity. |
 | `hive_url` | `"http://localhost:9000"` | TheHive API base URL. |
-| `hive_api_key` | `"changeme"` | Hive API key — override in production via env var. |
+| `hive_api_key` | `"changeme"` | Hive API key - override in production via env var. |
 | `sandbox_url` | `"http://localhost:8020"` | Target-agent sandbox URL. |
 | `event_store_type` | `"memory"` | Event store backend (`memory` \| `postgres` \| `kafka`). |
 
@@ -389,18 +389,18 @@ Standard envelope returned by **every** Blue Team endpoint.
 
 ## `config/constants.py`
 
-Single source of truth — **never hardcode these strings elsewhere**.
+Single source of truth - **never hardcode these strings elsewhere**.
 
 | Group | Values |
 |-------|--------|
-| **Incident Statuses** | `NOT_STARTED` → `ACTIVE_UNDETECTED` → `DETECTED` → `CONTAINED` → `ENDED` |
-| `TERMINAL_STATUSES` | `{CONTAINED, ENDED}` — no further actions allowed after these. |
+| **Incident Statuses** | `NOT_STARTED` -> `ACTIVE_UNDETECTED` -> `DETECTED` -> `CONTAINED` -> `ENDED` |
+| `TERMINAL_STATUSES` | `{CONTAINED, ENDED}` - no further actions allowed after these. |
 | **Event Types** | `malicious_action_executed`, `alert_raised`, `alert_investigation_started`, `alert_denied`, `incident_confirmed`, `containment_initiated`, `containment_succeeded`, `containment_failed`, `incident_ended` |
 | `ALLOWED_ACTOR_TYPES` | `red_team`, `blue_team`, `system` |
 | `ALLOWED_TARGET_TYPES` | `host`, `service`, `account`, `alert` |
 | `ALLOWED_OUTCOMES` | `success`, `failure`, `partial`, `detected`, `blocked`, `allowed`, `unknown`, `false_positive` |
-| `CONTAINMENT_STRATEGIES` | Attack type → list of valid strategies |
-| `CONTAINMENT_LATE_THRESHOLD_SECONDS` | `300` (5 min) — threshold between `success` and `partial` outcome |
+| `CONTAINMENT_STRATEGIES` | Attack type -> list of valid strategies |
+| `CONTAINMENT_LATE_THRESHOLD_SECONDS` | `300` (5 min) - threshold between `success` and `partial` outcome |
 
 ---
 
@@ -412,8 +412,8 @@ Timing helpers for TTD and TTC calculation.
 |----------|-------------|
 | `utcnow()` | Returns current UTC time as a timezone-aware `datetime`. |
 | `seconds_between(start, end)` | Elapsed seconds between two timestamps. Returns `None` if either is missing. |
-| `calculate_ttd(incident)` | **Time to Detect** = `detection_time − start_time` in seconds. Lower = better detection. |
-| `calculate_ttc(incident)` | **Time to Contain** = `containment_time − detection_time` in seconds. Lower = faster response. |
+| `calculate_ttd(incident)` | **Time to Detect** = `detection_time - start_time` in seconds. Lower = better detection. |
+| `calculate_ttc(incident)` | **Time to Contain** = `containment_time - detection_time` in seconds. Lower = faster response. |
 | `format_iso(dt)` | Returns ISO-8601 string for a datetime, or `None` if input is `None`. |
 
 ---
@@ -424,7 +424,7 @@ Role-based access control for analyst actions.
 
 | Constant | Description |
 |----------|-------------|
-| `ROLE_PERMISSIONS` | Dict mapping role → allowed actions. Roles: `analyst`, `senior`, `system`, `admin`. |
+| `ROLE_PERMISSIONS` | Dict mapping role -> allowed actions. Roles: `analyst`, `senior`, `system`, `admin`. |
 
 | Function | Description |
 |----------|-------------|

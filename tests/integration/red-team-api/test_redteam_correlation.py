@@ -13,7 +13,7 @@ import os
 import sys
 import unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))  # tests/integration/red-team-api
+_HERE = os.path.dirname(os.path.abspath(__file__)) # tests/integration/red-team-api
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 _RED_TEAM_DIR = os.path.join(_REPO, "apps", "red-team-api")
 if _RED_TEAM_DIR not in sys.path:
@@ -98,7 +98,7 @@ class EngineTtdAnchorTests(unittest.TestCase):
             scenario_id="APP-01",
             target="http://target",
             started_at="2026-01-01T10:00:00+00:00",
-            finished_at="2026-01-01T10:05:00+00:00",  # 5 min later
+            finished_at="2026-01-01T10:05:00+00:00", # 5 min later
             total_steps=1,
             successful_steps=1,
         )

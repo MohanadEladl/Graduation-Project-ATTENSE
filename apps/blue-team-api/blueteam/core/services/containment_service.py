@@ -1,13 +1,13 @@
 """
-containment_service.py — Containment Service (Blue Team Core)
+containment_service.py - Containment Service (Blue Team Core)
 ==============================================================
-Handles the containment phase — any action that stops attack progression.
+Handles the containment phase - any action that stops attack progression.
 
 Containment is scenario-specific:
-    💥 Command Injection  → kill_process, disable_service, isolate_host
-    🌐 XSS               → block_request, remove_payload, disable_endpoint
-    📂 Directory Traversal→ block_path, restrict_access
-    🔐 Broken Auth        → lock_account, invalidate_session
+    💥 Command Injection -> kill_process, disable_service, isolate_host
+    🌐 XSS -> block_request, remove_payload, disable_endpoint
+    📂 Directory Traversal-> block_path, restrict_access
+    🔐 Broken Auth -> lock_account, invalidate_session
 
 initiate_containment()
     - Analyst triggers a containment action
@@ -17,7 +17,7 @@ initiate_containment()
 complete_containment()
     - System evaluates outcome based on target correctness and response time
     - Emits: containment_succeeded | containment_failed
-    - On success → status becomes CONTAINED, TTC recorded
+    - On success -> status becomes CONTAINED, TTC recorded
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def complete_containment(
     - Timing: was containment performed within the threshold?
 
     Emits: containment_succeeded (outcome=success|partial) | containment_failed
-    On success → status becomes CONTAINED, TTC is recorded.
+    On success -> status becomes CONTAINED, TTC is recorded.
     """
     incident, store = emitter.get_or_create(room_id, body.incident_id, body.scenario_id)
     validate_complete_containment(incident, store)

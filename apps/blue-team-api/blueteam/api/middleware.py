@@ -1,11 +1,11 @@
 """
-middleware.py — Blue Team API Middleware
+middleware.py - Blue Team API Middleware
 =========================================
 Cross-cutting concerns that run automatically BEFORE or AFTER
 every request reaches a route handler.
 
 Every request passes through this checkpoint:
-    auth → permissions → logging → timing → request
+    auth -> permissions -> logging -> timing -> request
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
 
         logger.info(
-            "[%s] → %s %s",
+            "[%s] -> %s %s",
             request_id,
             request.method,
             request.url.path,
@@ -43,7 +43,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
-            "[%s] ← %s  (%.1f ms)",
+            "[%s] <- %s (%.1f ms)",
             request_id,
             response.status_code,
             elapsed_ms,

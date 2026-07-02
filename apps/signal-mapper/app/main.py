@@ -1,12 +1,12 @@
 """
-main.py – FastAPI application and background alert-processing loop.
+main.py - FastAPI application and background alert-processing loop.
 
 Endpoints
 ---------
-GET  /health   – liveness probe
-GET  /events   – last N events from the in-memory ring buffer
-POST /events   – manually inject a raw Wazuh alert JSON (for testing)
-POST /ingest   – alias for POST /events
+GET /health - liveness probe
+GET /events - last N events from the in-memory ring buffer
+POST /events - manually inject a raw Wazuh alert JSON (for testing)
+POST /ingest - alias for POST /events
 
 The background daemon thread tails alerts.json and dispatches mapped events
 through the configured output (file or HTTP).
@@ -30,17 +30,17 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.mapper import map_alert
-from app.output import dispatch
+from app.output import dispatch, post_alert_body, raise_alert_body, set_active_room
 from app.reader import tail_alerts
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# -- Logging -------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s – %(message)s",
+    format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
 )
 logger = logging.getLogger("signal-mapper")
 
-# ── FastAPI app ───────────────────────────────────────────────────────────────
+# -- FastAPI app ---------------------------------------------------------------
 app = FastAPI(
     title="ATTENSE Signal Mapper",
     description=(
@@ -50,7 +50,7 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# ── In-memory ring buffer & Event Store ───────────────────────────────────────
+# -- In-memory ring buffer & Event Store ---------------------------------------
 _MAX_RING = 500
 _ring: deque[dict[str, Any]] = deque(maxlen=_MAX_RING)
 _ring_lock = threading.Lock()
@@ -68,6 +68,24 @@ _incident_lock = threading.Lock()
 
 class ActiveIncidentRequest(BaseModel):
     incident_id: str | None = Field(default=None, min_length=1, max_length=200)
+    # The room that owns this incident's alerts. Forwarded as X-Room-Id on every
+    # raise-alert call so the Blue Team API accepts them (roomless calls 401).
+    room_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class ReplayRequest(BaseModel):
+    incident_id: str = Field(min_length=1, max_length=200)
+    room_id: str = Field(min_length=1, max_length=200)
+    # Only replay detections at/after this ISO timestamp (the room's attack
+    # start), so events persisted from earlier exercises stay out of the room.
+    since: str | None = Field(default=None, max_length=64)
+
+
+# Detections already replayed to a room in this process, so a room re-entry
+# doesn't re-post the whole store. TheHive's (type, source, sourceRef) dedup
+# covers the process-restart case.
+_replayed_refs: set[tuple[str, str]] = set()
+_replayed_lock = threading.Lock()
 
 
 def _get_active_incident_id() -> str | None:
@@ -81,7 +99,7 @@ def _set_active_incident_id(incident_id: str | None) -> None:
         _active_incident_id = incident_id
 
 
-# ── Processing logic ──────────────────────────────────────────────────────────
+# -- Processing logic ----------------------------------------------------------
 
 def _process_alert(raw: dict) -> None:
     event = map_alert(raw, incident_id_override=_get_active_incident_id())
@@ -96,11 +114,11 @@ def _process_alert(raw: dict) -> None:
         _events.append(ev_dict) # Keep in Event Store list
 
     logger.info(
-        "[main] %-22s %-8s  rule=%-6s  src=%-15s  outcome=%s",
+        "[main] %-22s %-8s rule=%-6s src=%-15s outcome=%s",
         event.event_type,
         event.severity if hasattr(event, 'severity') else event.metadata.get('severity', 'unknown'),
-        event.metadata.get("wazuh_rule_id") or "–",
-        event.metadata.get("source_ip") or "–",
+        event.metadata.get("wazuh_rule_id") or "-",
+        event.metadata.get("source_ip") or "-",
         event.outcome,
     )
 
@@ -118,22 +136,22 @@ def _tail_worker() -> None:
                 _process_alert(raw)
             # tail_alerts() is an infinite generator; returning means something
             # terminated it unexpectedly. Restart immediately.
-            logger.warning("[main] tail_alerts() generator ended unexpectedly — restarting.")
+            logger.warning("[main] tail_alerts() generator ended unexpectedly - restarting.")
         except Exception as exc:
             logger.error(
-                "[main] Tail worker error: %s — restarting in 5s.", exc, exc_info=True
+                "[main] Tail worker error: %s - restarting in 5s.", exc, exc_info=True
             )
             time.sleep(5)
 
 
-# ── Lifecycle ─────────────────────────────────────────────────────────────────
+# -- Lifecycle -----------------------------------------------------------------
 
 @app.on_event("startup")
 async def startup() -> None:
     global worker_task
     logger.info(
-        "[main] Signal Store (Merged Mapper + Event Store) starting.  "
-        "alerts_path=%s  output_mode=%s",
+        "[main] Signal Store (Merged Mapper + Event Store) starting. "
+        "alerts_path=%s output_mode=%s",
         settings.wazuh_alerts_path,
         settings.output_mode,
     )
@@ -159,7 +177,7 @@ async def startup() -> None:
     worker_task = t # Store thread reference for health check
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# -- Endpoints -----------------------------------------------------------------
 
 @app.get("/health", tags=["ops"], summary="Liveness probe")
 async def health() -> JSONResponse:
@@ -184,21 +202,96 @@ async def configure_active_incident(
 ) -> dict[str, str | None]:
     """Set or clear the incident used for subsequently mapped Wazuh alerts.
 
-    This endpoint is internal-only and authenticated.  Clearing the context on
+    This endpoint is internal-only and authenticated. Clearing the context on
     room close makes the configured fallback INCIDENT_ID available again for
     standalone exercises.
     """
+    _require_config_secret(x_signal_store_secret)
+
+    _set_active_incident_id(body.incident_id)
+    set_active_room(body.room_id)
+    logger.info(
+        "[main] Active exercise incident changed to %s (room=%s)",
+        body.incident_id or "<fallback>", body.room_id or "<none>",
+    )
+    return {"active_incident_id": body.incident_id, "active_room_id": body.room_id}
+
+
+def _require_config_secret(provided: str | None) -> None:
     expected = settings.signal_store_config_secret
     if not expected:
         raise HTTPException(status_code=503, detail="Runtime incident configuration is disabled")
-    if not x_signal_store_secret or not hmac.compare_digest(
-        x_signal_store_secret, expected
-    ):
+    if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid signal-store configuration secret")
 
-    _set_active_incident_id(body.incident_id)
-    logger.info("[main] Active exercise incident changed to %s", body.incident_id or "<fallback>")
-    return {"active_incident_id": body.incident_id}
+
+def _at_or_after(timestamp: str | None, since: str) -> bool:
+    """True when *timestamp* is at/after *since*. Unparseable values pass
+    through (better a stray alert in the room than a silently empty case)."""
+    from datetime import datetime, timezone
+
+    try:
+        ts = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        floor = datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return True
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    if floor.tzinfo is None:
+        floor = floor.replace(tzinfo=timezone.utc)
+    return ts >= floor
+
+
+@app.post("/replay", tags=["ops"], summary="Replay stored detections into a room")
+async def replay_detections(
+    body: ReplayRequest,
+    x_signal_store_secret: str | None = Header(default=None),
+) -> dict[str, int]:
+    """Re-deliver stored attack detections to the Blue Team API for a room.
+
+    In deferred exercises the attack (and its Wazuh detections) happens before
+    any analyst enters the room, and roomless raise-alert calls are rejected -
+    so those alerts never reached TheHive. The control API calls this when a
+    Blue Team user enters the room: every stored detection belonging to the
+    room's incident (or mapped under the static fallback incident before the
+    room claimed the signal-store) is re-posted with the room's X-Room-Id,
+    landing the case's alerts in TheHive while the analyst is inside it.
+    """
+    _require_config_secret(x_signal_store_secret)
+
+    fallback_incident = os.getenv("INCIDENT_ID")
+    with _ring_lock:
+        candidates = list(_events)
+
+    replayed = skipped = failed = 0
+    for ev in candidates:
+        if ev.get("outcome") != "detected":
+            continue
+        ev_incident = ev.get("incident_id")
+        # Own the event if it was mapped for this incident, or if it predates
+        # the room claiming the signal-store (fallback / self-minted ids).
+        unclaimed = ev_incident == fallback_incident or str(ev_incident or "").startswith("wazuh-")
+        if ev_incident != body.incident_id and not unclaimed:
+            continue
+        if body.since and not _at_or_after(ev.get("timestamp"), body.since):
+            continue
+        ref = (body.room_id, str(ev.get("event_id") or id(ev)))
+        with _replayed_lock:
+            if ref in _replayed_refs:
+                skipped += 1
+                continue
+        if post_alert_body(raise_alert_body(ev, incident_id=body.incident_id), body.room_id):
+            replayed += 1
+            with _replayed_lock:
+                _replayed_refs.add(ref)
+        else:
+            failed += 1
+
+    logger.info(
+        "[main] Replay for room=%s incident=%s: %d replayed, %d skipped, %d failed",
+        body.room_id, body.incident_id, replayed, skipped, failed,
+    )
+    return {"replayed": replayed, "skipped": skipped, "failed": failed}
 
 
 @app.get("/events", tags=["events"], summary="Return last N mapped events")
@@ -235,7 +328,7 @@ async def ingest_alert(request: Request) -> JSONResponse:
     return JSONResponse(content=event.to_dict(), status_code=202)
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# -- Entry point ---------------------------------------------------------------
 
 if __name__ == "__main__":
     uvicorn.run(

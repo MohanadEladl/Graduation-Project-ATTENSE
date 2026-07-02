@@ -1,4 +1,4 @@
-"""engine/timer.py — Simple stopwatch for attack sessions."""
+"""engine/timer.py - Simple stopwatch for attack sessions."""
 from __future__ import annotations
 
 import time

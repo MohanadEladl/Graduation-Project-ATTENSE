@@ -1,5 +1,5 @@
 """
-pipeline/run_pipeline.py — Orchestrator
+pipeline/run_pipeline.py - Orchestrator
 
 Usage (from inside the container):
     python3 -m pipeline.run_pipeline <incident_id>
@@ -8,8 +8,8 @@ Output:
     /attense/actions/<incident_id>_report.md
 
 Steps:
-    1. bridge.run_bridge(incident_id)  → (report_dict, events)
-    2. report_generator.generate(report_dict, events)  → markdown string
+    1. bridge.run_bridge(incident_id) returns (report_dict, events)
+    2. report_generator.generate(report_dict, events) returns markdown text
     3. Write markdown to /attense/actions/<incident_id>_report.md
     4. Print report to stdout
 """
@@ -18,14 +18,14 @@ import os
 import sys
 from typing import Optional
 
-# Ensure both /app (ATTENSE_app) and /app/pipeline are importable
+# Ensure both /app and /app/pipeline are importable.
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_APP  = os.path.dirname(_HERE)
+_APP = os.path.dirname(_HERE)
 for _p in (_APP, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from pipeline.bridge           import run_bridge
+from pipeline.bridge import member_events, run_bridge
 from pipeline.report_generator import generate
 
 ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
@@ -36,8 +36,16 @@ def build_and_write_report(
     incident_id: str, actions_dir: Optional[str] = None
 ) -> Optional[dict]:
     """Run the evaluation pipeline for one incident, write its markdown report
-    to ``<actions_dir>/<incident_id>_report.md``, and return a result dict — or
-    None if there are no events to score (run_bridge raises ValueError).
+    to ``<actions_dir>/<incident_id>_report.md``, plus one additional
+    ``<actions_dir>/<incident_id>_<analyst_id>_report.md`` per Blue Team
+    analyst who took part (their own actions only; see
+    pipeline.bridge.member_events). Returns a result dict, or None if there
+    are no events to score (run_bridge raises ValueError).
+
+    The team report's final_score/verdict are the AVERAGE of the individual
+    member scores when the incident has at least one analyst (see
+    pipeline.bridge.run_bridge / pipeline.scoring_engine.score_members);
+    falls back to the whole-incident score when nobody ever responded.
 
     Shared by the CLI (main, below) and the auto-on-exercise-end hook
     (core.room_manager.spin_down_room). No VERTEX env is required: the report
@@ -48,24 +56,52 @@ def build_and_write_report(
     except ValueError:
         return None
 
-    markdown = generate(report, events)
     out_dir = actions_dir or ACTIONS_DIR
     os.makedirs(out_dir, exist_ok=True)
+
+    markdown = generate(report, events)
     out_path = os.path.join(out_dir, f"{incident_id}_report.md")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(markdown)
 
+        member_reports = []
+        for analyst_id, scoring in (report.get("member_scores") or {}).items():
+            member_report = dict(report)
+            member_report.update({
+            "final_score": scoring["final_score"],
+            "verdict": scoring["verdict"],
+            "penalty_total": scoring["penalty_total"],
+            "ttc_factor": scoring["ttc_factor"],
+            "ttc_actual_sec": scoring["ttc_actual_sec"],
+            "response_difficulty_bonus": scoring["response_difficulty_bonus"],
+            "scoring_rules": scoring["scoring_rules"],
+            })
+            member_markdown = generate(
+            member_report, member_events(analyst_id, events), member_id=analyst_id
+            )
+            safe_id = analyst_id.replace("/", "-").replace("\\", "-")
+            member_path = os.path.join(out_dir, f"{incident_id}_{safe_id}_report.md")
+            with open(member_path, "w", encoding="utf-8") as f:
+                f.write(member_markdown)
+                member_reports.append({
+                "analyst_id": analyst_id,
+                "final_score": scoring["final_score"],
+                "verdict": scoring["verdict"],
+                "report_path": member_path,
+                })
+
     return {
-        "incident_id":  incident_id,
-        "final_score":  report.get("final_score"),
-        "verdict":      report.get("verdict"),
-        "outcome":      report.get("outcome"),
-        "status":       report.get("status"),
-        "report_path":  out_path,
-        "markdown":     markdown,
+        "incident_id": incident_id,
+        "final_score": report.get("final_score"),
+        "verdict": report.get("verdict"),
+        "outcome": report.get("outcome"),
+        "status": report.get("status"),
+        "report_path": out_path,
+        "markdown": markdown,
+        "member_reports": member_reports,
         "event_counts": {
-            "total":   len(events),
-            "wazuh":   sum(1 for e in events if e.actor_type == "system"),
+            "total": len(events),
+            "wazuh": sum(1 for e in events if e.actor_type == "system"),
             "analyst": sum(1 for e in events if e.actor_type == "blue_team"),
         },
     }
@@ -74,7 +110,7 @@ _ENV_HINT = "export $(cat attense-app/pipeline/.env | xargs)"
 
 _REQUIRED_ENV = [
     ("VERTEX_PROJECT_ID", "GCP project ID for Vertex AI"),
-    ("VERTEX_MODEL",      "Gemini model name (e.g. gemini-3.5-flash)"),
+    ("VERTEX_MODEL", "Gemini model name (e.g. gemini-3.5-flash)"),
 ]
 
 
@@ -85,13 +121,13 @@ def _check_env() -> None:
     ]
     if not missing:
         return
-    lines = ["", "  MISSING REQUIRED ENVIRONMENT VARIABLES", "  " + "-" * 44]
+    lines = ["", " MISSING REQUIRED ENVIRONMENT VARIABLES", " " + "-" * 44]
     for var, desc in missing:
-        lines.append(f"  {var}  —  {desc}")
+        lines.append(f" {var} - {desc}")
     lines += [
         "",
-        f"  Run this before starting the pipeline:",
-        f"    {_ENV_HINT}",
+        f" Run this before starting the pipeline:",
+        f" {_ENV_HINT}",
         "",
     ]
     print("\n".join(lines), file=sys.stderr)
@@ -102,25 +138,25 @@ def main(incident_id: str) -> None:
     _check_env()
 
     print(f"\n{SEP}")
-    print(f"  ATTENSE EVALUATION PIPELINE  |  {incident_id}")
+    print(f" ATTENSE EVALUATION PIPELINE | {incident_id}")
     print(f"{SEP}\n")
 
-    print("  [1/3] Loading events, scoring, and generating the report...")
+    print(" [1/3] Loading events, scoring, and generating the report...")
     result = build_and_write_report(incident_id)
     if result is None:
-        print(f"  ERROR: No events found for incident '{incident_id}'")
+        print(f" ERROR: No events found for incident '{incident_id}'")
         sys.exit(1)
 
     ec = result["event_counts"]
-    print(f"        {ec['total']} events loaded  "
+    print(f" {ec['total']} events loaded "
           f"({ec['wazuh']} Wazuh / {ec['analyst']} analyst)")
-    print(f"        Outcome: {result['outcome']}  |  Status: {result['status']}")
-    print(f"        Score:   {result['final_score']}  |  Verdict: {result['verdict']}")
+    print(f" Outcome: {result['outcome']} | Status: {result['status']}")
+    print(f" Score: {result['final_score']} | Verdict: {result['verdict']}")
 
-    print(f"\n  [2/3] Wrote report → {result['report_path']}")
+    print(f"\n [2/3] Wrote report - {result['report_path']}")
 
     print(f"\n{SEP}")
-    print(f"  REPORT")
+    print(f" REPORT")
     print(f"{SEP}\n")
     print(result["markdown"])
     print(f"\n{SEP}\n")
@@ -131,3 +167,4 @@ if __name__ == "__main__":
         print("Usage: python3 -m pipeline.run_pipeline <incident_id>")
         sys.exit(1)
     main(sys.argv[1])
+

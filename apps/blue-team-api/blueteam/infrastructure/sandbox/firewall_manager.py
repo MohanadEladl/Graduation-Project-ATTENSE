@@ -1,5 +1,5 @@
 """
-firewall_manager.py — Firewall / Request Manager
+firewall_manager.py - Firewall / Request Manager
 ==================================================
 Handles network-level and application-level blocking.
 Used for XSS and Directory Traversal containment strategies.
@@ -30,7 +30,7 @@ class FirewallManager:
         """
         Block malicious requests at the application/WAF level.
 
-        Used for: XSS — block the injected script request.
+        Used for: XSS - block the injected script request.
         """
         logger.info("[FirewallManager] Blocking requests for target: %s", target_id)
         return self.connector.execute_containment(target_id, "block_request")
@@ -39,7 +39,7 @@ class FirewallManager:
         """
         Block access to a specific file path.
 
-        Used for: Directory Traversal — block the traversed path pattern.
+        Used for: Directory Traversal - block the traversed path pattern.
         """
         logger.info("[FirewallManager] Blocking path for target: %s", target_id)
         return self.connector.execute_containment(target_id, "block_path")
@@ -48,7 +48,7 @@ class FirewallManager:
         """
         Disable a vulnerable application endpoint entirely.
 
-        Used for: XSS — take the vulnerable endpoint offline.
+        Used for: XSS - take the vulnerable endpoint offline.
         """
         logger.info("[FirewallManager] Disabling endpoint for target: %s", target_id)
         return self.connector.execute_containment(target_id, "disable_endpoint")

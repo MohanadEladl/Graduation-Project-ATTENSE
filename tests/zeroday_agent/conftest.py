@@ -21,7 +21,7 @@ DEMO_LOGS = [
         "logs": """
 [14:23:01] Red Team Agent started -- target: 192.168.1.105
 [14:23:02] Phase 1: Reconnaissance
-[14:23:02] Running nmap -sV -O 192.168.1.105  (T1595 - Active Scanning)
+[14:23:02] Running nmap -sV -O 192.168.1.105 (T1595 - Active Scanning)
 [14:23:08] Open ports: 22/ssh, 80/http, 443/https, 8080/http-proxy
 [14:23:09] OS detected: Ubuntu 22.04 LTS
 [14:23:10] Phase 2: Initial Access Attempt

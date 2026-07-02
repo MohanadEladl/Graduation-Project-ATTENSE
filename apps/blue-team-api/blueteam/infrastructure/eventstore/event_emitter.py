@@ -1,11 +1,11 @@
 """
-event_emitter.py — Event Store Wrapper (Infrastructure Layer)
+event_emitter.py - Event Store Wrapper (Infrastructure Layer)
 ==============================================================
-Wraps the ATTENSE_app EventStore and Incident registry.
+Wraps the attense_core EventStore and Incident registry.
 
 Provides a single interface to:
-    - get_or_create()  : fetch or create incident + store pair (room-scoped)
-    - emit()           : persist event and apply it to incident state
+    - get_or_create() : fetch or create incident + store pair (room-scoped)
+    - emit() : persist event and apply it to incident state
 
 Tenant isolation (report Phase 5): every incident is owned by the room that
 first created it. A call from a different room raises CrossRoomAccessError, so
@@ -21,14 +21,20 @@ router code (that is the point of DI).
 from __future__ import annotations
 
 import logging
+import os
 from collections import defaultdict
 from typing import Dict, Optional, Tuple
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.events.event_store import EventStore
-from ATTENSE_app.incidents.incident import Incident
+import httpx
+
+from attense_core.models.event import Event
+from attense_core.models.event_store import EventStore
+from attense_core.models.incident import Incident
 
 logger = logging.getLogger(__name__)
+
+_CONTROL_API_URL = os.getenv("ATTENSE_APP_URL", "http://attense-app:8020").rstrip("/")
+_EVENTS_SECRET = os.getenv("RED_TEAM_EVENTS_SECRET", "")
 
 
 class CrossRoomAccessError(PermissionError):
@@ -43,11 +49,11 @@ class EventEmitter:
     Attributes
     ----------
     _incidents : dict[str, Incident]
-        Map of incident_id → Incident object.
-    _stores    : dict[str, EventStore]
-        Map of incident_id → EventStore (event log).
+    Map of incident_id to Incident object.
+    _stores : dict[str, EventStore]
+    Map of incident_id to EventStore (event log).
     _incident_rooms : dict[str, str]
-        Map of incident_id → owning room_id (tenant key).
+    Map of incident_id to owning room_id (tenant key).
     """
 
     def __init__(self) -> None:
@@ -80,7 +86,7 @@ class EventEmitter:
 
         Parameters
         ----------
-        room_id     : Authorized room the caller is acting within.
+        room_id : Authorized room the caller is acting within.
         incident_id : Unique identifier for the incident.
         scenario_id : Scenario context for the incident.
         """
@@ -115,6 +121,22 @@ class EventEmitter:
         try:
             store.add_event(event)
             incident.apply_event(event)
+            if _EVENTS_SECRET:
+                try:
+                    payload = event.to_dict() if hasattr(event, "to_dict") else dict(event)
+                    payload["room_id"] = self._incident_rooms.get(event.incident_id)
+                    httpx.post(
+                        f"{_CONTROL_API_URL}/api/missions/blue-action",
+                        json=payload,
+                        headers={"Authorization": f"Bearer {_EVENTS_SECRET}"},
+                        timeout=2.0,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to dual-write Blue Team action %s for incident %s",
+                        getattr(event, "event_type", None),
+                        getattr(event, "incident_id", None),
+                    )
         except Exception as e:
             # Architectural Issue: If apply_event fails, we lose consistency between
             # the store and the incident state.
@@ -126,7 +148,7 @@ class EventEmitter:
             raise
 
         logger.debug(
-            "[EventEmitter] Event stored: type=%s id=%s → incident=%s status=%s",
+        "[EventEmitter] Event stored: type=%s id=%s -> incident=%s status=%s",
             event.event_type, event.event_id,
             incident.incident_id, incident.status,
         )
@@ -151,3 +173,4 @@ class EventEmitter:
             for iid, inc in self._incidents.items()
             if self._incident_rooms.get(iid) == room_id
         }
+

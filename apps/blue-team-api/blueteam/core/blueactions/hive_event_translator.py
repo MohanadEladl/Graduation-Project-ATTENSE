@@ -1,5 +1,5 @@
 """
-hive_event_translator.py — Hive Webhook → ATTENSE Event Translator
+hive_event_translator.py - Hive Webhook - ATTENSE Event Translator
 ===================================================================
 Receives raw TheHive webhook payloads and maps them to ATTENSE events.
 
@@ -9,13 +9,13 @@ they advance the incident state machine exactly as if the analyst had called
 the BlueTeam REST API directly.
 
 Mapping logic:
-    Case / Create           → alert_investigation_started  (analyst opened a case)
-    Case / Update (Resolved)→ incident_ended               (analyst closed the case)
-    Case / Update (other)   → incident_confirmed           (analyst updated → confirmed)
-    Alert / Update          → alert_raised                 (alert was updated in Hive)
-    Task / Update (Completed)→ containment_succeeded       (task completed = contained)
-    Task / Update (Cancelled)→ containment_failed          (task cancelled = failed)
-    Task / Update (other)   → containment_initiated        (task started = initiating)
+    Case / Create - alert_investigation_started (analyst opened a case)
+    Case / Update (Resolved) - incident_ended (analyst closed the case)
+    Case / Update (other) - incident_confirmed (analyst updated - confirmed)
+    Alert / Update - alert_raised (alert was updated in Hive)
+    Task / Update (Completed) - containment_succeeded (task completed = contained)
+    Task / Update (Cancelled) - containment_failed (task cancelled = failed)
+    Task / Update (other) - containment_initiated (task started = initiating)
 
 All other Hive event types are silently ignored (returns None).
 
@@ -32,10 +32,10 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from ATTENSE_app.events.event import Event
+from attense_core.models.event import Event
 from blueteam.core.blueactions.hive_keywords import (
     DISMISSAL_APPROVED_RE as _DISMISSAL_APPROVED_RE,
-    LESSONS_LEARNED_RE   as _LESSONS_LEARNED_RE,
+    LESSONS_LEARNED_RE as _LESSONS_LEARNED_RE,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class HiveEventTranslator:
     Translates a raw Hive webhook payload into an ATTENSE Event object.
 
     All mapped event types and target types are validated against
-    ATTENSE's allowed sets — no custom Hive-only event types are used.
+    ATTENSE's allowed sets - no custom Hive-only event types are used.
 
     Usage
     -----
@@ -66,16 +66,16 @@ class HiveEventTranslator:
 
         Parameters
         ----------
-        payload     : Raw JSON dict received from TheHive webhook.
+        payload : Raw JSON dict received from TheHive webhook.
         incident_id : ATTENSE incident_id resolved from the Hive case tags.
 
         Returns
         -------
-        Event  — if a mapping exists for the Hive objectType/operation.
-        None   — if this webhook type has no ATTENSE mapping (silently ignored).
+        Event - if a mapping exists for the Hive objectType/operation.
+        None - if this webhook type has no ATTENSE mapping (silently ignored).
         """
         object_type = payload.get("objectType", "")
-        operation   = payload.get("operation", "")
+        operation = payload.get("operation", "")
         object_data = payload.get("object", {})
         hive_status = object_data.get("status", "")
 
@@ -85,19 +85,19 @@ class HiveEventTranslator:
 
         if attense_event_type is None:
             logger.debug(
-                "[HiveTranslator] No mapping for %s/%s (status=%r) — skipping",
+            "[HiveTranslator] No mapping for %s/%s (status=%r) - skipping",
                 object_type, operation, hive_status,
             )
             return None
 
         meta = {
             "hive_object_type": object_type,
-            "hive_operation":   operation,
-            "hive_object_id":   object_data.get("id") or object_data.get("_id"),
-            "hive_title":       object_data.get("title"),
-            "hive_severity":    object_data.get("severity"),
-            "hive_status":      hive_status or None,
-            "source":           "hive_webhook",
+            "hive_operation": operation,
+            "hive_object_id": object_data.get("id") or object_data.get("_id"),
+            "hive_title": object_data.get("title"),
+            "hive_severity": object_data.get("severity"),
+            "hive_status": hive_status or None,
+            "source": "hive_webhook",
         }
         # Remove None values to keep metadata clean
         meta = {k: v for k, v in meta.items() if v is not None}
@@ -108,7 +108,7 @@ class HiveEventTranslator:
         event = Event(
             event_id=_new_event_id(),
             incident_id=incident_id,
-            scenario_id="hive",          # webhook events are not scenario-bound
+            scenario_id="hive", # webhook events are not scenario-bound
             actor_id=analyst_username,
             target_id=object_data.get("id") or object_data.get("_id") or "unknown",
             event_type=attense_event_type,
@@ -120,7 +120,7 @@ class HiveEventTranslator:
         )
 
         logger.info(
-            "[HiveTranslator] %s/%s (status=%r) → %s (incident: %s)",
+        "[HiveTranslator] %s/%s (status=%r) - %s (incident: %s)",
             object_type, operation, hive_status, attense_event_type, incident_id,
         )
         return event
@@ -141,15 +141,15 @@ class HiveEventTranslator:
         # TheHive 4.1.x webhook vocabulary is lowercase and uses internal type
         # names (e.g. objectType='case', operation='create', 'case_task',
         # 'case_task_log'). Normalise to canonical tokens so the mappings below
-        # are robust to casing/naming. Status field values (Open/Resolved/…)
-        # stay as-is — those are domain values, not the webhook envelope.
+        # are robust to casing/naming. Status field values (Open/Resolved/ - )
+        # stay as-is - those are domain values, not the webhook envelope.
         otype = {
             "case": "case", "alert": "alert",
             "case_task": "task", "task": "task",
             "case_task_log": "tasklog", "tasklog": "tasklog",
             "action": "responderaction", "responderaction": "responderaction",
         }.get(object_type.strip().lower(), object_type.strip().lower())
-        op = operation.strip().lower()  # create | update | delete
+        op = operation.strip().lower() # create | update | delete
 
         # 1. alert_investigation_started
         if otype == "alert" and op == "update":
@@ -174,21 +174,21 @@ class HiveEventTranslator:
         if otype == "responderaction" and op == "create":
             return "containment_initiated", "host", "unknown"
 
-        # 5. containment_succeeded / containment_failed — Cortex reports back via ResponderAction/Update
+            # 5. containment_succeeded / containment_failed - Cortex reports back via ResponderAction/Update
         # When Cortex finishes running WazuhBlockIP it updates the ResponderAction with its final status.
-        # TheHive emits a webhook for this update — we map it here so the incident can reach CONTAINED.
+        # TheHive emits a webhook for this update - we map it here so the incident can reach CONTAINED.
         if otype == "responderaction" and op == "update":
             responder_status = object_data.get("status", "")
             if responder_status == "Success":
                 return "containment_succeeded", "host", "success"
             if responder_status in ("Failure", "Timeout"):
                 return "containment_failed", "host", "failure"
-            # Any other intermediate state (e.g. "InProgress") → ignore
+                # Any other intermediate state (e.g. "InProgress") - ignore
             return None, "host", "unknown"
 
-        # 5b. containment_succeeded via Task completion (manual task path — no Cortex)
-        #     BUT: if the completed task title matches lessons-learned keywords, that
-        #     takes priority — a "Lessons Learned" task completing is not containment.
+            # 5b. containment_succeeded via Task completion (manual task path - no Cortex)
+        # BUT: if the completed task title matches lessons-learned keywords, that
+        # takes priority - a "Lessons Learned" task completing is not containment.
         if otype == "task" and op == "update" and hive_status == "Completed":
             title = object_data.get("title", "") or object_data.get("description", "") or ""
             if _LESSONS_LEARNED_RE.search(title):
@@ -198,17 +198,17 @@ class HiveEventTranslator:
         if otype == "tasklog" and op == "create":
             message = object_data.get("message", "") or ""
 
-            # 6a. dismissal_approved — keyword match takes highest priority.
-            #     The second-actor guard (self-approval prevention) is enforced by
-            #     the webhook router AFTER translation, not here.
+            # 6a. dismissal_approved - keyword match takes highest priority.
+            # The second-actor guard (self-approval prevention) is enforced by
+            # the webhook router AFTER translation, not here.
             if _DISMISSAL_APPROVED_RE.search(message):
                 return "dismissal_approved", "alert", "success"
 
-            # 6b. lessons_learned_recorded — keyword match
+                # 6b. lessons_learned_recorded - keyword match
             if _LESSONS_LEARNED_RE.search(message):
                 return "lessons_learned_recorded", "alert", "success"
 
-            # 6c. containment_failed / containment_succeeded — generic fallback
+                # 6c. containment_failed / containment_succeeded - generic fallback
             message_lower = message.lower()
             if "failed" in message_lower or "error" in message_lower:
                 return "containment_failed", "host", "failure"
@@ -236,8 +236,8 @@ class HiveEventTranslator:
         Extract the ATTENSE incident_id from a Hive webhook payload.
 
         Looks in:
-          1. Case tags:          'attense:incident-<id>'
-          2. Custom fields:      customFields.attenseIncidentId.string
+          1. Case tags: 'attense:incident-<id>'
+          2. Custom fields: customFields.attenseIncidentId.string
           3. Description prefix: 'Automated case for incident <id>'
 
         Returns None if no incident_id can be found.
@@ -261,3 +261,4 @@ class HiveEventTranslator:
             return desc.replace("Automated case for incident ", "", 1).strip()
 
         return None
+

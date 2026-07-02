@@ -1,5 +1,5 @@
 """
-coordinator_client.py — Watcher Agent coordinator poller.
+coordinator_client.py - Watcher Agent coordinator poller.
 
 Polls the Red Team backend until the session code resolves to an active
 watcher session, then returns the session details.
@@ -26,7 +26,7 @@ def wait_for_session(
     (incident_id, scenario_id, started_at_unix)
     """
     url = f"{coordinator_url.rstrip('/')}/session/watcher/{session_code}"
-    print("Standby — waiting for session...")
+    print("Standby - waiting for session...")
 
     while True:
         try:
@@ -34,7 +34,7 @@ def wait_for_session(
             resp.raise_for_status()
             data = resp.json()
             if data.get("status") == "active":
-                print(f"Session active — incident={data['incident_id']}  scenario={data['scenario_id']}")
+                print(f"Session active - incident={data['incident_id']} scenario={data['scenario_id']}")
                 return (
                     data["incident_id"],
                     data["scenario_id"],

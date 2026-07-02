@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 **/__pycache__/
 **/*.pyc
 **/*.pyo
@@ -52,3 +52,15 @@ SESSION_CONTEXT.md
 PUBLIC_EXPOSURE_CHANGES.md
 SECRET_ROTATION_CHANGES.md
 REDTEAM_EVENT_INGESTION_CHANGES.md
+
+# Local/generated design exports and scratch artifacts
+*.dc.html
+/support.js
+/.thumbnail
+/test_full_cycle.py
+/test_logs/
+/uploads/
+/assets/
+frontends/red-team/_shot.mjs
+frontends/red-team/_*_shot.png
+/.tmp/

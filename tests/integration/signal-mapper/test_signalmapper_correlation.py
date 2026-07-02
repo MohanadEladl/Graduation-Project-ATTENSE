@@ -13,7 +13,7 @@ import os
 import sys
 import unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))  # tests/integration/signal-mapper
+_HERE = os.path.dirname(os.path.abspath(__file__)) # tests/integration/signal-mapper
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 _SIGNAL_MAPPER_DIR = os.path.join(_REPO, "apps", "signal-mapper")
 for path in (_SIGNAL_MAPPER_DIR, os.path.join(_REPO, "apps", "control-api"), os.path.join(_REPO, "packages", "attense-core")):
@@ -22,7 +22,7 @@ for path in (_SIGNAL_MAPPER_DIR, os.path.join(_REPO, "apps", "control-api"), os.
 
 from app.mapper import _resolve_incident_id, _source_event_id, map_alert
 from app.schema import WazuhAlert
-from ATTENSE_app.events.standard_event import StandardEvent
+from attense_core.models.standard_event import StandardEvent
 
 ALERT = {
     "id": "1778258112.30741",
@@ -89,3 +89,4 @@ class MapAlertCorrelationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

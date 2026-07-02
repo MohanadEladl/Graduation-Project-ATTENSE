@@ -1,5 +1,5 @@
 """
-main.py — Blue Team Service Entry Point
+main.py - Blue Team Service Entry Point
 ========================================
 Starts the FastAPI application for the Blue Team simulation.
 """
@@ -35,13 +35,13 @@ app.add_middleware(RequestLoggingMiddleware)
 
 # Routers
 app.include_router(blueteam_router)
-app.include_router(hive_webhook_router)  # internal: Hive → ATTENSE webhook receiver
-app.include_router(analyst_actions_router)  # Watcher Agent + Hive analyst-action ingestion
+app.include_router(hive_webhook_router) # internal: Hive -> ATTENSE webhook receiver
+app.include_router(analyst_actions_router) # Watcher Agent + Hive analyst-action ingestion
 
 
 @app.exception_handler(CrossRoomAccessError)
 async def _cross_room_access_handler(request: Request, exc: CrossRoomAccessError):
-    """A cross-room access attempt is a tenant-isolation violation → 403."""
+    """A cross-room access attempt is a tenant-isolation violation -> 403."""
     return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 

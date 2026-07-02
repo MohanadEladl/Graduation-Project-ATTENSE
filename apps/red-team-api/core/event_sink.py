@@ -1,11 +1,11 @@
 """
-core/event_sink.py — Shared malicious_action_executed POST helper.
+core/event_sink.py - Shared malicious_action_executed POST helper.
 
 Both core/engine.py (scripted modules) and backend/zap_bridge.py (freestyle
 ZAP-alert events) need to tell attense-app's incident pipeline that a
 red-team action happened. This is that one shared POST, kept in core/ (not
 backend/) because the standalone CLI in red-team/main.py uses core/engine.py
-directly with no dependency on backend/ — core/ must stay backend-independent.
+directly with no dependency on backend/ - core/ must stay backend-independent.
 """
 from __future__ import annotations
 

@@ -10,9 +10,9 @@ for _p in (_PKG_ROOT, _CORE_ROOT):
 
 from datetime import datetime, timedelta
 
-from ATTENSE_app.events.event import Event
-from ATTENSE_app.incidents.incident import Incident
-from ATTENSE_app.reports.report import generate_report
+from attense_core.models.event import Event
+from attense_core.models.incident import Incident
+from attense_core.evaluation.reports import generate_report
 
 
 def run_simulator():#report
@@ -43,3 +43,4 @@ def run_simulator():#report
 
 if __name__ == "__main__":
     run_simulator()
+

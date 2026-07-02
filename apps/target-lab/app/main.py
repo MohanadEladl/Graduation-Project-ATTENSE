@@ -1,5 +1,5 @@
 """
-main.py – Flask entry point for the intentionally vulnerable target application.
+main.py - Flask entry point for the intentionally vulnerable target application.
 
 LAB PURPOSE: This app is the attack surface for the ATTENSE cyber range.
 Every route is deliberately vulnerable for training and detection research.
@@ -17,25 +17,25 @@ import os
 from logging import LogRecord
 from flask import Flask, request
 
-from routes.home    import home_bp
-from routes.auth    import auth_bp
-from routes.search  import search_bp
-from routes.system  import system_bp
-from routes.files   import files_bp
+from routes.home import home_bp
+from routes.auth import auth_bp
+from routes.search import search_bp
+from routes.system import system_bp
+from routes.files import files_bp
 from routes.profile import profile_bp
 from routes.containment import containment_bp
 
 # Operator-mode parallel routes (harder backend, same UI templates).
-# Mounted under /op/* — reached via the lab-browser proxy at /target-op/*
+# Mounted under /op/* - reached via the lab-browser proxy at /target-op/*
 # and directly from the AttackBox at http://target-agent/op/*
-from routes_op.auth    import auth_op_bp
-from routes_op.home    import home_op_bp
-from routes_op.search  import search_op_bp
-from routes_op.system  import system_op_bp
-from routes_op.files   import files_op_bp
+from routes_op.auth import auth_op_bp
+from routes_op.home import home_op_bp
+from routes_op.search import search_op_bp
+from routes_op.system import system_op_bp
+from routes_op.files import files_op_bp
 from routes_op.profile import profile_op_bp
 
-# ── App-level JSON logger (read by Wazuh agent via ossec.conf) ────────────────
+# -- App-level JSON logger (read by Wazuh agent via ossec.conf) ----------------
 LOG_DIR = "/app/logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 APP_LOG_PATH = os.path.join(LOG_DIR, "app.log")
@@ -51,7 +51,7 @@ class JsonLineFormatter(logging.Formatter):
     """
 
     def format(self, record: LogRecord) -> str:
-        # Message is already a JSON object string → embed verbatim.
+        # Message is already a JSON object string -> embed verbatim.
         msg_str = record.getMessage()
         try:
             message_obj = json.loads(msg_str)
@@ -69,7 +69,7 @@ class JsonLineFormatter(logging.Formatter):
         return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
 
-# Root logger → stderr (container log) in plain text
+# Root logger -> stderr (container log) in plain text
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",
@@ -89,12 +89,12 @@ _target_logger.propagate = False
 
 app = Flask(__name__)
 
-# ── Secret key is intentionally weak (APP-06 / session abuse) ────────────────
-# [VULN] Hardcoded weak secret key — trivially guessable for session forgery.
+# -- Secret key is intentionally weak (APP-06 / session abuse) ----------------
+# [VULN] Hardcoded weak secret key - trivially guessable for session forgery.
 app.secret_key = "lab-secret-123"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Prefix-aware URL helper
 #
 # When the lab is rendered inside the LabBrowser iframe, the frontend nginx
@@ -104,9 +104,9 @@ app.secret_key = "lab-secret-123"
 # header and emits prefixed URLs so the user always stays inside /target/*.
 #
 # Usage:
-#   In Jinja:    {{ lab_url('/auth/login') }}
-#   In Python:   from flask import current_app; current_app.lab_url('/auth/login')
-# ─────────────────────────────────────────────────────────────────────────────
+# In Jinja: {{ lab_url('/auth/login') }}
+# In Python: from flask import current_app; current_app.lab_url('/auth/login')
+# -----------------------------------------------------------------------------
 def lab_url(path: str) -> str:
     if path is None:
         path = "/"
@@ -130,16 +130,16 @@ def _inject_lab_url():
 app.lab_url = lab_url
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Channel detection — was this request driven by the lab browser, the
+# -----------------------------------------------------------------------------
+# Channel detection - was this request driven by the lab browser, the
 # AttackBox terminal/curl, or something we don't recognise?
 #
 # Used by every vulnerable route to tag the resulting evidence event with a
 # `via` field. Operator-mode missions only count evidence with via="attackbox".
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 import socket as _socket
 
-# Resolve the AttackBox container's IP at startup (best-effort — it may not
+# Resolve the AttackBox container's IP at startup (best-effort - it may not
 # yet be running when the target-agent boots).
 _ATTACKBOX_IPS: set[str] = set()
 def _refresh_attackbox_ips() -> None:
@@ -157,13 +157,13 @@ _refresh_attackbox_ips()
 def detect_via() -> str:
     """Classify the current Flask request: 'browser' | 'attackbox' | 'unknown'."""
     try:
-        ua  = (request.headers.get("User-Agent") or "")
+        ua = (request.headers.get("User-Agent") or "")
         prefix = (request.headers.get("X-Forwarded-Prefix") or "").rstrip("/")
-        ip  = request.remote_addr or ""
+        ip = request.remote_addr or ""
         # Explicit signal from AttackBox (curl alias, ZAP wrapper, etc.)
         if "AttenseAttackBox" in ua:
             return "attackbox"
-        # Container-IP signal — refresh cache if we don't know it yet
+        # Container-IP signal - refresh cache if we don't know it yet
         if not _ATTACKBOX_IPS:
             _refresh_attackbox_ips()
         if ip in _ATTACKBOX_IPS:
@@ -173,39 +173,39 @@ def detect_via() -> str:
         if prefix in ("/target", "/target-op"):
             return "browser"
     except RuntimeError:
-        pass  # outside request context
+        pass # outside request context
     return "unknown"
 
 
 # Make detect_via reachable from blueprint modules without circular imports
 app.detect_via = detect_via
 
-# ── Register blueprints ───────────────────────────────────────────────────────
+# -- Register blueprints -------------------------------------------------------
 app.register_blueprint(home_bp)
-app.register_blueprint(auth_bp,    url_prefix="/auth")
+app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(search_bp)
-app.register_blueprint(system_bp,  url_prefix="/system")
-app.register_blueprint(files_bp,   url_prefix="/files")
+app.register_blueprint(system_bp, url_prefix="/system")
+app.register_blueprint(files_bp, url_prefix="/files")
 app.register_blueprint(profile_bp, url_prefix="/profile")
 app.register_blueprint(containment_bp, url_prefix="/containment")
 
 # Operator-mode (HARDER) parallel backend. All 7 module surfaces now
-# have a routes_op/ counterpart with stricter logic — same UI, harder
+# have a routes_op/ counterpart with stricter logic - same UI, harder
 # backend.
-app.register_blueprint(home_op_bp,    url_prefix="/op")
-app.register_blueprint(auth_op_bp,    url_prefix="/op/auth")
-app.register_blueprint(search_op_bp,  url_prefix="/op")
-app.register_blueprint(system_op_bp,  url_prefix="/op/system")
-app.register_blueprint(files_op_bp,   url_prefix="/op/files")
+app.register_blueprint(home_op_bp, url_prefix="/op")
+app.register_blueprint(auth_op_bp, url_prefix="/op/auth")
+app.register_blueprint(search_op_bp, url_prefix="/op")
+app.register_blueprint(system_op_bp, url_prefix="/op/system")
+app.register_blueprint(files_op_bp, url_prefix="/op/files")
 app.register_blueprint(profile_op_bp, url_prefix="/op/profile")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Lab evidence API — consumed by the red-team backend's check-progress
+# -----------------------------------------------------------------------------
+# Lab evidence API - consumed by the red-team backend's check-progress
 # endpoint to compute mission progress from manual learner activity.
-# ─────────────────────────────────────────────────────────────────────────────
-import evidence  # noqa: E402
-from flask import jsonify  # noqa: E402
+# -----------------------------------------------------------------------------
+import evidence # noqa: E402
+from flask import jsonify # noqa: E402
 
 
 @app.get("/lab/events")
@@ -216,7 +216,7 @@ def lab_events():
     except ValueError:
         since = 0.0
     module_id = request.args.get("module_id") or None
-    via       = request.args.get("via") or None
+    via = request.args.get("via") or None
     try:
         limit = int(request.args.get("limit", "500"))
     except ValueError:
@@ -232,7 +232,7 @@ def lab_events_reset():
     return jsonify({"ok": True})
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Browser-action capture (Phase 2)
 #
 # A tiny script is injected into every HTML response from the target-agent.
@@ -240,22 +240,22 @@ def lab_events_reset():
 # them to the red-team backend at /api/lab/actions.
 #
 # The script uses postMessage so we don't have to deal with the iframe's
-# cross-origin restrictions when reading the parent's session id — the parent
+# cross-origin restrictions when reading the parent's session id - the parent
 # Workspace posts the active session_id into the iframe at mount time.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 _TRACE_JS = """
 (function () {
   if (window.__attenseTraceInstalled) return;
   window.__attenseTraceInstalled = true;
 
   var sessionId = null;
-  var backend   = '';   // empty == same origin (proxied through frontend nginx)
+  var backend = ''; // empty == same origin (proxied through frontend nginx)
 
   // Receive session_id from the parent Workspace
   window.addEventListener('message', function (e) {
     if (e.data && e.data.type === '__attense_session') {
       sessionId = e.data.session_id || null;
-      backend   = e.data.backend   || '';
+      backend = e.data.backend || '';
     }
   });
 
@@ -341,7 +341,7 @@ def _inject_trace_script(resp):
         if resp.headers.get("Content-Length"):
             resp.headers["Content-Length"] = str(len(resp.get_data()))
     except Exception:
-        pass  # never break a page over telemetry
+        pass # never break a page over telemetry
     return resp
 
 if __name__ == "__main__":

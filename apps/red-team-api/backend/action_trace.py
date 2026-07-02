@@ -1,19 +1,19 @@
 """
-backend/action_trace.py — Browser action capture for Phase 2 tracing.
+backend/action_trace.py - Browser action capture for Phase 2 tracing.
 
 The learner's clicks, form submits, and page-changes inside the lab-browser
-iframe POST a small JSON event to /api/lab/actions.  This module is the
+iframe POST a small JSON event to /api/lab/actions. This module is the
 in-memory store + read API.
 
 Each action looks like:
   {
-    "ts":         epoch float,
+    "ts": epoch float,
     "session_id": "...",
-    "kind":       "click" | "form_submit" | "page_view" | "input_focus",
-    "selector":   "button#login",
-    "text":       "Sign In",
-    "page":       "/auth/login",
-    "extra":      {...}
+    "kind": "click" | "form_submit" | "page_view" | "input_focus",
+    "selector": "button#login",
+    "text": "Sign In",
+    "page": "/auth/login",
+    "extra": {...}
   }
 
 The Report agent and the timeline endpoint both consume this stream.
@@ -39,14 +39,14 @@ def record(
 ) -> Dict[str, Any]:
     """Record a browser action. Best-effort, never raises."""
     ev = {
-        "id":         len(_actions),
-        "ts":         time.time(),
+        "id": len(_actions),
+        "ts": time.time(),
         "session_id": session_id or None,
-        "kind":       str(kind)[:40],
-        "selector":   (selector or "")[:200] or None,
-        "text":       (text or "")[:200] or None,
-        "page":       (page or "")[:200] or None,
-        "extra":      dict(extra or {}),
+        "kind": str(kind)[:40],
+        "selector": (selector or "")[:200] or None,
+        "text": (text or "")[:200] or None,
+        "page": (page or "")[:200] or None,
+        "extra": dict(extra or {}),
     }
     with _lock:
         _actions.append(ev)

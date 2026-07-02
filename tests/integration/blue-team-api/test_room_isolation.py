@@ -13,7 +13,7 @@ import os
 import sys
 import unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))  # tests/integration/blue-team-api
+_HERE = os.path.dirname(os.path.abspath(__file__)) # tests/integration/blue-team-api
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 _BLUE_TEAM_SERVICE_DIR = os.path.join(_REPO, "apps", "blue-team-api")
 for path in (_BLUE_TEAM_SERVICE_DIR, os.path.join(_REPO, "apps", "control-api"), os.path.join(_REPO, "packages", "attense-core")):
@@ -63,7 +63,7 @@ class EmitterIsolationTests(unittest.TestCase):
         self.assertEqual(set(self.emitter.all_incidents()), {"INC-A", "INC-B"})
 
     def test_same_incident_id_in_two_rooms_is_blocked(self):
-        # Even if two rooms collide on an incident_id, the second is denied —
+        # Even if two rooms collide on an incident_id, the second is denied -
         # the first room owns it.
         self.emitter.get_or_create("room-A", "SHARED", "APP-01")
         with self.assertRaises(CrossRoomAccessError):
@@ -112,7 +112,7 @@ class ServiceLayerIsolationTests(unittest.TestCase):
         except CrossRoomAccessError:
             self.fail("owning room must not hit a cross-room error")
         except Exception:
-            pass  # business-rule ValueError is fine here; isolation is what we test
+            pass # business-rule ValueError is fine here; isolation is what we test
 
 
 if __name__ == "__main__":

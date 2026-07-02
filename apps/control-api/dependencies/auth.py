@@ -22,7 +22,7 @@ def require_events_secret(authorization: str = Header(default="")):
     published to the host, so this endpoint needs its own gate rather than
     relying on Docker-network trust alone. Mirrors the Bearer +
     constant-time-compare pattern already used for TheHive's webhook
-    (ATTENSE_app/blueteam/api/webhook_router.py) — a separate secret because
+    (blueteam/api/webhook_router.py), with a separate secret because
     these are different trust relationships.
     """
     secret = os.environ.get("RED_TEAM_EVENTS_SECRET", "")
@@ -31,3 +31,4 @@ def require_events_secret(authorization: str = Header(default="")):
         token.encode("utf-8"), secret.encode("utf-8")
     ):
         raise HTTPException(status_code=401, detail="invalid_events_token")
+
