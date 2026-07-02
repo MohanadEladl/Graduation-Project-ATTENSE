@@ -19,6 +19,12 @@ import httpx
 logger = logging.getLogger(__name__)
 ATTENSE_BLUE_URL = os.getenv('ATTENSE_BLUE_URL', 'http://127.0.0.1:3100').rstrip('/')
 
+# Cases that already got their "Return to ATTENSE report" task in this process.
+# HiveClient is instantiated per-request (see api.dependencies.get_hive_client),
+# so the dedup guard must live at module scope, not on the instance - otherwise
+# the auto-promote and CaseCreated-webhook paths would each add the task.
+_RETURN_LINKED_CASES: set[str] = set()
+
 
 class HiveClient:
     """
@@ -156,6 +162,7 @@ class HiveClient:
         return self._post(f"/api/alert/{alert_id}/createCase", {})
 
     RETURN_LINK_MARKER = "Return to ATTENSE report dashboard"
+    RETURN_TASK_TITLE = "⬅ Return to ATTENSE report"
 
     def ensure_return_link(self, case_id: str, incident_id: str) -> bool:
         """
@@ -164,10 +171,15 @@ class HiveClient:
         a dedicated '⬅ Return to ATTENSE report' task in the case's task list.
 
         TheHive has no custom UI buttons, so these two markdown surfaces are
-        the "button". Idempotent: skipped when the description already carries
-        the link (covers double-firing from auto-promote + CaseCreated webhook).
+        the "button". Both are made idempotent independently:
+        - the description block is prepended only when the marker is absent (a
+          case promoted from an alert already inherits the alert's link, so this
+          is usually a no-op - but that must NOT suppress the task below);
+        - the task is created once per case per process, guarded by an in-memory
+          set (HiveClient is built per-request, so the guard is module-level).
+          A rare duplicate after a process restart is harmless.
 
-        Returns True if the link was added, False if skipped/failed.
+        Returns True if anything was added, False if fully skipped/failed.
         """
         if not case_id:
             return False
@@ -178,30 +190,37 @@ class HiveClient:
                 "[HiveClient] Could not fetch case %s to add the return link.", case_id
             )
             return False
-        description = case.get("description") or ""
-        if self.RETURN_LINK_MARKER in description:
-            return False
 
         return_url = f"{ATTENSE_BLUE_URL}/?view=reports&incidentId={incident_id}"
-        link_block = f"### ⬅ [{self.RETURN_LINK_MARKER}]({return_url})"
-        self._patch(
-            f"/api/case/{case_id}",
-            {"description": f"{link_block}\n\n{description}".strip()},
-        )
-        self._post(
-            f"/api/case/{case_id}/task",
-            {
-                "title": "⬅ Return to ATTENSE report",
-                "group": "attense",
-                "description": (
-                    "When the investigation is done, open the ATTENSE Blue Team "
-                    f"report for this incident:\n\n[{self.RETURN_LINK_MARKER}]({return_url})\n\n"
-                    "Then use **Finish Incident & View Report** in the ATTENSE portal "
-                    "to close the exercise and generate the scored report."
-                ),
-            },
-        )
-        return True
+        added = False
+
+        description = case.get("description") or ""
+        if self.RETURN_LINK_MARKER not in description:
+            link_block = f"### ⬅ [{self.RETURN_LINK_MARKER}]({return_url})"
+            self._patch(
+                f"/api/case/{case_id}",
+                {"description": f"{link_block}\n\n{description}".strip()},
+            )
+            added = True
+
+        if case_id not in _RETURN_LINKED_CASES:
+            self._post(
+                f"/api/case/{case_id}/task",
+                {
+                    "title": self.RETURN_TASK_TITLE,
+                    "group": "attense",
+                    "description": (
+                        "When the investigation is done, open the ATTENSE Blue Team "
+                        f"report for this incident:\n\n[{self.RETURN_LINK_MARKER}]({return_url})\n\n"
+                        "Then use **Finish Incident & View Report** in the ATTENSE portal "
+                        "to close the exercise and generate the scored report."
+                    ),
+                },
+            )
+            _RETURN_LINKED_CASES.add(case_id)
+            added = True
+
+        return added
 
     def add_observable(self, case_id: str, data_type: str, value: str) -> dict:
         """
