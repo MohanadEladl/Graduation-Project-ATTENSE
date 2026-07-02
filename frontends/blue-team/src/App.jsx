@@ -561,9 +561,9 @@ function HiveSessionBar({ room, onReopen, onFinish }) {
  // Shown while a TheHive investigation is in progress but the launch panel is
  // dismissed, so the analyst always has a way back to TheHive and the report.
  return (
- <div className="dc-hive-bar">
- <div><i /><strong>Investigating {roomName(room)}</strong><span>TheHive session in progress</span></div>
- <div className="dc-hive-bar-actions">
+ <div className="dc-hive-session-bar">
+ <div className="dc-hive-session-info"><i /><div><strong>Investigating {roomName(room)}</strong><span>TheHive session in progress</span></div></div>
+ <div className="dc-hive-session-actions">
  <button type="button" onClick={onReopen}>Return to TheHive</button>
  <button type="button" className="finish" onClick={onFinish}>Finish Incident &amp; View Report</button>
  </div>
@@ -835,4 +835,8 @@ export default function App() {
  {!loading && !error && view === 'notifications' && <NotificationsView rooms={rooms} showFallback={false} setView={setView} selectRoom={selectRoom} enterRoom={enterRoom} />}
  {entryModalRoom && <EntryModal room={entryModalRoom} busy={entering} onConfirm={confirmEnter} onCancel={() => setEntryModalRoom(null)} />}
  {lobbyRoom && <LobbyOverlay room={lobbyRoom} onEnterHive={openHive} onClose={() => setLobbyRoom(null)} />}
- {hiveRoom && !hiveMinimized && <HiveOverlay room={hiveRoom
+ {hiveRoom && !hiveMinimized && <HiveOverlay room={hiveRoom} onFinish={finishFromHive} onClose={() => setHiveMinimized(true)} />}
+ {hiveRoom && hiveMinimized && <HiveSessionBar room={hiveRoom} onReopen={() => setHiveMinimized(false)} onFinish={finishFromHive} />}
+ </div>
+ )
+}
