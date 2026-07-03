@@ -1,0 +1,37 @@
+server {
+    listen 80;
+    server_name _;
+
+    # Docker's embedded DNS, so proxy_pass re-resolves `thehive` at request
+    # time (via a variable) instead of caching a single IP at nginx startup.
+    # Without this, a recreated thehive container gets a new IP and every
+    # proxied request 502s until this proxy is manually reloaded.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # TheHive is a same-origin transparent proxy target: this container
+    # replaces thehive's own port publish, so from the browser it's still
+    # exactly the same host:port it always was. TheHive's frontend (legacy
+    # AngularJS) uses relative asset paths, so a 1:1 proxy needs no path
+    # rewriting.
+    #
+    # sub_filter injects a single floating "Return to ATTENSE" button into
+    # every HTML page TheHive serves - a real, always-visible, clickable
+    # control inside TheHive's own UI (not a link buried in a description),
+    # since TheHive has no extension/plugin mechanism to add one natively.
+    # TheHive doesn't gzip its responses (verified live: no Content-Encoding
+    # header even when the client advertises Accept-Encoding), so sub_filter
+    # can rewrite the body without needing to strip compression first.
+    sub_filter '</body>' '<a id="attense-return-btn" href="${ATTENSE_BLUE_URL}/" target="_blank" rel="noopener" style="position:fixed;bottom:20px;right:20px;z-index:999999;display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:999px;background:#4a86e8;color:#fff;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:14px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.25);">&#8592; Return to ATTENSE</a></body>';
+    sub_filter_once on;
+    sub_filter_types text/html;
+
+    location / {
+        set                $thehive_upstream "thehive:9000";
+        proxy_pass         http://$thehive_upstream;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+}
