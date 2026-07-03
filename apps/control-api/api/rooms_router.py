@@ -5,6 +5,7 @@ from core import user_store
 from core.room_manager import (
     accept_invite,
     enter_room,
+    ensure_member_hive_access,
     get_room,
     create_room,
     hive_credentials,
@@ -54,8 +55,10 @@ def _thehive_envelope(room: dict, room_id: str, session: dict | None = None) -> 
         "room_id": room_id,
     }
     if session is not None:
-        # The requesting analyst's own TheHive web-login credentials, so the UI
-        # can show how to sign in to the incident inside the iframe.
+        # The requesting analyst's own (dynamic, per-user) TheHive web-login
+        # credentials. Provision on demand: the caller may be viewing this room
+        # via Blue Team's global visibility without ever having entered it.
+        ensure_member_hive_access(session["username"])
         creds = hive_credentials(session["username"])
         thehive["login"] = creds["login"]
         thehive["password"] = creds["password"]
@@ -237,6 +240,7 @@ def lobby(room_id: str, session: dict = Depends(require_session)):
         result = room_lobby(room_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    ensure_member_hive_access(session["username"])
     creds = hive_credentials(session["username"])
     result["thehive_login"] = creds["login"]
     result["thehive_password"] = creds["password"]

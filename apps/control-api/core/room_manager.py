@@ -430,42 +430,50 @@ def _ensure_room_hive(room: dict, username: str, *, as_manager: bool) -> Optiona
     return key
 
 
-# Every analyst signs in to TheHive with ONE shared account that lives in the
-# alert org (where the pipeline writes alerts). Per-user accounts kept landing
-# in different orgs - TheHive 4 has no reliable "set default org" API - so
-# analysts logged into an empty org and saw zero alerts. A single shared login
-# in the alert org sidesteps that entirely: everyone sees the same incident.
-SHARED_ANALYST_LOGIN = "soc-analyst@attense.local"
+def hive_credentials(username: str) -> dict:
+    """The TheHive web-login credentials for THIS analyst, dynamically.
 
-
-def hive_credentials(username: str | None = None) -> dict:
-    """The shared TheHive web-login credentials (login + derived password).
-
-    The same password is set on the shared account by ensure_shared_analyst(),
-    so these credentials always work and always land in the alert org.
+    Each analyst logs into TheHive as themselves, not a shared/static account:
+    `username` is the login, and the password is derived (report Phase 5 -
+    deterministic from a server secret, so it's reproducible without ever
+    persisting a plaintext password) from that same username. Every caller
+    that shows these credentials goes through ensure_member_hive_access first
+    (see _thehive_envelope), which provisions this exact account into the
+    alert org - so the credentials returned here are guaranteed to already
+    work, even the first time this user touches a Hive-backed room.
     """
     from core import hive_provisioner
 
     return {
-        "login": SHARED_ANALYST_LOGIN,
-        "password": hive_provisioner.derive_password(SHARED_ANALYST_LOGIN),
+        "login": username,
+        "password": hive_provisioner.derive_password(username),
     }
 
 
-def ensure_shared_analyst() -> dict:
-    """Ensure the shared Blue Team analyst account exists in the alert org with a
-    known (derived) web-login password. Idempotent and best-effort."""
+def ensure_member_hive_access(username: str) -> None:
+    """Provision `username` into the alert org with a known web-login password,
+    without minting/renewing an API key or touching room state.
+
+    Called wherever a user is about to be shown their TheHive credentials
+    (_thehive_envelope, room_lobby) so those credentials are guaranteed to
+    work even if this user has never formally entered/accepted this - or any -
+    room before (e.g. clicking "View Report" / "Open in TheHive" on a room they
+    only ever saw via Blue Team's global room visibility). Idempotent and
+    best-effort: a provisioning failure must never block showing the room.
+    """
     from core import hive_provisioner
 
     org = hive_provisioner.alert_org()
+    user = user_store.get_user_by_username(username)
+    role = user.get("role") if user else None
+    attense_role = role if role in {"soc_l1", "soc_l2", "soc_manager"} else "soc_l1"
     try:
         hive_provisioner.create_org(org)
         hive_provisioner.create_user_in_org(
-            org, SHARED_ANALYST_LOGIN, "soc_manager", renew_key=False
+            org, username, attense_role=attense_role, renew_key=False
         )
     except Exception:
-        logger.exception("Failed to ensure shared analyst TheHive account")
-    return hive_credentials()
+        logger.exception("Failed to ensure Hive access for %s", username)
 
 
 def enter_room(
@@ -500,8 +508,6 @@ def enter_room(
     # (or a user whose account predates password provisioning) can still log in.
     is_manager = room.get("soc_manager_username") in (None, username)
     _ensure_room_hive(room, username, as_manager=is_manager)
-    # Ensure the shared analyst login (what every human uses to see the alerts).
-    ensure_shared_analyst()
 
     members = room.setdefault("blue_team_members", [])
     if username not in members:
@@ -554,7 +560,6 @@ def accept_invite(room_id: str, username: str, email: Optional[str] = None) -> d
         raise RuntimeError("Cannot join a closed room")
 
     _ensure_room_hive(room, username, as_manager=False)
-    ensure_shared_analyst()
 
     members = room.setdefault("blue_team_members", [])
     if username not in members:
