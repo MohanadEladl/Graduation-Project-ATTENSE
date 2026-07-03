@@ -360,6 +360,12 @@ class SessionManager:
         if record.attack.state == "running":
             raise RuntimeError("attack already running")
 
+        if record.mode == "lab":
+            raise RuntimeError(
+                "Automated scan is disabled in Lab mode. Run the attack yourself "
+                "from the Terminal or ZAP, then use Check Progress to confirm."
+            )
+
         def _run() -> None:
             record.attack._cmd_execute([])  # noqa: SLF001
             # When start finishes without error, mark all declared steps complete.

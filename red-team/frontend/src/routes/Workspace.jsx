@@ -1246,6 +1246,9 @@ function LearningPanel({
 // the optional "Run Automated Scan" affordance for instructor demos.
 function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
   if (!open) return null
+  const instructor =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('instructor') === '1'
   const attackDone = snapshot?.state === 'completed' || snapshot?.state === 'error'
   return (
     <div
@@ -1260,35 +1263,43 @@ function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
         <div className="font-mono text-[9px] tracking-[0.28em] text-attense-dim">
           ADVANCED
         </div>
-        <button
-          onClick={onExecute}
-          disabled={executing}
-          className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
-          style={{
-            background: executing ? 'rgba(255,255,255,0.04)' : 'rgba(245,196,0,0.06)',
-            border: '1px solid rgba(245,196,0,0.25)',
-            color: executing ? '#3a4060' : '#fbbf24',
-            cursor: executing ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {executing ? 'RUNNING…' : 'RUN AUTOMATED SCAN'}
-        </button>
-        {attackDone && (
-          <Link
-            to={`/attack-report/${sid}`}
-            className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
-            style={{
-              background: 'rgba(255,64,96,0.07)',
-              border: '1px solid rgba(255,64,96,0.3)',
-              color: '#ff4060',
-            }}
-          >
-            VIEW ATTACK REPORT →
-          </Link>
-        )}
-        {!attackDone && (
+        {instructor ? (
+          <>
+            <button
+              onClick={onExecute}
+              disabled={executing}
+              className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
+              style={{
+                background: executing ? 'rgba(255,255,255,0.04)' : 'rgba(245,196,0,0.06)',
+                border: '1px solid rgba(245,196,0,0.25)',
+                color: executing ? '#3a4060' : '#fbbf24',
+                cursor: executing ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {executing ? 'RUNNING…' : 'RUN AUTOMATED SCAN'}
+            </button>
+            {attackDone && (
+              <Link
+                to={`/attack-report/${sid}`}
+                className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
+                style={{
+                  background: 'rgba(255,64,96,0.07)',
+                  border: '1px solid rgba(255,64,96,0.3)',
+                  color: '#ff4060',
+                }}
+              >
+                VIEW ATTACK REPORT →
+              </Link>
+            )}
+            {!attackDone && (
+              <span className="font-mono text-[9.5px] text-attense-dim">
+                (runs the backend scanner — an attack report will be available after)
+              </span>
+            )}
+          </>
+        ) : (
           <span className="font-mono text-[9.5px] text-attense-dim">
-            (runs the backend scanner — an attack report will be available after)
+            Hands-on lab — drive the attack yourself from the Terminal or ZAP, then Check Progress.
           </span>
         )}
       </div>
