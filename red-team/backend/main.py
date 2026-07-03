@@ -233,7 +233,7 @@ async def start_session(sid: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/check-progress")
-async def check_progress(sid: str) -> dict:
+async def check_progress(sid: str, mode: Optional[str] = None) -> dict:
     """Inspect target-agent evidence since mission start; do NOT run attack.
 
     Uses the mode and variant_id stored on the session:
@@ -245,6 +245,12 @@ async def check_progress(sid: str) -> dict:
     LearningPanel. Pure read — no side effects on the attack engine.
     """
     rec = _require_session(sid)
+    if mode:
+        m = mode.strip().lower()
+        if m == "guided": m = "tutorial"
+        elif m == "operator": m = "lab"
+        if m in ("tutorial", "lab"):
+            rec.mode = m
     started = rec.mission_started_at or rec.created_at
     mode = rec.mode
     variant_id = getattr(rec, "variant_id", None)
