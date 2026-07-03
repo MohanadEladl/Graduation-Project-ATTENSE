@@ -15,7 +15,7 @@ from core.models import (
     StepResult, TargetConfig,
 )
 
-_USERNAMES = ["admin", "operator", "guest", "root", "user", "test"]
+_USERNAMES = ["admin", "operator", "guest", "alice", "bob", "service"]
 _PASSWORDS = [
     "password", "123456", "admin", "letmein",
     "password123", "lab2024", "guest", "wrongpass",

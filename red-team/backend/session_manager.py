@@ -360,10 +360,12 @@ class SessionManager:
         if record.attack.state == "running":
             raise RuntimeError("attack already running")
 
-        if record.mode == "lab":
+        # Automated scan is an instructor-demo tool, OFF by default for everyone.
+        # Do NOT key on record.mode — students run in "tutorial".
+        if os.getenv("ATTENSE_ALLOW_AUTO_SCAN") != "1":
             raise RuntimeError(
-                "Automated scan is disabled in Lab mode. Run the attack yourself "
-                "from the Terminal or ZAP, then use Check Progress to confirm."
+                "Automated scan is disabled. This is a hands-on lab — run the "
+                "attack yourself from the Terminal or ZAP, then Check Progress."
             )
 
         def _run() -> None:
