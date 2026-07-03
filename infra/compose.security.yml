@@ -142,7 +142,8 @@ services:
     environment:
       - JVM_OPTS=-Xms512m -Xmx512m
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
-    # WEBHOOK_SECRET is shared with attense-app at runtime.
+    # WEBHOOK_SECRET is shared with attense-app at runtime; root .env is the
+    # single source of truth for it (see the entrypoint below).
     env_file:
       - ../secrets/ATTENSE.env
     entrypoint: ["/bin/bash", "-lc"]
@@ -152,11 +153,19 @@ services:
           echo 'Waiting for Elasticsearch before starting TheHive...'
           sleep 5
         done
+        # TheHive signs its webhooks with WEBHOOK_SECRET and attense-app verifies
+        # them; the two MUST match or every CaseCreated webhook 401s. Root .env
+        # (via the compose environment above) is the source of truth. The secrets
+        # file is sourced for THEHIVE_SECRET etc., but it can carry a stale
+        # WEBHOOK_SECRET (e.g. the shipped "changeme-webhook" placeholder), so
+        # capture the compose value first and restore it after sourcing.
+        _COMPOSE_WEBHOOK_SECRET="$${WEBHOOK_SECRET}"
         if [ -f /secrets/ATTENSE.env ]; then
           set -a
           . /secrets/ATTENSE.env
           set +a
         fi
+        export WEBHOOK_SECRET="$${_COMPOSE_WEBHOOK_SECRET}"
         exec /opt/thehive/entrypoint --secret "$${THEHIVE_SECRET}" --cql-hostnames cassandra
     volumes:
       - ../integrations/thehive/application.conf:/etc/thehive/application.conf

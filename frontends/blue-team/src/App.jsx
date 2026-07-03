@@ -739,9 +739,18 @@ export default function App() {
  api.rooms.replayAlerts(room.room_id).catch(() => {})
  }
 
- function startHiveSession(room) {
+ async function startHiveSession(room) {
  resyncAlerts(room)
- setHiveRoom(room)
+ // Make sure the launch panel has the shared TheHive login to show. Rooms that
+ // come straight from the list (e.g. a closed room opened for re-view) carry no
+ // credentials; GET /rooms/{id} returns the shared-analyst login + password for
+ // Blue Team users, so fetch the full room when the creds are missing - without
+ // it the user opens TheHive with a blank sign-in and can't log in.
+ let full = room
+ if (getToken() && !room.portal_demo && !(room.thehive && room.thehive.login)) {
+ try { full = await api.rooms.get(room.room_id) } catch (_) { full = room }
+ }
+ setHiveRoom(full)
  setHiveMinimized(false)
  }
 
