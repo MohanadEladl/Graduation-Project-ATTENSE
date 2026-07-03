@@ -43,7 +43,7 @@ const FUZZER_PRESETS = {
 }
 
 // Put a § payload marker on the last field value of a form body, so "Send to
-// Fuzzer" arrives with a sensible default position (e.g. username=admin&password=§).
+// Fuzzer" arrives with a sensible default position (e.g. user=x&password=§).
 function markLastValue(body) {
   if (!body || body.includes('§')) return body
   const idx = body.lastIndexOf('=')
@@ -67,9 +67,9 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
   // Fuzzer (Intruder-style) state
   const [fuzMethod, setFuzMethod] = useState('POST')
   const [fuzPath, setFuzPath] = useState('/auth/login')
-  const [fuzBody, setFuzBody] = useState('username=§&password=x')
-  const [fuzPreset, setFuzPreset] = useState('usernames')
-  const [fuzList, setFuzList] = useState(FUZZER_PRESETS.usernames.items.join('\n'))
+  const [fuzBody, setFuzBody] = useState('')
+  const [fuzPreset, setFuzPreset] = useState('none')
+  const [fuzList, setFuzList] = useState('')
   const [fuzResult, setFuzResult] = useState(null)
   const [fuzLoading, setFuzLoading] = useState(false)
   const [fuzSort, setFuzSort] = useState('order')   // 'order' | 'status' | 'length'
@@ -118,26 +118,6 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
   const handleSelectPreset = (key) => {
     setFuzPreset(key)
     if (FUZZER_PRESETS[key]) setFuzList(FUZZER_PRESETS[key].items.join('\n'))
-  }
-
-  // Two-phase Sniper setup (mirrors PortSwigger: enumerate the username first,
-  // then brute the password). Phase 1 marks the username and loads usernames;
-  // phase 2 marks the password and loads passwords.
-  const setFuzzerPhase = (phase) => {
-    if (phase === 'username') {
-      // Phase 1: enumerate the username. Grep "Incorrect password" — valid
-      // users return that message; invalid users return "Account not found".
-      setFuzBody('username=§&password=x')
-      handleSelectPreset('usernames')
-      setFuzGrep('Incorrect password')
-    } else {
-      // Phase 2: brute the password. The tell is the 302 status, no grep needed.
-      setFuzBody('username=admin&password=§')
-      handleSelectPreset('passwords')
-      setFuzGrep('')
-    }
-    setFuzResult(null)
-    setFuzSort('order')
   }
 
   // "Send to Fuzzer" (mirrors Burp's "Send to Intruder"). Marks the last field
@@ -264,7 +244,7 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
           <HistoryTab
             messages={messages}
             onSelect={m => { setSelectedMsg(m); setActiveTab('inspector') }}
-            onSendToFuzzer={m => handleSendToFuzzer(m.method, m.url, m.method === 'POST' ? 'username=admin&password=x' : '')}
+            onSendToFuzzer={m => handleSendToFuzzer(m.method, m.url, m.method === 'POST' ? '' : '')}
           />
         ) : activeTab === 'inspector' ? (
           <InspectorTab message={selectedMsg} />
@@ -281,7 +261,7 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
             preset={fuzPreset} list={fuzList} sort={fuzSort} grep={fuzGrep}
             onMethodChange={setFuzMethod} onPathChange={setFuzPath} onBodyChange={setFuzBody}
             onSelectPreset={handleSelectPreset} onListChange={setFuzList}
-            onSetPhase={setFuzzerPhase} onSort={setFuzSort} onGrepChange={setFuzGrep}
+            onSort={setFuzSort} onGrepChange={setFuzGrep}
             onRun={handleRunFuzzer} loading={fuzLoading} result={fuzResult}
           />
         )}
@@ -437,16 +417,12 @@ function RepeaterTab({ method, path, body, onMethodChange, onPathChange, onBodyC
 function FuzzerTab({
   method, path, body, preset, list, sort, grep,
   onMethodChange, onPathChange, onBodyChange,
-  onSelectPreset, onListChange, onSetPhase, onSort, onGrepChange, onRun, loading, result,
+  onSelectPreset, onListChange, onSort, onGrepChange, onRun, loading, result,
 }) {
   const rows = result?.status === 'ok' ? (result.results || []) : []
   const count = list.split('\n').map(s => s.trim()).filter(Boolean).length
   const markerOk = body.includes('§')
   const grepUsed = Boolean(result?.grep)
-
-  // Which phase is set up right now — infer from where the § sits.
-  const phase = /username=§/.test(body) ? 'username'
-    : /password=§/.test(body) ? 'password' : null
 
   // Sortable results (Burp lets you sort by Status or Length to surface the
   // outlier). 'order' keeps request order.
@@ -484,31 +460,6 @@ function FuzzerTab({
           style={{ color: '#c9a5ff', background: 'rgba(168,120,255,0.08)', border: '1px solid rgba(168,120,255,0.3)' }}>
           ATTACK TYPE · SNIPER
         </span>
-      </div>
-
-      {/* Two-phase quick setup (PortSwigger: enumerate the username, then brute the password) */}
-      <div className="rounded-lg p-2.5 mb-4" style={{ background: 'rgba(125,211,252,0.04)', border: '1px solid rgba(125,211,252,0.15)' }}>
-        <div className="font-mono text-[9px] tracking-[0.2em] text-attense-dim mb-1.5">TWO-PHASE ATTACK · pick a phase</div>
-        <div className="flex items-center gap-2">
-          {[
-            ['username', '① Enumerate username', 'grep "Incorrect password" · read MATCH'],
-            ['password', '② Brute password', 'read the STATUS column (302)'],
-          ].map(([key, label, hint]) => (
-            <button
-              key={key}
-              onClick={() => onSetPhase?.(key)}
-              className="flex-1 font-mono text-[10px] px-2 py-1.5 rounded text-left transition-colors"
-              style={{
-                background: phase === key ? 'rgba(125,211,252,0.14)' : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${phase === key ? 'rgba(125,211,252,0.4)' : 'rgba(255,255,255,0.08)'}`,
-                color: phase === key ? '#7dd3fc' : '#a8b0cc',
-              }}
-            >
-              <div className="font-bold">{label}</div>
-              <div className="text-[8.5px] text-attense-dim mt-0.5">→ {hint}</div>
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* ── 1 · POSITIONS ── */}
@@ -589,7 +540,7 @@ function FuzzerTab({
           onChange={e => onGrepChange(e.target.value)}
           className="flex-1 font-mono text-[11px] px-2 py-1.5 rounded bg-transparent outline-none"
           style={{ border: '1px solid rgba(255,255,255,0.1)', color: '#d0d8e8' }}
-          placeholder="optional — e.g. Incorrect password  (flags rows whose response contains it)"
+          placeholder="optional — a string to match in responses"
         />
       </div>
 
@@ -657,7 +608,7 @@ function FuzzerTab({
           {grepUsed && hasGrepHit && !hasStatusHit && (
             <div className="font-mono text-[10px] mt-2" style={{ color: '#2ee39a' }}>
               ★ Every response is 401, but the ✓ rows contain "{result.grep}" — those usernames exist
-              (invalid users say "Account not found"). Pick one and run phase ② against it.
+              (invalid ones respond differently). Pick one and brute its password.
             </div>
           )}
           {grepUsed && !hasGrepHit && !hasStatusHit && (
@@ -667,7 +618,7 @@ function FuzzerTab({
           )}
           {!grepUsed && !hasStatusHit && (
             <div className="font-mono text-[10px] mt-2" style={{ color: '#fbbf24' }}>
-              No status outlier. For username enumeration, add a GREP match like "Incorrect password"
+              No status outlier. For username enumeration, add a GREP match string that only valid responses contain
               (length alone is unreliable here — the app reflects the username).
             </div>
           )}
