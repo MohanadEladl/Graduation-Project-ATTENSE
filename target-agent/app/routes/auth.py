@@ -6,7 +6,6 @@ Vulnerabilities (intentional, lab):
   • APP-06 / username enumeration            ← distinct error messages
   • APP-08 / weak password set               ← admin / password123 etc
   • APP-06 / no account lockout
-  • APP-12 / session fixation                ← session.user set on login
 
 Templates use {{ lab_url('/path') }} so links/forms work both at the bare
 target-agent host AND through the lab-browser proxy at /target/...
