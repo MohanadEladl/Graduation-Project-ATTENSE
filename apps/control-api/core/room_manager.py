@@ -47,20 +47,24 @@ def _configure_signal_store_incident(incident_id: Optional[str], room_id: Option
         raise RuntimeError(f"Failed to configure signal-store incident: {exc}") from exc
 
 
-def _replay_signal_store_alerts(room: dict) -> None:
+def _replay_signal_store_alerts(room: dict, force: bool = False) -> dict:
     """Ask the signal-store to re-deliver this room's stored attack detections.
 
     In deferred exercises the detections fire before any analyst enters the
     room, so they never reached TheHive (roomless raise-alert calls are
     rejected). Replaying them on entry puts the case's alerts in TheHive right
     as the analyst opens it. Scoped to the room's attack window via `since`.
+
+    `force` re-delivers even detections already replayed to this room, so a room
+    that's re-opened (or whose earlier delivery silently failed) still gets its
+    alerts. Returns the signal-store's {replayed, skipped, failed} counts.
     """
     if not SIGNAL_STORE_CONFIG_SECRET:
         raise RuntimeError("SIGNAL_STORE_CONFIG_SECRET is not configured")
     incident_id = (room.get("incidents") or [room.get("incident_id")])[0]
     if not incident_id:
-        return
-    payload = {"incident_id": incident_id, "room_id": room["room_id"]}
+        return {}
+    payload = {"incident_id": incident_id, "room_id": room["room_id"], "force": force}
     since = room.get("attack_started_at") or room.get("created_at")
     if since:
         payload["since"] = since
@@ -69,14 +73,37 @@ def _replay_signal_store_alerts(room: dict) -> None:
             f"{SIGNAL_STORE_URL.rstrip('/')}/replay",
             json=payload,
             headers={"X-Signal-Store-Secret": SIGNAL_STORE_CONFIG_SECRET},
-            timeout=30.0,
+            timeout=60.0,
         )
         response.raise_for_status()
+        result = response.json()
         logger.info(
-            "Signal-store replay for room %s: %s", room["room_id"], response.json()
+            "Signal-store replay for room %s: %s", room["room_id"], result
         )
+        return result
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Failed to replay signal-store alerts: {exc}") from exc
+
+
+def resync_room_alerts(room_id: str) -> dict:
+    """Re-push a room's stored detections into TheHive, for any room status.
+
+    Called when a Blue Team user (re-)opens a room in the UI - including a closed
+    / past room that can't be re-entered - so its alerts appear in TheHive even
+    if the original delivery never happened. Uses force=True so the signal-store
+    re-delivers regardless of its in-process replay dedup; TheHive dedups by
+    sourceRef, so re-opening the same room never creates duplicate alerts.
+    """
+    room = _load_room(room_id)
+    # Point the signal-store at this room first, so live alerts (if any still
+    # arrive) are also scoped here, mirroring enter_room's routing.
+    try:
+        _configure_signal_store_incident(
+            (room.get("incidents") or [room["incident_id"]])[0], room_id
+        )
+    except Exception:
+        logger.exception("Failed to route signal-store to room %s on resync", room_id)
+    return _replay_signal_store_alerts(room, force=True)
 
 
 def _room_path(room_id: str) -> Path:

@@ -82,6 +82,10 @@ export const api = {
  method: 'POST',
  headers: controlHeaders(),
  }).then(parse),
+ replayAlerts: (roomId) => fetch(`${controlBase}/api/rooms/${encodeURIComponent(roomId)}/replay-alerts`, {
+ method: 'POST',
+ headers: controlHeaders(),
+ }).then(parse),
  },
  scenarios: {
  list: () => fetch(`${controlBase}/api/scenarios`, { headers: controlHeaders() }).then(parse),

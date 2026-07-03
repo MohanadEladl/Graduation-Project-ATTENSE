@@ -335,9 +335,13 @@ function DashboardView({ user, rooms, setView, selectRoom, showFallback }) {
  )
 }
 
-function RoomsView({ rooms, activeRoomId, enterRoom, endRoom, showFallback }) {
+function RoomsView({ rooms, activeRoomId, enterRoom, endRoom, openRoomInHive, selectRoom, setView, showFallback }) {
  const shownRooms = rooms.length ? rooms : (showFallback ? fallbackRooms : [])
  const activeCount = shownRooms.filter((room) => roomStatus(room) === 'Active').length
+ function viewReport(room) {
+ selectRoom(room.room_id)
+ setView('reports')
+ }
  return (
  <main className="dc-main">
  <section className="dc-header room-header"><div><p>Training Rooms</p><h1>Room Lobby</h1><span>Browse available incident response scenarios. Enter any active room to begin your training exercise.</span></div><div className="dc-active-now"><strong>{activeCount} Active Now</strong><small>{shownRooms.length} rooms total</small></div></section>
@@ -346,10 +350,11 @@ function RoomsView({ rooms, activeRoomId, enterRoom, endRoom, showFallback }) {
  const status = roomStatus(room)
  const active = status === 'Active'
  const pending = status === 'Pending'
- return <article className={'dc-room-card ' + status.toLowerCase()} key={room.room_id || room.id} data-selected={room.room_id === activeRoomId}><div className="dc-room-top"><span><i />{status}</span><small>{room.room_id || room.id}</small></div><h3>{roomName(room)}</h3><p>{roomDescription(room)}</p><div className="dc-room-actions"><button type="button" disabled={!active} onClick={() => enterRoom(room)}>{active ? 'Enter Room' : pending ? 'Not Yet Active' : 'Room Closed'}</button>{active && <button className="danger" type="button" onClick={() => endRoom(room)}>End Incident & Report</button>}</div></article>
+ const closed = status === 'Closed'
+ return <article className={'dc-room-card ' + status.toLowerCase()} key={room.room_id || room.id} data-selected={room.room_id === activeRoomId}><div className="dc-room-top"><span><i />{status}</span><small>{room.room_id || room.id}</small></div><h3>{roomName(room)}</h3><p>{roomDescription(room)}</p><div className="dc-room-actions">{active && <button type="button" onClick={() => enterRoom(room)}>Enter Room</button>}{closed && <button type="button" onClick={() => openRoomInHive(room)}>Open in TheHive</button>}{pending && <button type="button" disabled>Not Yet Active</button>}<button type="button" className="ghost" onClick={() => viewReport(room)}>View Report</button>{active && <button className="danger" type="button" onClick={() => endRoom(room)}>End Incident & Report</button>}</div></article>
  }) : <div className="dc-empty">No rooms are available yet.</div>}
  </section>
- <section className="dc-note">Pending rooms open when activated by a SOC Manager. Closed rooms are available for retrospective review only.</section>
+ <section className="dc-note">Pending rooms open when activated by a SOC Manager. Closed rooms stay open for retrospective review - reopen them in TheHive or view their report anytime.</section>
  </main>
  )
 }
@@ -725,9 +730,28 @@ export default function App() {
  return [...extras, ...listed]
  }
 
+ // Re-push the room's stored detections into TheHive whenever we open it, so
+ // the alerts appear even for a past/closed room whose original delivery never
+ // happened. Fire-and-forget and idempotent (the backend forces re-delivery and
+ // TheHive dedups by sourceRef, so no duplicate alerts).
+ function resyncAlerts(room) {
+ if (!room || !getToken() || room.portal_demo) return
+ api.rooms.replayAlerts(room.room_id).catch(() => {})
+ }
+
  function startHiveSession(room) {
+ resyncAlerts(room)
  setHiveRoom(room)
  setHiveMinimized(false)
+ }
+
+ // Open TheHive for a room without going through the enter flow - used for
+ // closed/past rooms that can't be re-entered but whose alerts we still re-push.
+ function openRoomInHive(room) {
+ setError('')
+ setActiveRoomId(room.room_id)
+ setActiveRoom(room)
+ startHiveSession(room)
  }
 
  function enterRoom(room) {
@@ -830,7 +854,7 @@ export default function App() {
  {loading && <main className="dc-main"><section className="dc-loading">Loading workspace...</section></main>}
  {error && !loading && <main className="dc-main"><section className="dc-error-panel">{error}</section></main>}
  {!loading && !error && view === 'dashboard' && <DashboardView user={user} rooms={rooms} setView={setView} selectRoom={selectRoom} showFallback={false} />}
- {!loading && !error && view === 'rooms' && <RoomsView rooms={rooms} activeRoomId={activeRoomId} enterRoom={enterRoom} endRoom={endRoom} showFallback={false} />}
+ {!loading && !error && view === 'rooms' && <RoomsView rooms={rooms} activeRoomId={activeRoomId} enterRoom={enterRoom} endRoom={endRoom} openRoomInHive={openRoomInHive} selectRoom={selectRoom} setView={setView} showFallback={false} />}
  {!loading && !error && view === 'reports' && <ReportView user={user} room={activeRoom} />}
  {!loading && !error && view === 'notifications' && <NotificationsView rooms={rooms} showFallback={false} setView={setView} selectRoom={selectRoom} enterRoom={enterRoom} />}
  {entryModalRoom && <EntryModal room={entryModalRoom} busy={entering} onConfirm={confirmEnter} onCancel={() => setEntryModalRoom(null)} />}

@@ -12,6 +12,7 @@ from core.room_manager import (
     list_invites_for_email,
     list_rooms_for_company,
     prefire_room,
+    resync_room_alerts,
     room_lobby,
     spin_down_room,
     spin_up_blueteam,
@@ -210,6 +211,24 @@ def accept(room_id: str, session: dict = Depends(require_session)):
     return _thehive_envelope(room, room_id, session)
 
 
+@router.post("/{room_id}/replay-alerts")
+def replay_alerts(room_id: str, session: dict = Depends(require_session)):
+    """Re-push a room's stored detections into TheHive so its alerts appear.
+
+    Called by the Blue Team UI whenever a room is opened - including a closed /
+    past room - so the analyst sees the room's alerts in TheHive even if the
+    original delivery never happened. Idempotent: TheHive dedups by sourceRef.
+    """
+    _require_blue(session)
+    try:
+        result = resync_room_alerts(room_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"room_id": room_id, **(result or {})}
+
+
 @router.get("/{room_id}/lobby")
 def lobby(room_id: str, session: dict = Depends(require_session)):
     """Lightweight join-status view of a room for the lobby poll loop."""
@@ -296,5 +315,10 @@ def get(room_id: str, session: dict = Depends(require_session)):
                 "report": report,
             })
     room["incidents_detail"] = detail
+    # Blue Team users get the shared TheHive login creds + launch url on every
+    # GET, so the UI can open TheHive for ANY room it shows - including a closed /
+    # past room that was never entered this session (needed to re-view its alerts).
+    if session["role"] in BLUE_ROLES:
+        return _thehive_envelope(room, room_id, session)
     return room
 

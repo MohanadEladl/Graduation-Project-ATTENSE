@@ -103,6 +103,13 @@ h1, h2, h3, p { margin: 0; }
 .dc-room-card.active button { background: rgba(74,134,232,.12); border-color: rgba(74,134,232,.3); color: #4a86e8; opacity: 1; }
 .dc-room-card.active button.danger { background: rgba(239,83,80,.1); border-color: rgba(239,83,80,.28); color: #ff8d8b; }
 .dc-room-card.active button.danger:hover { background: rgba(239,83,80,.16); border-color: rgba(239,83,80,.42); }
+/* View Report is available on every card (report view handles empty state). */
+.dc-room-card button.ghost { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.14); color: #c3cad8; opacity: 1; }
+.dc-room-card button.ghost:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.22); color: #f7f8ff; }
+/* Closed/past rooms can be reopened in TheHive to re-view their alerts. */
+.dc-room-card.closed button:not(.ghost) { background: rgba(74,134,232,.1); border-color: rgba(74,134,232,.28); color: #6ea3f0; opacity: 1; }
+.dc-room-card.closed button:not(.ghost):hover { background: rgba(74,134,232,.18); border-color: rgba(74,134,232,.42); }
+.dc-room-card button:disabled { opacity: .55; cursor: not-allowed; }
 .dc-note { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-radius: 10px; background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.06); color: #6f7689; font-size: 12px; line-height: 1.5; animation: fu .55s .2s cubic-bezier(.22,1,.36,1) both; }
 .dc-report-header { margin-bottom: -6px; }
 .dc-report-badges { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

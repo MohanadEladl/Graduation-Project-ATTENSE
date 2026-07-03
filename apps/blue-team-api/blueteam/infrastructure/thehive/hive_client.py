@@ -19,6 +19,12 @@ import httpx
 logger = logging.getLogger(__name__)
 ATTENSE_BLUE_URL = os.getenv('ATTENSE_BLUE_URL', 'http://127.0.0.1:3100').rstrip('/')
 
+# The analyst's "back to the ATTENSE report" control inside TheHive. The marker
+# string appears in every alert/case description; ensure_return_link() dedups a
+# case's description block on it, and the task carries the same wording.
+RETURN_LINK_MARKER = "Return to ATTENSE report dashboard"
+RETURN_TASK_TITLE = "⬅ Return to ATTENSE report"
+
 # Cases that already got their "Return to ATTENSE report" task in this process.
 # HiveClient is instantiated per-request (see api.dependencies.get_hive_client),
 # so the dedup guard must live at module scope, not on the instance - otherwise
@@ -96,7 +102,13 @@ class HiveClient:
                                description so it's visible at a glance.
         """
         return_url = f"{ATTENSE_BLUE_URL}/?view=reports&incidentId={incident_id}"
-        description = f"### ⬅ [Return to ATTENSE report dashboard]({return_url})\n\nAutomated alert for incident {incident_id}"
+        # The analyst's "back to report" control lives here: TheHive has no custom
+        # buttons, so the alert description's first line is an unmistakable H2 link
+        # (the marker string is what ensure_return_link dedups a case on).
+        description = (
+            f"## ⬅ [{RETURN_LINK_MARKER} — click here]({return_url})\n\n"
+            f"---\n\nAutomated alert for incident {incident_id}"
+        )
         if enrichment_summary:
             description += f"\n\nThreat intel summary: {enrichment_summary}"
         # TheHive dedups alerts by (type, source, sourceRef). Use a unique
@@ -161,9 +173,6 @@ class HiveClient:
         """
         return self._post(f"/api/alert/{alert_id}/createCase", {})
 
-    RETURN_LINK_MARKER = "Return to ATTENSE report dashboard"
-    RETURN_TASK_TITLE = "⬅ Return to ATTENSE report"
-
     def ensure_return_link(self, case_id: str, incident_id: str) -> bool:
         """
         Guarantee the case gives the analyst a visible way back to the ATTENSE
@@ -195,8 +204,8 @@ class HiveClient:
         added = False
 
         description = case.get("description") or ""
-        if self.RETURN_LINK_MARKER not in description:
-            link_block = f"### ⬅ [{self.RETURN_LINK_MARKER}]({return_url})"
+        if RETURN_LINK_MARKER not in description:
+            link_block = f"### ⬅ [{RETURN_LINK_MARKER}]({return_url})"
             self._patch(
                 f"/api/case/{case_id}",
                 {"description": f"{link_block}\n\n{description}".strip()},
@@ -207,11 +216,11 @@ class HiveClient:
             self._post(
                 f"/api/case/{case_id}/task",
                 {
-                    "title": self.RETURN_TASK_TITLE,
+                    "title": RETURN_TASK_TITLE,
                     "group": "attense",
                     "description": (
                         "When the investigation is done, open the ATTENSE Blue Team "
-                        f"report for this incident:\n\n[{self.RETURN_LINK_MARKER}]({return_url})\n\n"
+                        f"report for this incident:\n\n[{RETURN_LINK_MARKER}]({return_url})\n\n"
                         "Then use **Finish Incident & View Report** in the ATTENSE portal "
                         "to close the exercise and generate the scored report."
                     ),
