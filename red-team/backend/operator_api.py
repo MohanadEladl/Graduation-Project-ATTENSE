@@ -504,11 +504,14 @@ def zap_fuzzer_send(method: str, path: str, body_template: str,
     grep_hit, hit}]. `hit` is the anomaly worth highlighting.
     """
     payloads = [p for p in (payloads or []) if p != ""]
-    if not payloads:
-        return {"status": "error", "detail": "No payloads supplied"}
     if marker not in body_template:
         return {"status": "error",
                 "detail": f"Marker '{marker}' not found in the request body"}
+    # Burp Intruder baseline: with no payloads, send the base request once
+    # (item 0) — marker stripped from the body — instead of erroring.
+    base_request = not payloads
+    if base_request:
+        payloads = [""]
     if len(payloads) > FUZZER_MAX_PAYLOADS:
         payloads = payloads[:FUZZER_MAX_PAYLOADS]
 
@@ -524,14 +527,15 @@ def zap_fuzzer_send(method: str, path: str, body_template: str,
     results: List[Dict[str, Any]] = []
     for payload in payloads:
         body = body_template.replace(marker, payload)
+        label = "(base request)" if base_request else payload
         r = zap_repeater_send(method=method, path=path, headers=headers, body=body)
         if r.get("status") == "ok":
             parsed = _parse_zap_response(r.get("response", {}))
             resp_body = parsed.pop("_body", "")
             grep_match = bool(grep_l and grep_l in resp_body.lower())
-            results.append({"payload": payload, "grep_match": grep_match, **parsed})
+            results.append({"payload": label, "grep_match": grep_match, **parsed})
         else:
-            results.append({"payload": payload, "status_code": "ERR",
+            results.append({"payload": label, "status_code": "ERR",
                             "length": 0, "grep_match": False,
                             "detail": r.get("detail", "")})
 

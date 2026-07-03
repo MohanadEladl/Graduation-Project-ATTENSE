@@ -546,13 +546,13 @@ function FuzzerTab({
 
       <button
         onClick={onRun}
-        disabled={loading || !markerOk || count === 0}
+        disabled={loading || !markerOk}
         className="font-mono text-[10px] font-bold tracking-[0.12em] px-4 py-2 rounded-md transition-all"
         style={{
-          background: (loading || !markerOk || count === 0) ? 'rgba(125,211,252,0.06)' : 'rgba(125,211,252,0.12)',
+          background: (loading || !markerOk) ? 'rgba(125,211,252,0.06)' : 'rgba(125,211,252,0.12)',
           border: '1px solid rgba(125,211,252,0.35)',
           color: '#7dd3fc',
-          cursor: (loading || !markerOk || count === 0) ? 'not-allowed' : 'pointer',
+          cursor: (loading || !markerOk) ? 'not-allowed' : 'pointer',
         }}
       >{loading ? `ATTACKING ${count} PAYLOADS…` : `START ATTACK · ${count} payloads`}</button>
 
