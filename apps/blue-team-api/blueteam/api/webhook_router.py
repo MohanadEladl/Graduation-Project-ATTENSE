@@ -33,6 +33,7 @@ from ..config.constants import CONTAINMENT_INVESTIGATION_MIN_SECONDS
 from ..core.blueactions.hive_event_translator import HiveEventTranslator
 from ..core.blueactions.attacker_log_attacher import AttackerLogAttacher
 from ..infrastructure.eventstore.event_emitter import EventEmitter
+from ..infrastructure.thehive.room_hive_registry import resolve_incident_room_id
 
 logger = logging.getLogger(__name__)
 
@@ -169,9 +170,15 @@ async def receive_hive_webhook(
     # doesn't exist yet in memory (e.g. container was restarted), we
     # create it on-the-fly so events are never silently dropped.
     # The Hive webhook acts within the incident's own room (it never crosses
-    # rooms); fall back to a system room only when creating an incident Hive
-    # references but ATTENSE hasn't seen yet (e.g. after a restart).
-    room_id = emitter.room_of(incident_id) or "system"
+    # rooms). EventEmitter's incident->room map is in-process only and is
+    # lost on every restart, so a webhook for an incident created in a prior
+    # process lifetime would otherwise silently fall back to "system" here -
+    # which then makes build_hive_client_for_room use the shared/global Hive
+    # org instead of the incident's real one (looks exactly like "nothing
+    # got attached"; see room_hive_registry.resolve_incident_room_id). Fall
+    # back to a system room only when even the DB-backed lookup can't find
+    # one (e.g. an incident Hive references that ATTENSE never created).
+    room_id = emitter.room_of(incident_id) or resolve_incident_room_id(incident_id) or "system"
     incident, store = emitter.get_or_create(room_id, incident_id, scenario_id="hive")
     # Resolved AFTER room_id is known (not a FastAPI Depends param) so this
     # writes into the room's own TheHive org, not a shared fallback - see

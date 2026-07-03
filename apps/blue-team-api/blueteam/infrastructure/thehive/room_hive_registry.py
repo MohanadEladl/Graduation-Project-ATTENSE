@@ -23,6 +23,33 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def resolve_incident_room_id(incident_id: Optional[str]) -> Optional[str]:
+    """Return the room_id that owns *incident_id*, via the DB-backed room
+    store - a fallback for when EventEmitter._incident_rooms (in-process,
+    lost on every restart) doesn't know about it.
+
+    Used by receive_hive_webhook (webhook_router.py) so a webhook that
+    arrives for an incident created before the last restart still resolves
+    to its real room instead of "system" - which would otherwise silently
+    route every write for that incident through the wrong (shared/global)
+    TheHive org. See core.room_manager.find_room_id_for_incident.
+
+    None (embedded-only import, matching resolve_room_hive_api_key) if
+    `core` isn't importable, no incident_id was given, or no room matches.
+    """
+    if not incident_id:
+        return None
+    try:
+        from core.room_manager import find_room_id_for_incident  # embedded-only import
+    except ImportError:
+        return None
+    try:
+        return find_room_id_for_incident(incident_id)
+    except Exception:
+        logger.debug("[room_hive_registry] Room lookup failed for incident '%s'", incident_id)
+        return None
+
+
 def resolve_room_hive_api_key(room_id: Optional[str]) -> Optional[str]:
     """Return this room's own TheHive API key, or None if unavailable.
 
