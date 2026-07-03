@@ -27,13 +27,12 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from .dependencies import get_event_emitter, get_attacker_log_attacher, get_hive_client, get_settings
+from .dependencies import get_event_emitter, get_attacker_log_attacher, build_hive_client_for_room, get_settings
 from ..config.settings import Settings
 from ..config.constants import CONTAINMENT_INVESTIGATION_MIN_SECONDS
 from ..core.blueactions.hive_event_translator import HiveEventTranslator
 from ..core.blueactions.attacker_log_attacher import AttackerLogAttacher
 from ..infrastructure.eventstore.event_emitter import EventEmitter
-from ..infrastructure.thehive.hive_client import HiveClient
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +109,6 @@ async def receive_hive_webhook(
     request: Request,
     emitter: EventEmitter = Depends(get_event_emitter),
     attacher: AttackerLogAttacher = Depends(get_attacker_log_attacher),
-    hive: HiveClient = Depends(get_hive_client),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """
@@ -173,9 +171,12 @@ async def receive_hive_webhook(
     # The Hive webhook acts within the incident's own room (it never crosses
     # rooms); fall back to a system room only when creating an incident Hive
     # references but ATTENSE hasn't seen yet (e.g. after a restart).
-    incident, store = emitter.get_or_create(
-        emitter.room_of(incident_id) or "system", incident_id, scenario_id="hive"
-    )
+    room_id = emitter.room_of(incident_id) or "system"
+    incident, store = emitter.get_or_create(room_id, incident_id, scenario_id="hive")
+    # Resolved AFTER room_id is known (not a FastAPI Depends param) so this
+    # writes into the room's own TheHive org, not a shared fallback - see
+    # build_hive_client_for_room.
+    hive = build_hive_client_for_room(room_id)
 
     # Safety: destructive / side-effecting actions (blocking IPs, disabling
     # services, isolation, etc.) MUST be explicitly confirmed by an analyst
@@ -240,7 +241,7 @@ async def receive_hive_webhook(
             hive.ensure_return_link(case_id, incident_id)
         except Exception as exc:
             logger.warning("[Webhook] Could not add return link to case %s: %s", case_id, exc)
-        attacher.attach(case_id, incident)
+        attacher.attach(case_id, incident, room_id)
 
     return {
         "status": "translated",

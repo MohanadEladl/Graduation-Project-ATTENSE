@@ -336,13 +336,19 @@ def ensure_notification_rule(org_name: str, api_key: str) -> None:
 # -- Step 4c: Authorise the org(s) on the webhook in application.conf ----------
 
 def patch_webhook_orgs(org_names: list[str]) -> None:
-    """Set webhook `includedTheHiveOrganisations` to exactly *org_names*.
+    """Ensure webhook `includedTheHiveOrganisations` INCLUDES *org_names*.
 
     TheHive's webhook authorisation is case-sensitive and per-org (and "all" is
     NOT a wildcard), so the org must appear here verbatim or TheHive raises
-    "organisation <x> is not authorised to use the webhook". We rewrite the list
-    from THEHIVE_ORG_NAME so switching orgs needs no hand-editing. Takes effect
+    "organisation <x> is not authorised to use the webhook". Takes effect
     after TheHive is restarted (it reads application.conf at startup).
+
+    Additive, not a replace: `core.hive_provisioner.authorize_org_for_webhook`
+    (apps/control-api) appends a room's own org here the first time that room
+    is entered, live, independently of this bootstrap script. A blind
+    overwrite on every re-run of this script would silently de-authorise
+    every already-provisioned room's org - so this merges THEHIVE_ORG_NAME's
+    org(s) into whatever is already there instead of replacing the list.
     """
     print(f"\n🔐 Step 4c: Authorising org(s) on the webhook in application.conf ...")
     conf_path = Path(THEHIVE_CONF_PATH)
@@ -352,18 +358,25 @@ def patch_webhook_orgs(org_names: list[str]) -> None:
         return
 
     content = conf_path.read_text(encoding="utf-8")
-    # JSON happens to render a HOCON string array correctly: ["A", "B"]
-    new_list = json.dumps(org_names)
-    pattern = re.compile(r'includedTheHiveOrganisations\s*=\s*\[[^\]]*\]')
-    if not pattern.search(content):
+    pattern = re.compile(r'includedTheHiveOrganisations\s*=\s*\[([^\]]*)\]')
+    match = pattern.search(content)
+    if not match:
         print(" ⚠️ Could not find `includedTheHiveOrganisations = [...]`.")
-        print(f" Manually set it to: {new_list}")
+        print(f" Manually set it to: {json.dumps(org_names)}")
         return
 
-    new_content = pattern.sub(f"includedTheHiveOrganisations = {new_list}", content)
-    if new_content == content:
+    try:
+        existing = json.loads(f"[{match.group(1)}]")
+    except json.JSONDecodeError:
+        existing = []
+    merged = existing + [org for org in org_names if org not in existing]
+    # JSON happens to render a HOCON string array correctly: ["A", "B"]
+    new_list = json.dumps(merged)
+
+    if merged == existing:
         print(f" ✅ Webhook already authorised for {new_list} - no change.")
         return
+    new_content = pattern.sub(f"includedTheHiveOrganisations = {new_list}", content)
     conf_path.write_text(new_content, encoding="utf-8")
     print(f" ✅ Webhook authorised for {new_list} in {conf_path}")
     print(f" (restart TheHive to load it: docker compose restart thehive)")

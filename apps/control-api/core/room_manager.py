@@ -120,6 +120,73 @@ def _ensure_room_db_schema() -> None:
         cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT \'{}\'::jsonb')
 
 
+# -- TheHive org reuse pool ----------------------------------------------------
+# TheHive has no organisation-delete API (confirmed live against 4.1.24: DELETE
+# and PATCH-status both 404/no-op; matches the never-resolved upstream report
+# TheHive-Project/TheHive#1558). A per-room org (see _ensure_room_hive) is
+# therefore permanent, so closed rooms release their org here instead of
+# leaving it orphaned forever, and a new room claims a wiped org from the pool
+# before minting a brand-new one - capping total orgs at "max concurrent rooms
+# ever simultaneously open" instead of "total rooms ever created".
+
+# Grace period before a released org is eligible for reuse: matches
+# AttackerLogAttacher.DEFAULT_PENDING_TIMEOUT_SECONDS (apps/blue-team-api) so
+# any in-flight auto-attach retry against the org's about-to-be-wiped cases
+# has already given up before a new room's wipe_org() can race it.
+HIVE_ORG_POOL_GRACE_SECONDS = 30 * 60
+
+
+def _ensure_hive_org_pool_schema() -> None:
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS "HiveOrgPool" (
+                org_name varchar(200) PRIMARY KEY,
+                released_at timestamptz NOT NULL DEFAULT now()
+            )
+            '''
+        )
+
+
+def _acquire_pooled_org() -> Optional[str]:
+    """Claim and remove the oldest reuse-eligible org from the pool.
+
+    Returns None if the pool is empty or every released org is still within
+    its grace period - callers should mint a fresh org in that case.
+    """
+    _ensure_hive_org_pool_schema()
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            '''
+            DELETE FROM "HiveOrgPool"
+            WHERE org_name = (
+                SELECT org_name FROM "HiveOrgPool"
+                WHERE released_at <= now() - (%s * interval '1 second')
+                ORDER BY released_at ASC
+                LIMIT 1
+            )
+            RETURNING org_name
+            ''',
+            (HIVE_ORG_POOL_GRACE_SECONDS,),
+        )
+        row = cur.fetchone()
+        return row["org_name"] if row else None
+
+
+def _release_org_to_pool(org_name: str) -> None:
+    """Return a closed room's org to the pool for a future room to reuse."""
+    _ensure_hive_org_pool_schema()
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            '''
+            INSERT INTO "HiveOrgPool" (org_name, released_at)
+            VALUES (%s, now())
+            ON CONFLICT (org_name) DO UPDATE SET released_at = now()
+            ''',
+            (org_name,),
+        )
+
+
 def _room_owner_id(username: str | None) -> int:
     with connection() as conn, conn.cursor() as cur:
         if username:
@@ -370,26 +437,60 @@ def start_blue_team(room_id: str, username: str) -> dict:
     return room
 
 def _ensure_room_hive(room: dict, username: str, *, as_manager: bool) -> Optional[str]:
-    """Ensure the room has a shared TheHive org + API key and that `username`
-    exists in that org, so every member of the room sees the SAME incident.
+    """Ensure the room has its OWN TheHive org + API key and that `username`
+    exists in that org, so every member of the room sees the SAME incident -
+    and only that incident (real isolation: a different room's cases live in
+    a different org, invisible to this room's analysts).
 
     The first user to enter a room (its creator) becomes the room's SOC manager
-    and administers the shared org; teammates who accept an invite are added to
+    and administers the room's org; teammates who accept an invite are added to
     that same org. Best-effort by design: TheHive may be unreachable or its
     admin credentials unset. A failure here must never block a user from
     entering the room (an unentered room was the original blocker), so it is
     logged and the user still enters - just without a live Hive key.
+
+    Per-room orgs were previously abandoned for a single shared org because
+    the alert-raising pipeline (blue-team-api) used one hardcoded global Hive
+    API key regardless of room, so a fresh per-room org always looked empty
+    (the "zero alerts" bug). That pipeline is now room-aware (see
+    apps/blue-team-api's room_hive_registry.resolve_room_hive_api_key, which
+    reads `room["hive_api_key"]` - exactly the key provisioned here), so a
+    real per-room org now actually receives that room's alerts.
+
+    Org identity: reuses `room["hive_org"]` across re-entries. A room that
+    doesn't have one yet first tries to claim a wiped, previously-released org
+    from the reuse pool (see _acquire_pooled_org / spin_down_room) - TheHive
+    can't delete orgs, so recycling closed rooms' orgs is the only way to cap
+    total org count. Only when the pool is empty does this mint a genuinely
+    new `room-<room_id>` org.
+
+    Pipeline key = a dedicated per-room SERVICE account, not the human's own
+    login. TheHive gives a user exactly ONE API key, tied to whichever org
+    they were FIRST created in - confirmed live: adding an EXISTING user to a
+    second org and renewing their key still returns a key scoped to their
+    original org, not the new one. So reusing a returning analyst's own
+    account for `room["hive_api_key"]` silently gives the pipeline a key for
+    their OLD org, not this room's - the observable/case data then lands
+    somewhere this room's org can't see, looking exactly like "nothing got
+    attached". A service account (`svc-<room_id>@thehive.local`) is always
+    freshly minted per room, so it can never collide with an existing
+    identity and always resolves to the correct org.
     """
     from core import hive_provisioner
 
-    # Provision members into the org the alert pipeline actually writes to, so a
-    # human analyst sees the alerts raised for their incident. The single global
-    # pipeline key dumps every alert into one org; giving each room its own org
-    # would always look empty (that was the "zero alerts" bug).
-    org = hive_provisioner.alert_org()
+    org = room.get("hive_org")
+    is_new_org = org is None
+    reused_from_pool = False
+    if is_new_org:
+        org = _acquire_pooled_org()
+        if org:
+            reused_from_pool = True
+            hive_provisioner.wipe_org(org)
+        else:
+            org = f"room-{room['room_id']}"
 
     user = user_store.get_user_by_username(username)
-    # The creator administers the shared org (admin profile); teammates keep
+    # The creator administers the room's org (admin profile); teammates keep
     # analyst-level access but land in the same org.
     if as_manager:
         attense_role = "soc_manager"
@@ -398,18 +499,17 @@ def _ensure_room_hive(room: dict, username: str, *, as_manager: bool) -> Optiona
     else:
         attense_role = "soc_l1"
 
-    # Only the room's SOC manager needs an API key (used by the Blue Team
-    # automation), and only if the room doesn't already have one. Everyone else
-    # - teammates, and the manager re-entering - just needs an account with a
-    # web-login password, so we skip key renewal to avoid invalidating the key
-    # already in use.
-    need_key = as_manager and not room.get("hive_api_key")
-    key = None
     try:
-        hive_provisioner.create_org(org)
+        if not reused_from_pool:
+            # A pooled org already exists in TheHive (just wiped by
+            # wipe_org above) - only a genuinely new org needs creating.
+            hive_provisioner.create_org(org)
         room["hive_org"] = org
-        key = hive_provisioner.create_user_in_org(
-            org, username, attense_role=attense_role, renew_key=need_key
+        # The human's own login, for web-login/browsing this org in TheHive's
+        # UI - never used as the pipeline key (see docstring), so no key
+        # renewal needed here regardless of role.
+        hive_provisioner.create_user_in_org(
+            org, username, attense_role=attense_role, renew_key=False
         )
     except Exception:
         logger.exception(
@@ -417,11 +517,36 @@ def _ensure_room_hive(room: dict, username: str, *, as_manager: bool) -> Optiona
         )
         return None
 
-    if user and key and user.get("role") in user_store.HIVE_KEY_ROLES:
+    # Only the room's SOC manager triggers pipeline-account provisioning, and
+    # only if the room doesn't already have one.
+    key = None
+    if as_manager and not room.get("hive_api_key"):
+        service_login = f"svc-{room['room_id']}@thehive.local"
         try:
-            user_store.set_hive_key(user["id"], key)
+            key = hive_provisioner.create_user_in_org(
+                org, service_login, attense_role="soc_manager", renew_key=True
+            )
         except Exception:
-            logger.exception("Failed to persist Hive key for %s", username)
+            logger.exception(
+                "Could not provision Hive pipeline account for room %s", room.get("room_id")
+            )
+
+    # First time this room's org is minted BRAND NEW (not reused from the
+    # pool): authorise it on the webhook (static allow-list, needs a TheHive
+    # restart - see authorize_org_for_webhook) and register its CaseCreated
+    # notification rule (live, no restart), so this room's cases auto-attach
+    # attacker evidence like any other room's. A reused pooled org already has
+    # both from when it was first minted - skipping them here is the whole
+    # point of pooling (no restart on every room). Best-effort - a failure
+    # here degrades auto-attach for this room only, it must never block the
+    # room entry that already succeeded above.
+    if is_new_org and not reused_from_pool:
+        try:
+            hive_provisioner.authorize_org_for_webhook(org)
+        except Exception:
+            logger.exception("Could not authorise org '%s' on the TheHive webhook", org)
+        if key:
+            hive_provisioner.ensure_notification_rule(org, key)
 
     if as_manager:
         room["soc_manager_username"] = username
@@ -745,6 +870,8 @@ def spin_down_room(room_id: str) -> dict:
     if room["status"] == "created":
         if room.get("port") is not None: # Legacy rooms created before ports were internal-only.
             port_pool.release(room["port"])
+        if room.get("hive_org"):
+            _release_org_to_pool(room["hive_org"])
         room["status"] = "closed"
         room["closed_at"] = room.get("closed_at") or _now_iso()
         for member in room.get("red_team_members", []):
@@ -779,6 +906,8 @@ def spin_down_room(room_id: str) -> dict:
         # retain a clear operational signal that the mapper needs attention.
         logger.exception("Failed to clear active signal-store incident for room %s", room_id)
     _generate_final_reports(room)
+    if room.get("hive_org"):
+        _release_org_to_pool(room["hive_org"])
     _save_room(room)
     return room
 

@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from .dependencies import get_event_emitter, get_hive_client, get_sandbox_connector, get_enrichment_service, get_settings, require_room
+from .dependencies import get_event_emitter, get_room_scoped_hive_client, get_sandbox_connector, get_enrichment_service, get_settings, require_room
 from ..core.services.alert_service import raise_alert, investigate_alert, deny_alert
 from ..core.services.incident_service import confirm_incident
 from ..core.services.containment_service import initiate_containment, complete_containment
@@ -74,7 +74,7 @@ def api_raise_alert(
     body: RaiseAlertRequest,
     room_id: str = Depends(require_room),
     emitter: EventEmitter = Depends(get_event_emitter),
-    hive: HiveClient = Depends(get_hive_client),
+    hive: HiveClient = Depends(get_room_scoped_hive_client),
     enrichment_svc: EnrichmentService = Depends(get_enrichment_service),
     settings = Depends(get_settings),
 ) -> ActionResponse:
@@ -168,7 +168,7 @@ def api_confirm_incident(
     body: ConfirmIncidentRequest,
     room_id: str = Depends(require_room),
     emitter: EventEmitter = Depends(get_event_emitter),
-    hive: HiveClient = Depends(get_hive_client),
+    hive: HiveClient = Depends(get_room_scoped_hive_client),
 ) -> ActionResponse:
     """
     Promotes alert to a confirmed incident. TTD (Time to Detect) is calculated at this point.

@@ -21,7 +21,21 @@ server {
     # TheHive doesn't gzip its responses (verified live: no Content-Encoding
     # header even when the client advertises Accept-Encoding), so sub_filter
     # can rewrite the body without needing to strip compression first.
-    sub_filter '</body>' '<a id="attense-return-btn" href="${ATTENSE_BLUE_URL}/" target="_blank" rel="noopener" style="position:fixed;bottom:20px;right:20px;z-index:999999;display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:999px;background:#4a86e8;color:#fff;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:14px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.25);">&#8592; Return to ATTENSE</a></body>';
+    #
+    # The button's own href is a bare fallback (${ATTENSE_BLUE_URL}/, no
+    # context) - landing there makes the ATTENSE frontend fall back to
+    # whichever room happens to be first in the user's room list, which is
+    # NOT necessarily the room/report they came from. The click handler below
+    # looks up the case actually being viewed (TheHive's own API, using the
+    # browser's already-authenticated session - no ATTENSE token available
+    # here to pass along) and appends its attense:incident-<id> tag so the
+    # user lands on THEIR OWN report instead of a random one.
+    #
+    # NOTE: nginx's sub_filter value is a single-quoted string, so nothing
+    # inside this replacement may use a literal single quote (it would
+    # terminate the directive early) - every JS string literal below is
+    # double-quoted for that reason, not by JS style preference.
+    sub_filter '</body>' '<a id="attense-return-btn" href="${ATTENSE_BLUE_URL}/" target="_blank" rel="noopener" style="position:fixed;bottom:20px;right:20px;z-index:999999;display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:999px;background:#4a86e8;color:#fff;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:14px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.25);">&#8592; Return to ATTENSE</a><script>(function(){var btn=document.getElementById("attense-return-btn");if(!btn)return;var base="${ATTENSE_BLUE_URL}";btn.addEventListener("click",function(ev){ev.preventDefault();var url=base+"/";var m=/#\/case\/([^\/?]+)/.exec(window.location.hash);var finish=function(){window.open(url,"_blank","noopener")};if(!m){finish();return}fetch("/api/case/"+m[1],{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(data){var tags=(data&&data.tags)||[];var tag=tags.find(function(t){return t.indexOf("attense:incident-")===0});if(tag){url=base+"/?view=reports&incidentId="+encodeURIComponent(tag.slice("attense:incident-".length))}}).catch(function(){}).then(finish)})})()</script></body>';
     sub_filter_once on;
     sub_filter_types text/html;
 

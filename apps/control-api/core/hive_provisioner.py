@@ -1,9 +1,14 @@
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import os
+import re
+import time
+from pathlib import Path
 
+import docker
 import httpx
 from tenacity import (
     before_sleep_log,
@@ -182,8 +187,14 @@ def create_user_in_org(org_name: str, username: str, attense_role: str, renew_ke
     invalidate the key the Blue Team automation is already using - and None is
     returned.
     """
+    # TheHive's "admin" profile is instance/platform admin (manageOrganisation,
+    # manageUser, manageConfig, ...) - it has NO manageCase/manageAlert and
+    # cannot create a case (confirmed live: 403 "Operation not permitted").
+    # "org-admin" is the org-scoped full-permissions profile (manageCase,
+    # manageAlert, manageUser, ... within this org) - that's what a room's SOC
+    # manager needs, since their key is what the alert-raising pipeline uses.
     profiles = {
-        "soc_manager": "admin",
+        "soc_manager": "org-admin",
         "soc_l2": "analyst",
         "soc_l1": "analyst",
     }
@@ -210,6 +221,21 @@ def create_user_in_org(org_name: str, username: str, attense_role: str, renew_ke
             response.raise_for_status()
         else:
             existing.raise_for_status()
+            # A user can be "Locked" if this org was previously wiped for reuse
+            # (see wipe_org) or was otherwise locked/de-provisioned. TheHive has
+            # no hard user delete, only lock - so re-provisioning the SAME
+            # username (e.g. the same analyst re-entering, or a new room that
+            # reused a pooled org and happens to share a username with the
+            # pooled org's prior occupant) must self-heal by unlocking, or the
+            # key-renew/password-set calls below would silently fail against a
+            # locked account.
+            if existing.json().get("status") == "Locked":
+                unlock = client.patch(
+                    f"/api/user/{username}",
+                    json={"status": "Ok"},
+                    headers={"X-Organisation": org_name},
+                )
+                unlock.raise_for_status()
 
         key = None
         if renew_key:
@@ -240,6 +266,195 @@ def create_user_in_org(org_name: str, username: str, attense_role: str, renew_ke
         raise RuntimeError(
             f"Failed to create TheHive user '{username}' in '{org_name}': {exc}"
         ) from exc
+    finally:
+        if client is not None:
+            client.close()
+
+
+# -- Per-org webhook authorisation (real room/company isolation) --------------
+# TheHive gates its CaseCreated webhook in two independent places:
+#   1. A per-organisation NOTIFICATION RULE ("fire the 'local' webhook on
+#      CaseCreated") - live, org-scoped, no restart needed.
+#   2. The webhook ENDPOINT's static `includedTheHiveOrganisations` allow-list
+#      in application.conf - a hard gate TheHive enforces regardless of (1);
+#      an org missing from this list gets "organisation X is not authorised
+#      to use the webhook" even with a valid notification rule. Only this
+#      part requires a config rewrite + TheHive restart, and only the FIRST
+#      time a given org is created (see room_manager._ensure_room_hive).
+
+NOTIFICATION_RULE = [{
+    "delegate": False,
+    "trigger": {"name": "CaseCreated"},
+    "notifier": {"name": "webhook", "endpoint": "local"},
+}]
+
+THEHIVE_CONF_PATH = os.getenv("THEHIVE_CONF_PATH", "/thehive/application.conf")
+THEHIVE_CONTAINER_NAME = os.getenv("THEHIVE_CONTAINER_NAME", "attense_thehive")
+
+
+def ensure_notification_rule(org_name: str, org_api_key: str) -> None:
+    """Set *org_name*'s notification config to fire the 'local' webhook on
+    CaseCreated. Live API call, takes effect immediately - no restart.
+
+    Uses the org's own service-user key (org-admin): notification config is
+    organisation-scoped, so the super-admin session (in TheHive's 'admin'
+    org) can't set it for another org directly. Retries on connection
+    errors/5xx - the caller (authorize_org_for_webhook) already waits for
+    TheHive to answer /api/status before calling this, but a retry here is
+    cheap insurance against any residual timing flakiness (confirmed live:
+    without it, calling this right after a bare `container.restart()` -
+    which returns once the container PROCESS restarts, well before TheHive's
+    Play server is actually listening again - silently fails and that org's
+    cases never auto-attach). Best-effort: a failure here means that org's
+    cases won't auto-attach attacker evidence, but must never block
+    room/user provisioning.
+    """
+    try:
+        response = _put_notification_rule(org_api_key)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        logger.exception(
+            "Could not register CaseCreated->webhook notification rule for org '%s'",
+            org_name,
+        )
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(3),
+    retry=retry_if_result(lambda r: r.status_code >= 500),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    retry_error_callback=_return_last_response,
+)
+def _put_notification_rule(org_api_key: str):
+    return httpx.put(
+        f"{HIVE_URL}/api/config/organisation/notification",
+        json={"value": NOTIFICATION_RULE},
+        headers={"Authorization": f"Bearer {org_api_key}"},
+        timeout=20,
+    )
+
+
+def _wait_for_thehive_ready(timeout_seconds: float = 150) -> bool:
+    """Poll /api/status until TheHive answers or *timeout_seconds* elapses.
+
+    A restarted container's PROCESS comes back long before its Play/JVM
+    server actually binds port 9000 (confirmed live: ~60-90s gap). Callers
+    that need to talk to TheHive right after a restart (e.g.
+    ensure_notification_rule) must wait for this, not just for
+    `container.restart()` to return.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            resp = httpx.get(f"{HIVE_URL}/api/status", timeout=5)
+            if resp.status_code == 200:
+                return True
+        except httpx.HTTPError:
+            pass
+        time.sleep(3)
+    return False
+
+
+def authorize_org_for_webhook(org_name: str) -> bool:
+    """Add *org_name* to the webhook's `includedTheHiveOrganisations` allow-list
+    in application.conf, restart TheHive so the change takes effect, and wait
+    for it to actually come back up before returning.
+
+    Additive: other already-authorised orgs (other rooms/companies) are kept,
+    so this never de-authorises anyone else's webhook. Returns False (no-op,
+    no restart) if the org was already on the list. Raises RuntimeError on
+    failure - callers should treat this as best-effort (log, don't block room
+    entry) since a missing restart only degrades auto-attach, it doesn't
+    break the room itself.
+    """
+    conf_path = Path(THEHIVE_CONF_PATH)
+    content = conf_path.read_text(encoding="utf-8")
+    pattern = re.compile(r'includedTheHiveOrganisations\s*=\s*(\[[^\]]*\])')
+    match = pattern.search(content)
+    if not match:
+        raise RuntimeError(
+            f"Could not find includedTheHiveOrganisations in {conf_path}"
+        )
+    current: list[str] = json.loads(match.group(1))
+    if org_name in current:
+        return False
+
+    current.append(org_name)
+    new_content = content[: match.start(1)] + json.dumps(current) + content[match.end(1):]
+    conf_path.write_text(new_content, encoding="utf-8")
+    logger.info("Authorised org '%s' for the TheHive webhook; restarting TheHive ...", org_name)
+
+    client = docker.from_env()
+    try:
+        container = client.containers.get(THEHIVE_CONTAINER_NAME)
+        container.restart(timeout=30)
+    finally:
+        client.close()
+
+    # container.restart() returns once the container PROCESS is back, not
+    # once TheHive's own server is accepting requests - callers immediately
+    # doing a TheHive API call (e.g. ensure_notification_rule) need the
+    # latter, so wait here rather than pushing this timing bug onto every
+    # caller.
+    if not _wait_for_thehive_ready():
+        logger.warning(
+            "TheHive did not answer /api/status within the timeout after "
+            "restarting for org '%s' - proceeding anyway (caller retries).",
+            org_name,
+        )
+    return True
+
+
+# -- Org reuse (TheHive has no organisation-delete API) ------------------------
+# Confirmed live (DELETE/PATCH-status/lock all 404 or no-op on TheHive 4.1.24)
+# and matches an unresolved upstream report (TheHive-Project/TheHive#1558,
+# "How to delete Organization", never answered). A per-room org is therefore
+# permanent - the only way to avoid unbounded org growth as ephemeral rooms
+# come and go is to WIPE and REUSE a closed room's org for the next room
+# instead of always minting a new one (see room_manager's org pool).
+
+def wipe_org(org_name: str) -> None:
+    """Delete every case and lock every non-admin user in *org_name*, so a
+    pooled org starts clean for its next occupant.
+
+    Best-effort per-item: one failure (e.g. a case already gone) is logged
+    and skipped rather than aborting the whole wipe - a partially-clean org
+    is still safe to reuse, just not perfectly tidy. Never raises.
+    """
+    client = None
+    try:
+        client = _admin_client()
+
+        cases = client.post(
+            "/api/case/_search", json={"query": {}}, headers={"X-Organisation": org_name}
+        )
+        for case in (cases.json() if cases.status_code == 200 else []):
+            case_id = case.get("id") or case.get("_id")
+            if not case_id:
+                continue
+            try:
+                client.delete(f"/api/case/{case_id}", headers={"X-Organisation": org_name}).raise_for_status()
+            except httpx.HTTPError:
+                logger.warning("Could not delete case %s while wiping org '%s'", case_id, org_name)
+
+        users = client.post(
+            "/api/v1/query",
+            json={"query": [{"_name": "listUser"}]},
+            headers={"X-Organisation": org_name},
+        )
+        for user in (users.json() if users.status_code == 200 else []):
+            login = user.get("login")
+            # Never lock the platform super-admin, which TheHive's listUser
+            # includes for every org's context.
+            if not login or login == ADMIN_LOGIN:
+                continue
+            try:
+                client.delete(f"/api/user/{login}", headers={"X-Organisation": org_name}).raise_for_status()
+            except httpx.HTTPError:
+                logger.warning("Could not lock user '%s' while wiping org '%s'", login, org_name)
+    except Exception:
+        logger.exception("Wipe failed for org '%s' (best-effort, org still usable)", org_name)
     finally:
         if client is not None:
             client.close()
