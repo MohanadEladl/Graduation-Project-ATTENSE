@@ -10,13 +10,14 @@ Only works when this package runs EMBEDDED inside control-api's process
 (apps/control-api/controller.py starts blueteam.main:app in a background
 thread in the same container) - that's the only deployment where `core` is
 on the PYTHONPATH. The standalone per-room container built from
-apps/blue-team-api/Dockerfile has no `core` package, so the import below
+apps/blue-team-api/Dockerfile has no `core` package, so the lookup below
 fails there and every caller falls back to the global HIVE_API_KEY, matching
 the pre-existing shared-org behaviour.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import Optional
 
@@ -35,8 +36,9 @@ def resolve_room_hive_api_key(room_id: Optional[str]) -> Optional[str]:
     if not room_id or room_id == "system":
         return None
     try:
-        from core.room_manager import get_room  # embedded-only import
-    except ImportError:
+        _rm = importlib.import_module("core.room_manager")
+        get_room = _rm.get_room  # type: ignore[attr-defined]
+    except (ImportError, AttributeError):
         return None
     try:
         room = get_room(room_id)
