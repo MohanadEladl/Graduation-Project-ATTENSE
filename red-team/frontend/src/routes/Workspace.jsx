@@ -571,52 +571,10 @@ function EvidenceCard({ card }) {
 }
 
 // ── Mission complete summary ────────────────────────────────────────────────
-const DEFENSE_DETAILS = {
-  brute_force: {
-    what: 'Discovered valid credentials by trying multiple passwords on a form with no lockout.',
-    why: 'The login endpoint has no rate limiting, no CAPTCHA, and no account lockout.',
-    fixes: ['Rate limiting (e.g. 5 attempts per minute)', 'Account lockout after N failures', 'Multi-factor authentication (MFA)', 'Login attempt monitoring and alerting'],
-  },
-  xss: {
-    what: 'Injected script-like payloads that reflected unescaped in the HTML response.',
-    why: 'User input is rendered directly into the page without HTML-encoding.',
-    fixes: ['Output encoding (HTML entities)', 'Content Security Policy (CSP) headers', 'Input validation and sanitization', 'Template auto-escaping (Jinja2, React JSX)'],
-  },
-  cmd_injection: {
-    what: 'Chained OS commands via the ping form using shell metacharacters.',
-    why: 'The host parameter is passed directly to os.popen() with no sanitization.',
-    fixes: ['Never pass user input to shell commands', 'Use subprocess with shell=False and argument lists', 'Validate against a strict allowlist of hostnames', 'Principle of least privilege for the web process'],
-  },
-  dir_traversal: {
-    what: 'Read sensitive system files by escaping the web root with ../ sequences.',
-    why: 'The file path is concatenated without normalization or directory restriction.',
-    fixes: ['Normalize paths with os.path.realpath()', 'Verify resolved path stays inside base directory', 'Use allowlisted file IDs instead of raw paths', 'Chroot or container-level path isolation'],
-  },
-  file_upload: {
-    what: 'Uploaded files with dangerous extensions that were accepted and stored.',
-    why: 'No extension validation, no MIME check, and files keep their original name.',
-    fixes: ['Extension allowlist (only .jpg, .png, .pdf, etc.)', 'Rename files to random hashes on save', 'Store uploads outside executable paths', 'Scan uploads with antivirus/ClamAV'],
-  },
-  csrf: {
-    what: 'A simulated attacker page changed profile data without the user\'s consent.',
-    why: 'The profile update form has no CSRF token and doesn\'t check Origin/Referer.',
-    fixes: ['CSRF tokens on every state-changing form', 'SameSite=Strict cookie attribute', 'Origin/Referer header validation', 'Re-authentication for sensitive actions'],
-  },
-  recon: {
-    what: 'Mapped the attack surface by discovering hidden routes and internal info.',
-    why: 'The app exposes too many internal details: version strings, debug comments, robots.txt.',
-    fixes: ['Remove debug comments from production HTML', 'Minimize server version disclosure', 'Restrict robots.txt to only necessary entries', 'Monitor and alert on rapid endpoint enumeration'],
-  },
-}
-
 function MissionCompleteSummary({ snapshot, briefing, progress, elapsed }) {
-  const moduleId = snapshot?.module_id
   const sid = snapshot?.session_id
-  const legacyDefense = DEFENSE_DETAILS[moduleId] || {}
   const defense = briefing?.defenseBreakdown || {}
-  const mitigations = Array.isArray(defense.mitigations) && defense.mitigations.length > 0
-    ? defense.mitigations
-    : (legacyDefense.fixes || []).map(f => ({ name: f, implementation: '', verify: '' }))
+  const mitigations = Array.isArray(defense.mitigations) ? defense.mitigations : []
   return (
     <div className="rounded-xl p-4 mb-4"
       style={{ background: 'rgba(46,227,154,0.06)', border: '1px solid rgba(46,227,154,0.3)' }}>
@@ -642,16 +600,6 @@ function MissionCompleteSummary({ snapshot, briefing, progress, elapsed }) {
       <div className="text-[13.5px] font-semibold text-attense-text mb-2">
         Vulnerability demonstrated successfully.
       </div>
-      {legacyDefense.what && (
-        <div className="text-[11.5px] text-attense-muted leading-relaxed mb-2">
-          <strong style={{ color: '#c0c5db' }}>What you did:</strong> {legacyDefense.what}
-        </div>
-      )}
-      {legacyDefense.why && (
-        <div className="text-[11.5px] text-attense-muted leading-relaxed mb-3">
-          <strong style={{ color: '#c0c5db' }}>Why it worked:</strong> {legacyDefense.why}
-        </div>
-      )}
       <div className="flex items-center gap-3 mb-3">
         <span className="font-mono text-[10px] text-attense-dim">TIME:</span>
         <span className="font-mono text-[12px] font-semibold tabular-nums" style={{ color: '#2ee39a' }}>
@@ -1361,20 +1309,20 @@ function AdvancedTools({ open, snapshot, sid, onExecute, executing, autoAttacksE
             </button>
             {attackDone && (
               <Link
-                to={`/attack-report/${sid}`}
+                to={`/report/${sid}`}
                 className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
                 style={{
-                  background: 'rgba(255,64,96,0.07)',
-                  border: '1px solid rgba(255,64,96,0.3)',
-                  color: '#ff4060',
+                  background: 'rgba(46,227,154,0.08)',
+                  border: '1px solid rgba(46,227,154,0.3)',
+                  color: '#2ee39a',
                 }}
               >
-                VIEW ATTACK REPORT →
+                VIEW MISSION REPORT →
               </Link>
             )}
             {!attackDone && (
               <span className="font-mono text-[9.5px] text-attense-dim">
-                (runs the backend scanner — an attack report will be available after)
+                (runs the instructor-only backend scanner; review results in the mission report)
               </span>
             )}
           </>

@@ -45,10 +45,8 @@ export const api = {
     resetEvidence:  (sid)     => post(`/api/sessions/${sid}/reset-evidence`),
     restart:        (sid)     => post(`/api/sessions/${sid}/restart`),
     logs:         (sid)       => get(`/api/sessions/${sid}/logs`),
-    labAnalysis:  (sid)       => get(`/api/sessions/${sid}/lab-analysis`),
     getReport:       (sid) => get(`/api/sessions/${sid}/report`),
     regenReport:     (sid) => post(`/api/sessions/${sid}/report/regenerate`),
-    getAttackReport: (sid) => get(`/api/sessions/${sid}/attack-report`),
 
     // ── Variants (Phase 1) ──
     setVariant:    (sid, variant_id) => post(`/api/sessions/${sid}/variant`, { variant_id }),
@@ -80,6 +78,10 @@ export const api = {
   // Lab action telemetry (Phase 2)
   actions: {
     record: (payload) => post('/api/lab/actions', payload),
+  },
+
+  mutations: {
+    catalog: () => get('/api/mutations/catalog'),
   },
 
   // Lab Mode: AttackBox

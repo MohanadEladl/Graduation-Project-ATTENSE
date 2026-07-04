@@ -10,7 +10,6 @@ import Workspace         from './routes/Workspace.jsx'
 import Reports           from './routes/Reports.jsx'
 import Settings          from './routes/Settings.jsx'
 import MissionReport     from './routes/MissionReport.jsx'
-import AttackReport      from './routes/AttackReport.jsx'
 import Gauntlet          from './routes/Gauntlet.jsx'
 import ZapWorkspace      from './routes/ZapWorkspace.jsx'
 
@@ -39,7 +38,6 @@ export default function App() {
           <Route path="/reports"               element={<Reports />}        />
           <Route path="/settings"              element={<Settings />}       />
           <Route path="/report/:sid"           element={<MissionReport />}  />
-          <Route path="/attack-report/:sid"    element={<AttackReport />}   />
           <Route path="/gauntlet"              element={<Gauntlet />}       />
         </Route>
 

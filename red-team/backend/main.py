@@ -560,87 +560,6 @@ async def update_skill(body: SkillUpdateBody) -> dict:
     return skill_store.update(module_id, variant_id, score, grade)
 
 
-@app.get("/api/sessions/{sid}/attack-report")
-async def get_attack_report(sid: str) -> dict:
-    """Red-team attack report — only available after execute() has run.
-
-    Returns raw attack results: module info, per-step outcomes, timing, logs.
-    Does not require a completed mission; any executed session qualifies.
-    """
-    import time as _time
-    rec = _require_session(sid)
-    snap = rec.attack.snapshot()
-    state = snap.get("state", "idle")
-    if state not in ("completed", "error"):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Attack has not been executed yet (state={state}). Run the attack first.",
-        )
-
-    result = snap.get("result") or {}
-    with rec.log_lock:
-        log_lines = [e["line"] for e in rec.logs]
-
-    summary = result.get("summary", "")
-    error   = result.get("error")
-    # goal_achieved: attack ran without error AND the summary indicates the
-    # objective was met. Modules use consistent phrasing for failure.
-    _NO_FIND = (
-        "no valid", "0 reachable", "not found", "no payload", "0 payload",
-        "no credentials", "none found", "module crashed",
-        "0/",          # "0/5 payloads reflected", "0/N paths"
-        " 0 path",     # "0 path(s) disclosed"
-        " 0 state",    # "0 state changes"
-    )
-    goal_achieved = (
-        state == "completed"
-        and not error
-        and bool(summary)
-        and not any(neg in summary.lower() for neg in _NO_FIND)
-    )
-
-    return {
-        "session_id":    rec.session_id,
-        "module_id":     rec.module.module_id,
-        "module_name":   rec.module.name,
-        "scenario_id":   rec.module.scenario_id,
-        "severity":      rec.module.severity.value,
-        "category":      rec.module.category.value,
-        "description":   rec.module.description,
-        "target":        f"{rec.target.host}:{rec.target.port}",
-        "state":         state,
-        "generated_at":  _time.time(),
-        # Timing
-        "started_at":    snap.get("started_at"),
-        "stopped_at":    snap.get("stopped_at"),
-        "elapsed":       snap.get("elapsed"),
-        # Attack result — goal_achieved reflects the attack objective, not just HTTP
-        "goal_achieved":      goal_achieved,
-        "total_steps":        result.get("total_steps", 0),
-        "successful_steps":   result.get("successful_steps", 0),
-        "duration_ms":        result.get("duration_ms", 0),
-        "summary":            summary,
-        "error":              error,
-        "steps":              result.get("steps", []),
-        # Raw terminal output
-        "logs":          log_lines,
-    }
-
-
-@app.get("/api/sessions/{sid}/lab-analysis")
-async def get_lab_analysis(sid: str) -> dict:
-    """Return post-mission analysis for Lab mode: what worked, what was missed,
-    better techniques, and an overall rating.
-
-    Uses the evidence stored on the session (populated by the last check-progress).
-    Can be called any time after mission start; best called after mission completion.
-    """
-    rec = _require_session(sid)
-    from backend import lab_analysis
-    evidence = list(rec.latest_evidence)
-    return lab_analysis.analyse(rec.module.module_id, evidence)
-
-
 @app.post("/api/sessions/{sid}/execute")
 async def execute_session(sid: str) -> dict:
     """Execute the attack module. This is the ONLY endpoint that runs the attack."""
@@ -1075,6 +994,33 @@ _MUTATION_WINDOWS = {
     "escalating": (50, 130, 2),
     "chaos": (25, 75, 3),
 }
+
+
+def _public_mutation_catalog() -> dict[str, Any]:
+    modules: dict[str, list[dict[str, Any]]] = {}
+    for module_id, choices in _MUTATION_CATALOG.items():
+        modules[module_id] = [
+            {
+                "mutation_id": choice["mutation_id"],
+                "module_id": choice["module_id"],
+                "label": choice["label"],
+                "description": choice["description"],
+                "color": choice.get("color"),
+                "signature": choice.get("signature"),
+            }
+            for choice in choices
+        ]
+    return {
+        "modules": modules,
+        "module_count": len(modules),
+        "total_mutations": sum(len(choices) for choices in modules.values()),
+    }
+
+
+@app.get("/api/mutations/catalog")
+async def get_mutation_catalog() -> dict[str, Any]:
+    """Return the public mutation catalog without solution-oriented target tasks."""
+    return _public_mutation_catalog()
 
 
 def _mutation_action_summary(rec) -> str:

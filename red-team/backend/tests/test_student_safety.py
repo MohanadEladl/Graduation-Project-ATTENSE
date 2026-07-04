@@ -37,52 +37,43 @@ LAB_MODULES = (
     "brute_force",
 )
 
-KNOWN_STEP_TOOLS = {
-    "Browser",
-    "ZAP Proxy History",
-    "ZAP Inspector",
-    "ZAP Repeater",
-    "ZAP Fuzzer",
-    "AttackBox",
-    "Report",
-}
-
-
 def _load_mission_briefing_data():
     script = """
-import { LAB_STEPS_BY_MODULE, MISSION_BRIEFINGS } from './red-team/frontend/src/data/missionBriefings.js';
+import { LAB_REQUIRED_TOOLS, MISSION_BRIEFINGS } from './red-team/frontend/src/data/missionBriefings.js';
 
 const modules = ['recon', 'xss', 'cmd_injection', 'dir_traversal', 'file_upload', 'csrf', 'brute_force'];
-const data = { steps: [], briefings: {} };
+const data = { briefings: {}, tools: {}, commandFields: [] };
 
-for (const moduleId of modules) {
-  const steps = LAB_STEPS_BY_MODULE[moduleId] || [];
-  for (const step of steps) {
-    const commands = [];
-    if (typeof step.command === 'string') {
-      commands.push(step.command);
-    }
-    if (Array.isArray(step.commands)) {
-      for (const command of step.commands) {
-        commands.push(command);
+function walkCommandFields(value, path = []) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    value.forEach((item, idx) => walkCommandFields(item, [...path, String(idx)]));
+    return;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const lower = key.toLowerCase();
+    if ((lower === 'command' || lower === 'commands' || lower.endsWith('command') || lower.endsWith('commands'))) {
+      if (typeof child === 'string') {
+        data.commandFields.push({ path: [...path, key].join('.'), command: child });
+      } else if (Array.isArray(child)) {
+        for (const command of child) {
+          if (typeof command === 'string') data.commandFields.push({ path: [...path, key].join('.'), command });
+        }
       }
     }
-    data.steps.push({
-      moduleId,
-      step: step.n,
-      tool: step.tool || '',
-      title: step.title || '',
-      commands,
-      raw: step,
-    });
+    walkCommandFields(child, [...path, key]);
   }
+}
 
+for (const moduleId of modules) {
   const briefing = MISSION_BRIEFINGS[moduleId] || {};
+  data.tools[moduleId] = LAB_REQUIRED_TOOLS[moduleId] || [];
   data.briefings[moduleId] = {
     operatorHints: briefing.operatorHints || [],
     tutorialStepsCount: Array.isArray(briefing.tutorial_steps) ? briefing.tutorial_steps.length : 0,
     successCondition: briefing.successCondition || '',
   };
+  walkCommandFields(briefing, [moduleId]);
 }
 
 process.stdout.write(JSON.stringify(data));
@@ -135,62 +126,73 @@ def test_attackbox_validate_allowed_and_blocked_examples():
     assert all(operator_api.validate_command(cmd) == operator_api.BLOCKED_EXTERNAL_MSG for cmd in blocked)
 
 
-def test_lab_briefing_attackbox_commands_match_validator():
-    """Every command rendered as an AttackBox copy block must execute safely."""
-    data = _load_mission_briefing_data()
-    assert data["steps"]
+def test_mission_briefings_do_not_export_rigid_lab_checklists():
+    """The frontend briefing data should not reintroduce rigid lab checklist exports."""
+    source = (ROOT / "red-team" / "frontend" / "src" / "data" / "missionBriefings.js").read_text(
+        encoding="utf-8"
+    )
+    assert "LAB_STEPS_BY_MODULE" not in source
+    assert "REQUIRED_TOOLS_BY_MODULE" not in source
+    assert "labStepsFor" not in source
 
+
+def test_legacy_red_team_routes_and_duplicate_constants_stay_removed():
+    frontend = ROOT / "red-team" / "frontend" / "src"
+    backend_main = (ROOT / "red-team" / "backend" / "main.py").read_text(encoding="utf-8")
+    app = (frontend / "App.jsx").read_text(encoding="utf-8")
+    client = (frontend / "api" / "client.js").read_text(encoding="utf-8")
+    reports = (frontend / "routes" / "Reports.jsx").read_text(encoding="utf-8")
+    gauntlet = (frontend / "routes" / "Gauntlet.jsx").read_text(encoding="utf-8")
+    workspace = (frontend / "routes" / "Workspace.jsx").read_text(encoding="utf-8")
+
+    assert not (frontend / "routes" / "AttackReport.jsx").exists()
+    assert not (ROOT / "red-team" / "backend" / "lab_analysis.py").exists()
+
+    for legacy in ("AttackReport", "attack-report", "getAttackReport"):
+        assert legacy not in app
+        assert legacy not in client
+        assert legacy not in backend_main
+
+    for legacy in ("labAnalysis", "lab-analysis", "LabAnalysisSection"):
+        assert legacy not in client
+        assert legacy not in reports
+        assert legacy not in backend_main
+
+    assert "CHAIN_META" not in gauntlet
+    assert "CHAIN_ORDER" not in gauntlet
+    assert "MUTATION_DEFS" not in gauntlet
+    assert "DEFENSE_DETAILS" not in workspace
+
+
+def test_briefing_command_fields_match_attackbox_validator():
+    """Any explicit command field that reappears in briefings must execute safely."""
+    data = _load_mission_briefing_data()
     failures = []
-    for item in data["steps"]:
-        tool = item["tool"]
-        commands = item["commands"]
-        if tool not in KNOWN_STEP_TOOLS:
-            failures.append(f"{item['moduleId']} step {item['step']}: unknown tool {tool!r}")
-        if commands and tool != "AttackBox":
-            failures.append(
-                f"{item['moduleId']} step {item['step']}: command block is tagged as {tool!r}, "
-                "but copy-paste commands must be AttackBox-only"
-            )
-        if tool == "AttackBox":
-            for command in commands:
-                err = operator_api.validate_command(command)
-                if err:
-                    failures.append(
-                        f"{item['moduleId']} step {item['step']}: {command!r} -> {err}"
-                    )
+    for item in data["commandFields"]:
+        err = operator_api.validate_command(item["command"])
+        if err:
+            failures.append(f"{item['path']}: {item['command']!r} -> {err}")
 
     assert not failures, "\n".join(failures)
 
 
-def test_zap_payload_instructions_are_not_attackbox_commands():
-    """Unsafe shell payload syntax is allowed only as ZAP HTTP payload text."""
+def test_operator_payload_guidance_uses_zap_not_attackbox_commands():
+    """Payload-heavy modules should steer HTTP payload work to ZAP, not shell commands."""
     data = _load_mission_briefing_data()
 
-    cmdi_zap_steps = [
-        item for item in data["steps"]
-        if item["moduleId"] == "cmd_injection" and item["tool"] in {"ZAP Repeater", "ZAP Fuzzer"}
-    ]
-    assert cmdi_zap_steps
-    cmdi_zap_text = json.dumps([item["raw"] for item in cmdi_zap_steps])
-    assert "127.0.0.1; id" in cmdi_zap_text
-    assert "127.0.0.1 | hostname" in cmdi_zap_text
-    assert "127.0.0.1$(id)" in cmdi_zap_text
-
-    for item in data["steps"]:
-        if item["tool"] != "AttackBox":
-            assert item["commands"] == [], (
-                f"{item['moduleId']} step {item['step']} has shell commands outside AttackBox"
-            )
+    for module_id in ("xss", "cmd_injection", "dir_traversal", "file_upload", "csrf"):
+        joined = "\n".join(data["briefings"][module_id]["operatorHints"]).lower()
+        assert "repeater" in joined or "fuzzer" in joined, f"{module_id} should point payload work to ZAP"
+        assert "attackbox command" not in joined, f"{module_id} should not be terminal-command-first"
 
 
 def test_each_module_has_operator_guidance_and_success_criteria():
     data = _load_mission_briefing_data()
 
     for module_id in LAB_MODULES:
-        steps = [item for item in data["steps"] if item["moduleId"] == module_id]
         briefing = data["briefings"][module_id]
 
-        assert steps, f"{module_id} needs operator steps"
+        assert data["tools"][module_id], f"{module_id} needs lab tool labels"
         assert briefing["tutorialStepsCount"] > 0, f"{module_id} needs guided tutorial steps"
         assert len(briefing["operatorHints"]) >= 4, f"{module_id} needs staged operator hints"
         assert briefing["successCondition"], f"{module_id} needs success criteria"
