@@ -47,10 +47,15 @@ VERTEX_MODEL = os.environ.get("VERTEX_MODEL", "gemini-3.5-flash")
 
 # -- Formatting helpers --------------------------------------------------------
 
-def _fmt_td(td: Optional[timedelta]) -> str:
+def _fmt_td(td) -> str:
     if td is None:
         return "N/A"
-    total = int(td.total_seconds())
+    if isinstance(td, timedelta):
+        total = int(td.total_seconds())
+    elif isinstance(td, (int, float)):
+        total = int(td)
+    else:
+        return str(td)
     if total < 0:
         total = abs(total)
     h, rem = divmod(total, 3600)
@@ -128,11 +133,11 @@ def _fmt_member_scores(member_scores: dict) -> str:
     scores. Empty when the incident has no blue_team analysts."""
     if not member_scores:
         return ""
-        lines = ["", "Individual Analyst Scores (team score above is the AVERAGE of these):"]
-        for analyst_id in sorted(member_scores):
-            m = member_scores[analyst_id]
-            lines.append(f" {analyst_id}: {m['final_score']}/100 ({m['verdict']})")
-            return "\n".join(lines)
+    lines = ["", "Individual Analyst Scores (team score above is the AVERAGE of these):"]
+    for analyst_id in sorted(member_scores):
+        m = member_scores[analyst_id]
+        lines.append(f" {analyst_id}: {m['final_score']}/100 ({m['verdict']})")
+    return "\n".join(lines)
 
 
 def _analyst_action_lines(events: list[Event]) -> str:
@@ -193,13 +198,14 @@ def _call_gemini(prompt: str) -> Optional[str]:
 # -- Fallback plain formatter --------------------------------------------------
 
 def _plain_report(report: dict, events: list[Event], member_id: Optional[str] = None) -> str:
-    outcome = report["outcome"]
-    title = f"{report['incident_id']} - {member_id}" if member_id else report["incident_id"]
+    outcome = report.get("outcome", "INCOMPLETE")
+    incident_id = report.get("incident_id", "N/A")
+    title = f"{incident_id} - {member_id}" if member_id else incident_id
     score_label = "Individual Score" if member_id else "Score"
     lines = [
         f"# Incident Report: {title}",
-        f"**Scenario:** {report['scenario_id']}",
-        f"**Status:** {report['status']}",
+        f"**Scenario:** {report.get('scenario_id', 'N/A')}",
+        f"**Status:** {report.get('status', 'N/A')}",
         f"**Outcome:** {outcome} - {_outcome_explanation(outcome)}",
         f"**{score_label}:** {report.get('final_score', 'N/A')} / 100 "
         f"(**Verdict:** {report.get('verdict', 'N/A')})",
@@ -240,22 +246,24 @@ def generate(report: dict, events: list[Event], member_id: Optional[str] = None)
         *events* already filtered to that analyst's own actions
         (pipeline.bridge.member_events). generate() itself only controls wording.
     """
-    outcome = report["outcome"]
-    ttd = report["ttd"]
-    ttc = report["ttc"]
+    outcome = report.get("outcome", "INCOMPLETE")
+    ttd = report.get("ttd")
+    ttc = report.get("ttc")
+    final_score = report.get("final_score", "N/A")
+    verdict = report.get("verdict", "N/A")
     action_lines = _analyst_action_lines(events)
     rule_block = _fmt_scoring_rules(report.get("scoring_rules", []))
     attack_context = _fmt_attack_context(report)
 
     if member_id:
         subject = f"Analyst {member_id}'s individual contribution"
-        title = f"{report['incident_id']} - {member_id}"
+        title = f"{report.get('incident_id', '')} - {member_id}"
         score_label = "Individual Score"
         member_scores_block = ""
         summary_instr = (
             f"2-3 sentences: what attack type occurred, what analyst {member_id} personally "
-            f"did in response, and what their individual score ({report['final_score']}/100, "
-            f"verdict: {report['verdict']}) reflects about their contribution. Do not describe "
+            f"did in response, and what their individual score ({final_score}/100, "
+            f"verdict: {verdict}) reflects about their contribution. Do not describe "
             f"actions taken by other analysts; this report covers {member_id} only."
         )
         assessment_instr = (
@@ -266,12 +274,12 @@ def generate(report: dict, events: list[Event], member_id: Optional[str] = None)
         )
     else:
         subject = "The team's overall response"
-        title = report['incident_id']
+        title = report.get('incident_id', '')
         score_label = "Team Score"
         member_scores_block = _fmt_member_scores(report.get("member_scores", {}))
         summary_instr = (
             f"2-3 sentences: what attack type occurred, how the team responded, and what the "
-            f"final score ({report['final_score']}/100, verdict: {report['verdict']}) reflects "
+            f"final score ({final_score}/100, verdict: {verdict}) reflects "
             f"about their performance. If Individual Analyst Scores are listed below, state in "
             f"one sentence that the team score is the average of those individual scores."
         )
@@ -285,21 +293,21 @@ def generate(report: dict, events: list[Event], member_id: Optional[str] = None)
         )
 
     prompt = f"""You are a senior SOC analyst writing a formal incident response report in markdown.
-This report covers {subject} to incident {report['incident_id']}.
+This report covers {subject} to incident {report.get('incident_id', '')}.
 Use the structured data below. Output ONLY the markdown - no commentary before or after.
 
 ---
-Incident ID: {report['incident_id']}
-Scenario ID: {report['scenario_id']}
-Final Status: {report['status']}
+Incident ID: {report.get('incident_id', 'N/A')}
+Scenario ID: {report.get('scenario_id', 'N/A')}
+Final Status: {report.get('status', 'N/A')}
 Outcome: {outcome} - {_outcome_explanation(outcome)}
 
 Time to Detect (TTD): {_fmt_td(ttd)}
 Time to Contain (TTC): {_fmt_td(ttc)}
 
-{score_label}: {report['final_score']} / 100
-Verdict: {report['verdict']}
-Penalty Total: {report['penalty_total']} pts
+{score_label}: {final_score} / 100
+Verdict: {verdict}
+Penalty Total: {report.get('penalty_total', 'N/A')} pts
 {member_scores_block}
 
 Attack Context (cite verbatim - do not elaborate beyond what is written here):
@@ -332,4 +340,4 @@ Write a markdown report with these exact sections:
     md = _call_gemini(prompt)
     if md:
         return md.strip()
-        return _plain_report(report, events, member_id=member_id)
+    return _plain_report(report, events, member_id=member_id)

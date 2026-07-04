@@ -23,7 +23,11 @@ export function clearToken() {
 
 async function parse(response) {
  const data = await response.json().catch(() => ({}))
- if (!response.ok) throw new Error(data.detail || `Request failed with ${response.status}`)
+ if (!response.ok) {
+  const err = new Error(data.detail || `Request failed with ${response.status}`)
+  err.status = response.status
+  throw err
+ }
  return data
 }
 
@@ -85,6 +89,14 @@ export const api = {
  },
  scenarios: {
  list: () => fetch(`${controlBase}/api/scenarios`, { headers: controlHeaders() }).then(parse),
+ },
+ incidents: {
+  getReport: (incidentId) => fetch(`${controlBase}/api/incidents/${encodeURIComponent(incidentId)}/report`, { headers: controlHeaders() }).then(parse),
+  getMarkdown: (incidentId) => fetch(`${controlBase}/api/incidents/${encodeURIComponent(incidentId)}/report/markdown`, { headers: controlHeaders() }).then(async (r) => { if (!r.ok) { const detail = await r.text().catch(() => ''); const err = new Error(detail || `Request failed with ${r.status}`); err.status = r.status; throw err; } return r.text() }),
+  getMemberReport: (incidentId, memberId) => fetch(`${controlBase}/api/incidents/${encodeURIComponent(incidentId)}/report/member/${encodeURIComponent(memberId)}`, { headers: controlHeaders() }).then(parse),
+  getMemberMarkdown: (incidentId, memberId) => fetch(`${controlBase}/api/incidents/${encodeURIComponent(incidentId)}/report/member/${encodeURIComponent(memberId)}/markdown`, { headers: controlHeaders() }).then((r) => { if (!r.ok) throw new Error(`Request failed with ${r.status}`); return r.text() }),
+  getWord: (incidentId) => fetch(`${controlBase}/api/incidents/${encodeURIComponent(incidentId)}/report/word`, { headers: controlHeaders() }).then(async (r) => { if (!r.ok) throw new Error(`Request failed with ${r.status}`); return r.blob() }),
+  getMemberWord: (incidentId, memberId) => fetch(`${controlBase}/api/incidents/${encodeURIComponent(incidentId)}/report/member/${encodeURIComponent(memberId)}/word`, { headers: controlHeaders() }).then(async (r) => { if (!r.ok) throw new Error(`Request failed with ${r.status}`); return r.blob() }),
  },
  blue: {
  investigate: (roomId, payload) => fetch(`${blueBase}/blueteam/investigate-alert`, {

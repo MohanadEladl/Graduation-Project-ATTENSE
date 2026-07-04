@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { api, captureTokenFromUrl, clearToken, getToken } from './api/client.js'
 import './styles.css'
 
@@ -26,14 +26,6 @@ const fallbackRooms = [
  { room_id: 'RM-006', scenario_id: 'insider', room_name: 'Insider Threat Simulation', status: 'Closed', desc: 'Retrospective analysis of a malicious insider data exfiltration incident. Review mode only.' },
 ]
 
-const analystSeed = [
- { id: 1, name: 'Jane Smith', avatar: 'J', role: 'SOC Analyst', score: 91, grade: 'A', ttd: '4m 22s', ttc: '12m 08s', ttr: '18m 45s', det: 94, con: 82, rec: 87, narrative: 'Exceptional response with outstanding threat isolation speed. Isolated the affected host within minutes, preventing lateral spread to 4 additional endpoints. Detection time was 38% faster than team average. Containment strategy reflected deep knowledge of network segmentation. Minor delay in eradication phase - recommend reviewing rollback procedures before next exercise.' },
- { id: 2, name: 'Marcus Chen', avatar: 'M', role: 'IR Lead', score: 88, grade: 'A-', ttd: '5m 10s', ttc: '10m 22s', ttr: '22m 17s', det: 88, con: 91, rec: 84, narrative: 'Strong leadership during incident response. Coordinated team actions effectively and maintained clear stakeholder communication throughout. Containment was the standout skill. Detection time slightly above average; tuning alert thresholds recommended.' },
- { id: 3, name: 'Sara Okonkwo', avatar: 'S', role: 'Threat Hunter', score: 79, grade: 'B+', ttd: '6m 55s', ttc: '16m 40s', ttr: '25m 10s', det: 82, con: 74, rec: 78, narrative: 'Strong threat hunting instincts surfaced two compromised hosts missed in initial triage. Detection time needs improvement. Overall a solid performance with clear areas to build on.' },
- { id: 4, name: 'Raj Patel', avatar: 'R', role: 'SOC Analyst', score: 74, grade: 'B', ttd: '8m 12s', ttc: '18m 55s', ttr: '28m 30s', det: 76, con: 70, rec: 74, narrative: 'Adequate performance with correct escalation procedures followed. Incident classification was accurate, but detection time was below team average.' },
- { id: 5, name: 'Lena Fischer', avatar: 'L', role: 'SOC Analyst', score: 68, grade: 'C+', ttd: '9m 44s', ttc: '22m 03s', ttr: '34m 18s', det: 65, con: 68, rec: 72, narrative: 'Performance shows clear areas for growth. Initial difficulty classifying the ransomware event severity caused delayed escalation.' },
- { id: 6, name: 'Tom Bradley', avatar: 'T', role: 'IR Lead', score: 84, grade: 'B+', ttd: '5m 58s', ttc: '13m 20s', ttr: '21m 05s', det: 86, con: 80, rec: 85, narrative: 'Strong all-around performance with excellent incident timeline management. Good detection accuracy with appropriate severity classification.' },
-]
 
 function readJson(key, fallback) {
  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)) } catch (_) { return fallback }
@@ -69,10 +61,6 @@ function roomDescription(room) {
  return room?.desc || room?.description || room?.metadata?.description || 'Respond to the active incident, review the evidence, and complete the exercise objectives with your team.'
 }
 
-function roomScore(room, offset = 0) {
- const seed = String(roomName(room) + '-' + (room?.room_id || '')).length + offset
- return Math.max(68, Math.min(98, 78 + (seed % 18)))
-}
 
 function formatSeconds(seconds) {
  const total = Number(seconds)
@@ -101,6 +89,11 @@ function formatDuration(value) {
  return String(value)
  }
  return String(value)
+}
+
+function formatTs(ts) {
+ if (!ts) return '--'
+ try { return new Date(ts).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) } catch (_) { return String(ts) }
 }
 
 function normalizeReport(report) {
@@ -358,54 +351,389 @@ function SkillBar({ label, value, tone }) {
  return <div className="dc-skill"><div><span>{label}</span><b>{value}%</b></div><i><em className={tone} style={{ width: value + '%' }} /></i></div>
 }
 
+const VERDICT_LABEL = { excellent: 'A', acceptable: 'B', needs_review: 'C', failed: 'F' }
+const VERDICT_COLOR = { excellent: '#43d39f', acceptable: '#53b8ff', needs_review: '#f2b95b', failed: '#ef5350' }
+
+function ruleStatusLabel(status) {
+ if (status === 'triggered') return { text: 'FAIL', color: '#ef5350' }
+ if (status === 'passed') return { text: 'PASS', color: '#43d39f' }
+ return { text: 'N/A', color: '#888' }
+}
+
 function ReportView({ user, room }) {
- const [mode, setMode] = useState((user?.role === 'soc_manager' || user?.role === 'ciso') ? 'manager' : 'analyst')
+ const defaultMode = (user?.role === 'soc_manager' || user?.role === 'ciso') ? 'manager' : 'analyst'
+ const [mode, setMode] = useState(defaultMode)
  const [expanded, setExpanded] = useState(null)
+ const [scoredReport, setScoredReport] = useState(null)
+ const [markdown, setMarkdown] = useState(null)
+ const [markdownError, setMarkdownError] = useState(null)
+ const [memberMarkdowns, setMemberMarkdowns] = useState({})
+ const [loadingReport, setLoadingReport] = useState(false)
+ const [loadingMd, setLoadingMd] = useState(false)
+ const [reportError, setReportError] = useState(null)
+ const [reportPending, setReportPending] = useState(false)
+
+ const incidentId = room?.incidents_detail?.[0]?.incident_id
+
+ useEffect(() => {
+  setMode(defaultMode)
+  setExpanded(null)
+  setScoredReport(null)
+  setMarkdown(null)
+  setMarkdownError(null)
+  setMemberMarkdowns({})
+  setReportError(null)
+  setReportPending(false)
+ }, [incidentId])
+
+ function fetchReport() {
+  if (!incidentId) return
+  setLoadingReport(true)
+  setReportError(null)
+  setReportPending(false)
+  api.incidents.getReport(incidentId)
+   .then((r) => { setScoredReport(r); setLoadingReport(false) })
+   .catch((e) => {
+    if (e.status === 425) { setReportPending(true) }
+    else { setReportError(e.message) }
+    setLoadingReport(false)
+   })
+ }
+
+ useEffect(() => { fetchReport() }, [incidentId])
+
+ function loadMarkdown(force = false) {
+  if (!incidentId || loadingMd || markdown || (!force && markdownError)) return
+  setLoadingMd(true)
+  api.incidents.getMarkdown(incidentId)
+   .then((md) => { setMarkdown(md); setLoadingMd(false) })
+   .catch((e) => { setMarkdownError(e.message || 'Could not load AI report.'); setLoadingMd(false) })
+ }
+
+ function loadMemberMarkdown(memberId) {
+  if (!incidentId || memberMarkdowns[memberId]) return
+  api.incidents.getMemberMarkdown(incidentId, memberId)
+   .then((md) => setMemberMarkdowns((prev) => ({ ...prev, [memberId]: md })))
+   .catch(() => setMemberMarkdowns((prev) => ({ ...prev, [memberId]: 'Could not load.' })))
+ }
+
  if (!room) {
- return (
- <main className="dc-main">
- <section className="dc-empty">No active room selected. Choose a room from the lobby or authenticate with a valid session.</section>
- </main>
- )
+  return (
+   <main className="dc-main">
+    <section className="dc-empty">No active room selected. Choose a room from the lobby or authenticate with a valid session.</section>
+   </main>
+  )
  }
- const activeRoom = room
- const report = reportFromRoom(activeRoom)
- const hasReport = hasReportData(report)
+
+ const basicReport = reportFromRoom(room)
+ const report = scoredReport || basicReport
+ const hasReport = loadingReport || hasReportData(basicReport) || !!scoredReport
+
  if (!hasReport) {
- return (
- <main className="dc-main">
- <section className="dc-empty">
- <h2>{roomName(activeRoom)}</h2>
- <p>No incident report is available for this room yet.</p>
- <p>Either the room has not started or the backend has not generated report data.</p>
- </section>
- </main>
- )
+  return (
+   <main className="dc-main">
+    <section className="dc-empty">
+     <h2>{roomName(room)}</h2>
+     <p>No incident report is available for this room yet.</p>
+     <p>Either the room has not started or the backend has not generated report data.</p>
+    </section>
+   </main>
+  )
  }
- const actualScore = reportScore(report) ?? 0
- const analystRows = [{
- id: activeRoom.room_id || activeRoom.id || 'report-1',
- name: roomName(activeRoom),
- avatar: roomName(activeRoom).slice(0, 1).toUpperCase(),
- role: roleNames[user?.role] || user?.role || 'SOC Analyst',
- score: actualScore,
- grade: gradeFor(actualScore),
- ttd: formatDuration(report?.ttd),
- ttc: formatDuration(report?.ttc),
- ttr: formatDuration(report?.ttc),
- det: report?.ttd != null ? Math.max(40, Math.min(98, 100 - Math.round(Number(report.ttd) / 6))) : 72,
- con: report?.ttc != null ? Math.max(40, Math.min(98, 100 - Math.round(Number(report.ttc) / 5))) : 68,
- rec: report?.ttc != null ? Math.max(40, Math.min(95, 100 - Math.round(Number(report.ttc) / 8))) : 70,
- narrative: report?.outcome ? `Live incident outcome: ${report.outcome}` : 'This room report is pending or unavailable.',
- }]
+
+ const finalScore = scoredReport?.final_score ?? reportScore(basicReport) ?? 0
+ const verdict = scoredReport?.verdict
+ const verdictColor = VERDICT_COLOR[verdict] || scoreColor(finalScore)
+ const verdictLabel = VERDICT_LABEL[verdict] || gradeFor(finalScore)
+ const ttdSec = scoredReport?.ttd ?? report?.ttd
+ const ttcSec = scoredReport?.ttc ?? report?.ttc
+ const scoringRules = scoredReport?.scoring_rules || []
+ const memberScores = scoredReport?.member_scores || {}
+ const memberIds = Object.keys(memberScores)
+ const mitre = scoredReport?.mitre_attack || {}
+
+ const contributions = {}
+ ;(scoredReport?.analyst_contributions || []).forEach((c) => { contributions[c.analyst_id] = c })
+ const roomTiming = scoredReport?.room_timing || {}
+ const difficultyBonus = scoredReport?.response_difficulty_bonus
+ const ttcActual = scoredReport?.ttc_actual_sec
+ const scoringStartedAt = scoredReport?.scoring_started_at
+
+ const analystRows = memberIds.length > 0
+  ? memberIds.map((mid) => {
+   const m = memberScores[mid]
+   const mColor = VERDICT_COLOR[m.verdict] || scoreColor(m.final_score)
+   const contrib = contributions[mid]
+   const memberTtd = contrib?.first_action_offset_sec != null
+    ? contrib.first_action_offset_sec
+    : ttdSec
+   return {
+    id: mid,
+    name: mid,
+    avatar: mid.slice(0, 1).toUpperCase(),
+    role: 'SOC Analyst',
+    score: m.final_score,
+    grade: VERDICT_LABEL[m.verdict] || gradeFor(m.final_score),
+    gradeColor: mColor,
+    ttd: formatDuration(memberTtd),
+    ttc: formatDuration(ttcSec),
+    ttr: formatDuration(ttcSec),
+    verdict: m.verdict,
+    rules: m.scoring_rules || [],
+   }
+  })
+  : [{
+   id: room.room_id || 'report-1',
+   name: roomName(room),
+   avatar: roomName(room).slice(0, 1).toUpperCase(),
+   role: roleNames[user?.role] || user?.role || 'SOC Analyst',
+   score: finalScore,
+   grade: verdictLabel,
+   gradeColor: verdictColor,
+   ttd: formatDuration(ttdSec),
+   ttc: formatDuration(ttcSec),
+   ttr: formatDuration(ttcSec),
+   verdict,
+   rules: scoringRules,
+  }]
+
  const scores = analystRows.map((item) => item.score)
- const teamAvg = Math.round(scores.reduce((sum, item) => sum + item, 0) / Math.max(scores.length, 1))
+ const teamAvg = scoredReport?.final_score ?? Math.round(scores.reduce((sum, v) => sum + v, 0) / Math.max(scores.length, 1))
+
+ function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+ }
+
+ function downloadWord() {
+  if (!incidentId) return
+  api.incidents.getWord(incidentId)
+   .then((blob) => downloadBlob(blob, `report_${incidentId.slice(0, 8)}.docx`))
+   .catch((e) => alert('Could not download Word report: ' + e.message))
+ }
+
  return (
- <main className="dc-main">
- <section className="dc-report-header"><div><p>Post-Incident Report</p><h1>{roomScenario(activeRoom)}</h1><div className="dc-report-badges"><span>{roomDate(activeRoom)}</span><span>{roomOutcome(activeRoom)}</span></div></div><div className="dc-toggle"><button className={mode === 'analyst' ? 'active' : ''} onClick={() => setMode('analyst')}>Analyst View</button><button className={mode === 'manager' ? 'active manager' : ''} onClick={() => setMode('manager')}>SOC Manager</button></div></section>
- {mode === 'analyst' && <section className="dc-analyst-report"><div className="dc-score-card"><div className="dc-score-ring"><svg viewBox="0 0 140 140"><defs><linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#4a86e8" /><stop offset="100%" stopColor="#43d39f" /></linearGradient></defs><circle cx="70" cy="70" r="52" /><circle cx="70" cy="70" r="52" pathLength="100" style={{ strokeDasharray: 100, strokeDashoffset: 100 - actualScore }} /></svg><div><strong>{actualScore}</strong><span>/100</span></div></div><p>Final Grade</p><b style={{ color: scoreColor(actualScore), borderColor: scoreColor(actualScore) + '40', background: scoreColor(actualScore) + '18' }}>{gradeFor(actualScore)}</b></div><div className="dc-report-side"><div className="dc-metric-grid"><article><span>Time to Detect</span><strong>{formatDuration(report?.ttd)}</strong><p>TTD</p></article><article><span>Time to Contain</span><strong>{formatDuration(report?.ttc)}</strong><p>TTC</p></article><article><span>Time to Respond</span><strong>{formatDuration(report?.ttc)}</strong><p>TTR</p></article></div><div className="dc-skills"><h2>Skill Breakdown</h2><SkillBar label="Detection" value={analystRows[0].det} tone="green" /><SkillBar label="Containment" value={analystRows[0].con} tone="blue" /><SkillBar label="Recovery" value={analystRows[0].rec} tone="purple" /></div></div><div className="dc-ai-feedback"><h2>Incident Outcome</h2><p>{report?.outcome ? `The incident received outcome: ${report.outcome}.` : analystRows[0].narrative}</p></div></section>}
- {mode === 'manager' && <section className="dc-manager-report"><div className="dc-team-stats"><article><span>Team Avg Score</span><strong>{teamAvg}</strong><p>/ 100 points</p></article><article><span>Best Score</span><strong>{Math.max(...scores)}</strong><p>{roomName(activeRoom)}</p></article><article><span>Lowest Score</span><strong>{Math.min(...scores)}</strong><p>Review needed</p></article><article><span>Analysts</span><strong>{analystRows.length}</strong><p>Report rows</p></article></div><div className="dc-analyst-table"><header><h2>Incident Summary</h2><p>Report derived from active room data</p></header><div className="dc-analyst-head"><span>Report</span><span>Role</span><span>Score</span><span>TTD</span><span>TTC</span><span>TTR</span><span /></div>{analystRows.map((analyst) => <div key={analyst.id}><button className="dc-analyst-row" type="button" onClick={() => setExpanded(expanded === analyst.id ? null : analyst.id)}><div><i>{analyst.avatar}</i><strong>{analyst.name}</strong></div><span>{analyst.role}</span><b style={{ color: scoreColor(analyst.score) }}>{analyst.score}</b><span>{analyst.ttd}</span><span>{analyst.ttc}</span><span>{analyst.ttr}</span><em>{expanded === analyst.id ? 'up' : 'down'}</em></button>{expanded === analyst.id && <div className="dc-expanded"><div className="dc-mini-score"><strong>{analyst.score}</strong><span style={{ color: scoreColor(analyst.score), borderColor: scoreColor(analyst.score) + '40', background: scoreColor(analyst.score) + '18' }}>{analyst.grade}</span></div><div><div className="dc-metric-grid small"><article><span>TTD</span><strong>{analyst.ttd}</strong></article><article><span>TTC</span><strong>{analyst.ttc}</strong></article><article><span>TTR</span><strong>{analyst.ttr}</strong></article></div><div className="dc-skills compact"><SkillBar label="Detection" value={analyst.det} tone="green" /><SkillBar label="Containment" value={analyst.con} tone="blue" /><SkillBar label="Recovery" value={analyst.rec} tone="purple" /></div><p>{analyst.narrative}</p></div></div>}</div>)}</div></section>}
- </main>
+  <main className="dc-main">
+   <section className="dc-report-header">
+    <div>
+     <p>Post-Incident Report</p>
+     <h1>{roomScenario(room)}</h1>
+     <div className="dc-report-badges"><span>{roomDate(room)}</span><span>{roomOutcome(room)}</span>{verdict && <span style={{ color: verdictColor }}>{verdict}</span>}</div>
+    </div>
+    <div className="dc-toggle">
+     <button className={mode === 'analyst' ? 'active' : ''} onClick={() => setMode('analyst')}>Analyst View</button>
+     <button className={mode === 'manager' ? 'active manager' : ''} onClick={() => setMode('manager')}>SOC Manager</button>
+     <button className={mode === 'ai' ? 'active' : ''} onClick={() => { setMode('ai'); loadMarkdown() }}>AI Report</button>
+     {scoredReport && <button onClick={downloadWord} style={{ background: '#1a3a5c', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: '0.85em' }}>Download .docx</button>}
+    </div>
+   </section>
+
+   {loadingReport && <section className="dc-empty"><p>Loading scored report…</p></section>}
+   {reportPending && (
+    <section className="dc-empty">
+     <p style={{ fontWeight: 600 }}>Exercise in progress</p>
+     <p style={{ opacity: 0.7 }}>The scored report will be available once the exercise ends. End the incident to generate the report.</p>
+    </section>
+   )}
+   {reportError && !reportPending && (
+    <section className="dc-empty">
+     <p style={{ color: '#ef5350' }}>Could not load scored report: {reportError}</p>
+     <button type="button" onClick={fetchReport} style={{ marginTop: 8, cursor: 'pointer' }}>Retry</button>
+    </section>
+   )}
+
+   {mode === 'analyst' && (
+    <section className="dc-analyst-report">
+     <div className="dc-score-card">
+      <div className="dc-score-ring">
+       <svg viewBox="0 0 140 140">
+        <defs><linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#4a86e8" /><stop offset="100%" stopColor="#43d39f" /></linearGradient></defs>
+        <circle cx="70" cy="70" r="52" />
+        <circle cx="70" cy="70" r="52" pathLength="100" style={{ strokeDasharray: 100, strokeDashoffset: 100 - (finalScore ?? 0) }} />
+       </svg>
+       <div><strong>{finalScore ?? '—'}</strong><span>/100</span></div>
+      </div>
+      <p>Final Grade</p>
+      <b style={{ color: verdictColor, borderColor: verdictColor + '40', background: verdictColor + '18' }}>{verdictLabel}</b>
+     </div>
+     <div className="dc-report-side">
+      <div className="dc-metric-grid">
+       <article><span>Time to Detect</span><strong>{formatDuration(ttdSec)}</strong><p>TTD</p></article>
+       <article><span>Time to Contain</span><strong>{formatDuration(ttcSec)}</strong><p>TTC (threshold)</p></article>
+       {ttcActual != null && <article><span>Actual TTC</span><strong>{formatDuration(ttcActual)}</strong><p>Measured</p></article>}
+       <article><span>Penalty</span><strong>{scoredReport?.penalty_total ?? '—'} pts</strong><p>Deductions</p></article>
+       {difficultyBonus != null && <article><span>Difficulty Bonus</span><strong>+{Math.round(difficultyBonus * 10) / 10} pts</strong><p>Complexity reward</p></article>}
+      </div>
+      {scoringRules.length > 0 && (
+       <div className="dc-skills">
+        <h2>Score Breakdown</h2>
+        {scoringRules.map((r) => {
+         const s = ruleStatusLabel(r.status)
+         return (
+          <div key={r.rule_id} className="dc-skill">
+           <div>
+            <span>{r.rule_id}: {r.description}</span>
+            <b style={{ color: s.color }}>{s.text}{r.status === 'triggered' ? ` -${Math.abs(r.penalty_points)}pts` : ''}</b>
+           </div>
+           {r.evidence?.length > 0 && (
+            <div style={{ marginTop: 3 }}>
+             {r.evidence.map((ev, i) => <small key={i} style={{ opacity: 0.65, display: 'block' }}>{ev}</small>)}
+            </div>
+           )}
+          </div>
+         )
+        })}
+       </div>
+      )}
+      {(mitre.primary?.length > 0 || mitre.related?.length > 0) && (
+       <div className="dc-skills">
+        <h2>MITRE ATT&amp;CK</h2>
+        {mitre.primary?.map((t) => (
+         <div key={t.technique_id} className="dc-skill">
+          <div><span>{t.technique_id} — {t.technique_name}</span><b>{t.tactic}</b></div>
+          {t.source && <small style={{ opacity: 0.5, marginTop: 2, display: 'block', wordBreak: 'break-all' }}>{t.source}</small>}
+         </div>
+        ))}
+        {mitre.related?.map((t) => (
+         <div key={t.technique_id} className="dc-skill" style={{ opacity: 0.8 }}>
+          <div><span>{t.technique_id} — {t.technique_name}</span><b style={{ opacity: 0.7 }}>{t.tactic}</b></div>
+          {t.source && <small style={{ opacity: 0.5, marginTop: 2, display: 'block', wordBreak: 'break-all' }}>{t.source}</small>}
+         </div>
+        ))}
+        {mitre.mapping_note && (
+         <p style={{ fontSize: '0.78em', opacity: 0.6, marginTop: 6, padding: '0 2px' }}>{mitre.mapping_note}</p>
+        )}
+       </div>
+      )}
+      {scoredReport?.response_framework?.name && (
+       <div className="dc-skills">
+        <h2>Response Framework</h2>
+        <div className="dc-skill"><div><span>{scoredReport.response_framework.name}</span></div></div>
+        {scoredReport.response_framework.note && (
+         <p style={{ fontSize: '0.78em', opacity: 0.6, marginTop: 4, padding: '0 2px' }}>{scoredReport.response_framework.note}</p>
+        )}
+        {scoredReport.response_framework.source && (
+         <p style={{ fontSize: '0.75em', opacity: 0.45, marginTop: 3, padding: '0 2px', wordBreak: 'break-all' }}>{scoredReport.response_framework.source}</p>
+        )}
+       </div>
+      )}
+      {(scoredReport?.start_time || scoredReport?.detection_time || scoredReport?.containment_time || roomTiming.attack_started_at || scoringStartedAt) && (
+       <div className="dc-skills">
+        <h2>Timeline</h2>
+        {roomTiming.attack_started_at && <div className="dc-skill"><div><span>Attack Started</span><b>{formatTs(roomTiming.attack_started_at)}</b></div></div>}
+        {scoredReport?.start_time && <div className="dc-skill"><div><span>Incident Start</span><b>{formatTs(scoredReport.start_time)}</b></div></div>}
+        {roomTiming.blue_started_at && <div className="dc-skill"><div><span>Blue Team Entered</span><b>{formatTs(roomTiming.blue_started_at)}</b></div></div>}
+        {scoredReport?.detection_time && <div className="dc-skill"><div><span>Detection</span><b>{formatTs(scoredReport.detection_time)}</b></div></div>}
+        {scoringStartedAt && <div className="dc-skill"><div><span>Scoring Started</span><b>{formatTs(scoringStartedAt)}</b></div></div>}
+        {scoredReport?.containment_time && <div className="dc-skill"><div><span>Containment</span><b>{formatTs(scoredReport.containment_time)}</b></div></div>}
+        {scoredReport?.end_time && <div className="dc-skill"><div><span>Incident End</span><b>{formatTs(scoredReport.end_time)}</b></div></div>}
+        {roomTiming.exercise_mode && <div className="dc-skill"><div><span>Exercise Mode</span><b>{roomTiming.exercise_mode}</b></div></div>}
+       </div>
+      )}
+     </div>
+     <div className="dc-ai-feedback">
+      <h2>Incident Outcome</h2>
+      <p>{scoredReport?.status || report?.outcome || 'Outcome pending.'}</p>
+      <small style={{ opacity: 0.55, fontSize: '0.78em' }}>Incident status</small>
+      {scoredReport?.outcome && (
+       <p style={{ marginTop: 8 }}>{scoredReport.outcome}</p>
+      )}
+      {scoredReport?.outcome && (
+       <small style={{ opacity: 0.55, fontSize: '0.78em' }}>Exercise result</small>
+      )}
+      {scoredReport?.team_score_basis === 'average_of_members' && (
+       <p style={{ fontSize: '0.85em', opacity: 0.7 }}>Team score is the average of {memberIds.length} analyst score(s).</p>
+      )}
+     </div>
+    </section>
+   )}
+
+   {mode === 'manager' && (
+    <section className="dc-manager-report">
+     <div className="dc-team-stats">
+      <article><span>Team Score</span><strong>{teamAvg ?? '—'}</strong><p>/ 100 points</p></article>
+      <article><span>Verdict</span><strong style={{ color: verdictColor }}>{verdict || '—'}</strong><p>Score band</p></article>
+      <article><span>Analysts</span><strong>{analystRows.length}</strong><p>Report rows</p></article>
+      <article><span>Penalty</span><strong>{scoredReport?.penalty_total ?? '—'}</strong><p>Points deducted</p></article>
+     </div>
+     <div className="dc-analyst-table">
+      <header><h2>Per-Analyst Breakdown</h2><p>{memberIds.length > 0 ? 'Individual scores from the scoring engine' : 'Report derived from active room data'}</p></header>
+      <div className="dc-analyst-head"><span>Analyst</span><span>Role</span><span>Score</span><span>TTD</span><span>TTC</span><span>Verdict</span><span /></div>
+      {analystRows.map((analyst) => (
+       <div key={analyst.id}>
+        <button className="dc-analyst-row" type="button" onClick={() => { setExpanded(expanded === analyst.id ? null : analyst.id); loadMemberMarkdown(analyst.id) }}>
+         <div><i>{analyst.avatar}</i><strong>{analyst.name}</strong></div>
+         <span>{analyst.role}</span>
+         <b style={{ color: analyst.gradeColor }}>{analyst.score ?? '—'}</b>
+         <span>{analyst.ttd}</span>
+         <span>{analyst.ttc}</span>
+         <span style={{ color: analyst.gradeColor }}>{analyst.verdict || analyst.grade}</span>
+         <em>{expanded === analyst.id ? '▲' : '▼'}</em>
+        </button>
+        {expanded === analyst.id && (
+         <div className="dc-expanded">
+          <div className="dc-mini-score">
+           <strong>{analyst.score ?? '—'}</strong>
+           <span style={{ color: analyst.gradeColor, borderColor: analyst.gradeColor + '40', background: analyst.gradeColor + '18' }}>{analyst.grade}</span>
+           {memberScores[analyst.id]?.penalty_total != null && (
+            <span style={{ fontSize: '0.8em', opacity: 0.7 }}>Penalty: {memberScores[analyst.id].penalty_total} pts</span>
+           )}
+          </div>
+          {contributions[analyst.id] != null && (
+           <p style={{ fontSize: '0.82em', opacity: 0.7, margin: '4px 0 6px' }}>
+            Actions: <strong>{contributions[analyst.id].event_count ?? 0}</strong>
+            {contributions[analyst.id].event_types && Object.keys(contributions[analyst.id].event_types).length > 0 && (
+             <span style={{ marginLeft: 6 }}>({Object.entries(contributions[analyst.id].event_types).map(([k, v]) => `${k}: ${v}`).join(', ')})</span>
+            )}
+            {contributions[analyst.id].first_action_offset_sec != null && (
+             <span style={{ marginLeft: 6, opacity: 0.8 }}>· First action at +{Math.round(contributions[analyst.id].first_action_offset_sec)}s</span>
+            )}
+           </p>
+          )}
+          {analyst.rules.length > 0 && (
+           <div className="dc-skills compact">
+            {analyst.rules.map((r) => {
+             const s = ruleStatusLabel(r.status)
+             return (
+              <div key={r.rule_id} className="dc-skill">
+               <div><span>{r.rule_id}: {r.description}</span><b style={{ color: s.color }}>{s.text}{r.status === 'triggered' ? ` -${Math.abs(r.penalty_points)}pts` : ''}</b></div>
+               {r.evidence?.length > 0 && (
+                <div style={{ marginTop: 2 }}>
+                 {r.evidence.map((ev, i) => <small key={i} style={{ opacity: 0.6, display: 'block' }}>{ev}</small>)}
+                </div>
+               )}
+              </div>
+             )
+            })}
+           </div>
+          )}
+          {memberMarkdowns[analyst.id] && (
+           <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8em', opacity: 0.85, marginTop: 8 }}>{memberMarkdowns[analyst.id]}</pre>
+          )}
+         </div>
+        )}
+       </div>
+      ))}
+     </div>
+    </section>
+   )}
+
+   {mode === 'ai' && (
+    <section className="dc-ai-feedback" style={{ padding: '1.5rem' }}>
+     <h2>AI Incident Report</h2>
+     {loadingMd && <p>Generating report…</p>}
+     {markdownError && (
+      <p style={{ color: '#ef5350' }}>
+       {markdownError}
+       <button type="button" onClick={() => { setMarkdownError(null); loadMarkdown(true) }} style={{ marginLeft: 12, cursor: 'pointer' }}>Retry</button>
+      </p>
+     )}
+     {markdown && <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.85em', lineHeight: 1.6 }}>{markdown}</pre>}
+    </section>
+   )}
+  </main>
  )
 }
 function NotificationsView({ rooms, showFallback, setView, selectRoom, enterRoom }) {
@@ -548,7 +876,7 @@ function HiveOverlay({ room, onFinish, onClose }) {
  </div>
  ) : null}
  <div className="dc-hive-launch-actions">
- <button type="button" onClick={open}>{opened ? 'Reopen TheHive ↗' : 'Open TheHive ↗'}</button>
+ <button type="button" onClick={open}>{opened ? 'Reopen TheHive â†—' : 'Open TheHive â†—'}</button>
  <button type="button" className="finish" onClick={onFinish}>Finish Incident &amp; View Report</button>
  <button type="button" className="ghost" onClick={onClose}>Close (keep investigating)</button>
  </div>
@@ -641,7 +969,13 @@ export default function App() {
  if (requestedIncident) {
  const matched = listed.find((room) => room.incident_id === requestedIncident || (room.incidents || []).includes(requestedIncident))
  if (matched) {
- selectRoom(matched.room_id)
+ setActiveRoomId(matched.room_id)
+ try {
+ const full = await api.rooms.get(matched.room_id)
+ setActiveRoom(full)
+ } catch (_) {
+ setActiveRoom(matched)
+ }
  setView('reports')
  }
  }
@@ -835,4 +1169,8 @@ export default function App() {
  {!loading && !error && view === 'notifications' && <NotificationsView rooms={rooms} showFallback={false} setView={setView} selectRoom={selectRoom} enterRoom={enterRoom} />}
  {entryModalRoom && <EntryModal room={entryModalRoom} busy={entering} onConfirm={confirmEnter} onCancel={() => setEntryModalRoom(null)} />}
  {lobbyRoom && <LobbyOverlay room={lobbyRoom} onEnterHive={openHive} onClose={() => setLobbyRoom(null)} />}
- {hiveRoom && !hiveMinimized && <HiveOverlay room={hiveRoom
+ {hiveRoom && !hiveMinimized && <HiveOverlay room={hiveRoom} onFinish={finishFromHive} onClose={() => setHiveMinimized(true)} />}
+ {hiveRoom && hiveMinimized && <HiveSessionBar room={hiveRoom} onReopen={() => setHiveMinimized(false)} onFinish={finishFromHive} />}
+ </div>
+ )
+}
