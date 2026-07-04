@@ -54,7 +54,19 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test dependencies
-        run: pip install "pydantic==2.10.6" "pydantic-settings==2.7.1" fastapi httpx requests tenacity pytest uvicorn
+        # `docker`, `psycopg`, and `bcrypt` are required here (not just at
+        # runtime): apps/control-api's core/room_manager.py and
+        # core/hive_provisioner.py both `import docker` unconditionally at
+        # module scope, core/db.py (imported by room_manager.py) does the
+        # same for `psycopg`, and core/user_store.py (also imported by
+        # room_manager.py) does the same for `bcrypt` - so any control-api
+        # test that imports room_manager or hive_provisioner, directly or
+        # transitively, fails at import time without all three, before a
+        # single test even runs. (Verified against apps/control-api/
+        # requirements.txt's full list - google-genai, python-docx, and
+        # python-multipart are NOT needed at import time by anything the
+        # test suite reaches, so they're deliberately left out here.)
+        run: pip install "pydantic==2.10.6" "pydantic-settings==2.7.1" fastapi httpx requests tenacity pytest uvicorn docker "psycopg[binary]" bcrypt
       - name: Unit tests (pure domain logic)
         run: python -m unittest discover -s tests/unit -p "test_*.py" -v
       - name: Integration — control-api (persistence, correlation, scenarios API)
