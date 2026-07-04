@@ -1065,6 +1065,77 @@ function LearningPanel({
         </motion.div>
         )}
 
+        {/* Objective-based progress — required objective vs recommended methodology.
+            Completion is objective-based; methodology is advisory (never blocks). */}
+        {isLab && (progress?.objective || progress?.missing_quality?.length || progress?.next_recommended_action) && (
+          <div
+            className="rounded-xl p-4 mb-4"
+            style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <div className="font-mono text-[9px] tracking-[0.28em] mb-2" style={{ color: '#2ee39a' }}>
+              REQUIRED OBJECTIVE
+            </div>
+            {progress?.objective && (
+              <div className="text-[12px] text-attense-text leading-relaxed mb-2">{progress.objective}</div>
+            )}
+
+            {progress?.success ? (
+              <div
+                className="rounded-lg p-3 mb-1 text-[11.5px] leading-relaxed"
+                style={{ background: 'rgba(46,227,154,0.08)', border: '1px solid rgba(46,227,154,0.3)', color: '#bff3dd' }}
+              >
+                {progress?.missing_quality?.length
+                  ? `Attack objective reached. You can view the report now, or keep improving your methodology score (currently ${progress?.quality_score ?? 0}%).`
+                  : 'Attack objective reached with strong methodology. View your report.'}
+              </div>
+            ) : (
+              progress?.next_recommended_action && (
+                <div
+                  className="rounded-lg p-3 mb-1 text-[11.5px] leading-relaxed"
+                  style={{ background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.22)', color: '#cfe8ff' }}
+                >
+                  <span className="font-mono text-[9px] tracking-[0.24em] block mb-1" style={{ color: '#7dd3fc' }}>
+                    NEXT RECOMMENDED
+                  </span>
+                  {progress.next_recommended_action}
+                </div>
+              )
+            )}
+
+            {progress?.missing_quality?.length > 0 && (
+              <div className="mt-3">
+                <div className="font-mono text-[9px] tracking-[0.24em] text-attense-dim mb-1.5">
+                  RECOMMENDED METHODOLOGY
+                </div>
+                <ul className="space-y-1">
+                  {progress.missing_quality.map((q) => (
+                    <li key={q.id} className="flex gap-2 text-[11px] text-attense-dim leading-snug">
+                      <span style={{ color: '#7dd3fc' }}>○</span>
+                      <span>{q.recommendation || q.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(progress?.completed_quality?.length > 0 || progress?.quality_score != null) && (
+              <div className="mt-3 font-mono text-[9px] tracking-[0.2em] text-attense-dim">
+                REPORT QUALITY SIGNAL · METHODOLOGY {progress?.quality_score ?? 0}%
+              </div>
+            )}
+
+            {progress?.warnings?.map((w, i) => (
+              <div
+                key={i}
+                className="mt-2 rounded-lg p-2.5 text-[11px] leading-snug"
+                style={{ background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.28)', color: '#ffd48a' }}
+              >
+                ⚠ {w}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Required tools — Lab Mode only */}
         {isLab && requiredTools.length > 0 && (
           <div

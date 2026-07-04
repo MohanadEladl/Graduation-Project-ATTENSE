@@ -2036,6 +2036,217 @@ def list_variants(module_id: str) -> List[Dict[str, Any]]:
     ]
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  OBJECTIVE-BASED PROGRESS MODEL
+#
+#  Mission COMPLETION is objective-based: it depends on reaching the real attack
+#  target, NOT on finishing a fixed checklist in order. Learning QUALITY (did the
+#  student follow good methodology?) is scored separately and NEVER blocks
+#  completion. Safety is confirmed by the existing operator gating and surfaced
+#  as non-blocking warnings.
+#
+#  Each module declares:
+#    objective          — one-line student-facing goal (no solution leak)
+#    completion_groups  — list of OR-groups. A group is satisfied when ANY of its
+#                         event types is observed *through the gated channel*
+#                         (operator route + backend=operator + approved tool in
+#                         lab mode). ALL groups must be satisfied → objective
+#                         reached. One correct action can satisfy several groups.
+#    quality_tasks      — recommended methodology signals used for scoring and
+#                         report coaching. Each: id, label, recommendation, and a
+#                         matcher (event_types and/or via). Matched against ALL
+#                         module events (any channel) so e.g. inspecting in the
+#                         browser still earns methodology credit.
+#
+#  brute_force keeps its dedicated failure-count completion (unchanged); its
+#  quality tasks are scored the same way as every other module.
+# ═══════════════════════════════════════════════════════════════════════════
+_CAP_VIA = ["browser", "zap_repeater", "zap_fuzzer"]   # request visible in ZAP history
+
+OBJECTIVE_SPECS: Dict[str, Dict[str, Any]] = {
+    "recon": {
+        "objective": "Discover and verify a hidden local route on the operator portal.",
+        "completion_groups": [["hidden_clue_accessed", "recon_sequence_observed"]],
+        "quality_tasks": [
+            {"id": "portal_mapped", "label": "Map the portal home first",
+             "event_types": ["portal_visited"],
+             "recommendation": "Start by visiting /op/ and mapping the visible routes."},
+            {"id": "discovery_files_checked", "label": "Check common discovery files",
+             "event_types": ["route_discovered"],
+             "recommendation": "Request /op/robots.txt and /op/.well-known/security.txt and read the responses."},
+            {"id": "verified_with_tool", "label": "Verify a route with Repeater or AttackBox",
+             "via": ["zap_repeater", "attackbox"],
+             "recommendation": "Confirm an interesting path with ZAP Repeater or a safe AttackBox curl before trusting it."},
+        ],
+    },
+    "xss": {
+        "objective": "Trigger a safe reflected XSS proof on /op/search.",
+        "completion_groups": [
+            ["xss_payload_observed"],
+            ["reflected_input_detected", "stored_payload_observed"],
+        ],
+        "quality_tasks": [
+            {"id": "request_captured", "label": "Capture the request in ZAP", "via": _CAP_VIA,
+             "recommendation": "Submit a query and capture the /op/search request in ZAP Proxy History."},
+            {"id": "context_inspected", "label": "Inspect the reflection context",
+             "event_types": ["xss_context_identified"],
+             "recommendation": "Use the Inspector to find where your input is reflected before choosing a payload."},
+            {"id": "repeater_used", "label": "Test through Repeater", "via": ["zap_repeater"],
+             "recommendation": "Send the request to Repeater and change one thing at a time."},
+            {"id": "marker_first", "label": "Test a harmless marker first",
+             "event_types": ["xss_marker_tested"],
+             "recommendation": "Test a benign marker (e.g. ATTENSE_XSS_PROOF) before a live payload."},
+            {"id": "fuzzer_used", "label": "Iterate payloads with the Fuzzer", "via": ["zap_fuzzer"],
+             "recommendation": "Use the Fuzzer to iterate payload variants against the input parameter."},
+        ],
+    },
+    "cmd_injection": {
+        "objective": "Prove OS command execution on /op/system/ping with a harmless command.",
+        "completion_groups": [["command_injection_detected"]],
+        "quality_tasks": [
+            {"id": "request_captured", "label": "Capture the request in ZAP", "via": _CAP_VIA,
+             "recommendation": "Capture the /op/system/ping request in ZAP Proxy History."},
+            {"id": "baseline_first", "label": "Establish a clean baseline",
+             "event_types": ["diagnostics_used"],
+             "recommendation": "Send a normal host value first so you can tell injected output from normal output."},
+            {"id": "repeater_used", "label": "Test through Repeater", "via": ["zap_repeater"],
+             "recommendation": "Use Repeater and modify one parameter at a time."},
+            {"id": "separator_tested", "label": "Test a shell separator",
+             "event_types": ["command_separator_observed"],
+             "recommendation": "Add one separator at a time and compare responses."},
+            {"id": "fuzzer_used", "label": "Iterate separators with the Fuzzer", "via": ["zap_fuzzer"],
+             "recommendation": "Use the Fuzzer to test separators when unsure which one works."},
+        ],
+    },
+    "dir_traversal": {
+        "objective": "Disclose a sensitive lab file via the /op/files/read parameter.",
+        "completion_groups": [
+            ["sensitive_file_disclosed", "lab_file_disclosed"],
+            ["traversal_pattern_observed"],
+        ],
+        "quality_tasks": [
+            {"id": "request_captured", "label": "Capture the request in ZAP", "via": _CAP_VIA,
+             "recommendation": "Capture the /op/files/read request in ZAP Proxy History."},
+            {"id": "baseline_first", "label": "Request a normal file first",
+             "event_types": ["file_viewer_used"],
+             "recommendation": "Read a normal filename first as your baseline."},
+            {"id": "repeater_used", "label": "Test through Repeater", "via": ["zap_repeater"],
+             "recommendation": "Use Repeater and modify only the filename parameter."},
+            {"id": "encoded_variant", "label": "Try an encoded variant if filtered",
+             "event_types": ["traversal_encoded_tested"],
+             "recommendation": "If plain sequences are filtered, test encoded variants."},
+        ],
+    },
+    "file_upload": {
+        "objective": "Get a dangerous file accepted by /op/files/upload.",
+        "completion_groups": [
+            ["unrestricted_upload_detected", "dangerous_extension_accepted", "uploaded_file_retrieved"],
+        ],
+        "quality_tasks": [
+            {"id": "multipart_captured", "label": "Capture the multipart request",
+             "event_types": ["file_upload_used"],
+             "recommendation": "Capture the multipart /op/files/upload request and inspect its fields."},
+            {"id": "request_captured", "label": "Inspect the request in ZAP", "via": _CAP_VIA,
+             "recommendation": "Inspect the filename field and the file part Content-Type in ZAP."},
+            {"id": "repeater_used", "label": "Test through Repeater", "via": ["zap_repeater"],
+             "recommendation": "Use Repeater and change one validation field at a time (extension or Content-Type)."},
+            {"id": "retrieved_proof", "label": "Retrieve the uploaded proof file",
+             "event_types": ["uploaded_file_retrieved"],
+             "recommendation": "Retrieve the uploaded proof file to confirm it is served (use a harmless file only)."},
+        ],
+    },
+    "csrf": {
+        "objective": "Change the profile via /op/profile/update without a CSRF token.",
+        "completion_groups": [["profile_changed_without_csrf"]],
+        "quality_tasks": [
+            {"id": "request_captured", "label": "Capture the state-changing request", "via": _CAP_VIA,
+             "recommendation": "Capture the /op/profile/update request in ZAP Proxy History."},
+            {"id": "token_absence_identified", "label": "Identify the missing CSRF token",
+             "event_types": ["csrf_token_missing"],
+             "recommendation": "Confirm the state-changing request carries no CSRF token."},
+            {"id": "repeater_used", "label": "Confirm the change through Repeater", "via": ["zap_repeater"],
+             "recommendation": "Replay the request from Repeater without a token to confirm it still works."},
+            {"id": "lure_used", "label": "Use the local lure page",
+             "event_types": ["csrf_lure_visited", "csrf_lure_submitted"],
+             "recommendation": "Use the local /op/evil/csrf-demo lure to recreate the cross-site submission."},
+        ],
+    },
+    "brute_force": {
+        "objective": "Trip the brute-force detector and confirm a valid credential on /op/auth/login.",
+        # Completion is computed by the dedicated brute_force_activity logic, not
+        # these groups; they are kept for documentation/report labelling.
+        "completion_groups": [["brute_force_pattern"], ["credential_found", "login_success"]],
+        "quality_tasks": [
+            {"id": "request_captured", "label": "Capture the login request", "via": _CAP_VIA,
+             "recommendation": "Capture the POST /op/auth/login request in ZAP Proxy History."},
+            {"id": "repeater_used", "label": "Understand the request in Repeater", "via": ["zap_repeater"],
+             "recommendation": "Send the request to Repeater to learn its format before automating."},
+            {"id": "fuzzer_used", "label": "Automate with the Fuzzer", "via": ["zap_fuzzer"],
+             "recommendation": "Use the Fuzzer with the local wordlist and compare status/length between attempts."},
+            {"id": "credential_confirmed", "label": "Confirm the credential",
+             "event_types": ["credential_found", "login_success"],
+             "recommendation": "Confirm the working credential returns a 302 to /profile/."},
+        ],
+    },
+}
+
+
+def get_objective_spec(module_id: str) -> Dict[str, Any]:
+    """Return the objective spec for a module (empty dict if none)."""
+    return OBJECTIVE_SPECS.get(module_id, {})
+
+
+def completion_event_types(module_id: str) -> List[str]:
+    """Flat list with one representative event type per completion group — the
+    minimum evidence that proves the objective. Used by tests and callers that
+    need to synthesise a 'just completed' evidence set."""
+    groups = OBJECTIVE_SPECS.get(module_id, {}).get("completion_groups", [])
+    return [g[0] for g in groups if g]
+
+
+def _quality_task_matched(qt: Dict[str, Any], module_events: List[Dict[str, Any]]) -> bool:
+    ets = set(qt.get("event_types", []))
+    vias = set(qt.get("via", []))
+    for e in module_events:
+        if ets and e.get("event_type") in ets:
+            return True
+        if vias and str(e.get("via") or "") in vias:
+            return True
+    return False
+
+
+def _quality_report(module_id: str,
+                    module_events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Score recommended methodology. NEVER affects completion."""
+    tasks = OBJECTIVE_SPECS.get(module_id, {}).get("quality_tasks", [])
+    completed: List[Dict[str, str]] = []
+    missing: List[Dict[str, str]] = []
+    for qt in tasks:
+        entry = {"id": qt["id"], "label": qt["label"],
+                 "recommendation": qt.get("recommendation", "")}
+        (completed if _quality_task_matched(qt, module_events) else missing).append(entry)
+    total = len(tasks)
+    score = int(round(100 * len(completed) / total)) if total else 0
+    return {"completed": completed, "missing": missing, "score": score, "total": total}
+
+
+def _completion_report(module_id: str,
+                       gated_events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Objective-based completion from gated events. Returns reached flag,
+    a 0-100 completion score (proportional across groups), and human labels for
+    the groups already satisfied."""
+    groups = OBJECTIVE_SPECS.get(module_id, {}).get("completion_groups", [])
+    seen = {e.get("event_type") for e in gated_events}
+    satisfied = [g for g in groups if any(t in seen for t in g)]
+    reached = len(groups) > 0 and len(satisfied) == len(groups)
+    score = int(round(100 * len(satisfied) / len(groups))) if groups else 0
+    labels: List[str] = []
+    for g in satisfied:
+        hit = next((t for t in g if t in seen), g[0])
+        labels.append(_evidence_title(hit))
+    return {"reached": reached, "score": score, "completed_required": labels}
+
+
 def compute(module_id: str,
             mission_started_at: float,
             session_completed_steps: Optional[List[int]] = None,
@@ -2160,6 +2371,13 @@ def compute(module_id: str,
     spec_event_types: set = set()
     for t in task_ladder:
         spec_event_types.update(t["event_types"])
+    # Objective + quality event types are always in-scope so completion evidence
+    # and methodology signals show as cards even when they aren't on the ladder.
+    _obj = OBJECTIVE_SPECS.get(module_id, {})
+    for g in _obj.get("completion_groups", []):
+        spec_event_types.update(g)
+    for qt in _obj.get("quality_tasks", []):
+        spec_event_types.update(qt.get("event_types", []))
 
     # Success criteria: variant overrides default
     if variant is not None:
@@ -2232,37 +2450,98 @@ def compute(module_id: str,
         pass  # operator_api not available — skip tool evidence
     cards.sort(key=lambda c: c.get("timestamp") or 0, reverse=True)
 
-    # Success: every required success event_type observed
-    # (success_required was set earlier — variant override or default spec)
-    success_seen     = set(e.get("event_type") for e in events_for_progress) & success_required
-    success          = len(success_required) > 0 and success_seen == success_required
-
+    # ── Objective-based completion (the core of the objective model) ─────────
+    # COMPLETION depends only on reaching the objective through the gated
+    # channel, NOT on finishing the recommended methodology ladder.
     brute_force_activity = None
     if module_id == "brute_force":
+        # Keep the stricter, already-verified brute-force completion.
         brute_force_activity = _brute_force_activity(events_for_progress, is_lab=is_lab)
         success = (
             brute_force_activity["failed_attempt_count"] >= BRUTE_FORCE_MIN_FAILURES
             and brute_force_activity["credential_found"]
         )
+        completion = {
+            "reached": success,
+            "score": 100 if success else int(round(
+                100 * min(brute_force_activity["failed_attempt_count"] / BRUTE_FORCE_MIN_FAILURES, 1.0)
+            )),
+            "completed_required": (
+                [_evidence_title("brute_force_pattern"), _evidence_title("credential_found")]
+                if success else []
+            ),
+        }
+    else:
+        completion = _completion_report(module_id, events_for_progress)
+        success = completion["reached"]
+
+    # ── Learning QUALITY (methodology) — scored, never blocks completion ─────
+    # Matched against ALL module events (any channel) so browser-based inspection
+    # still earns methodology credit.
+    quality_event_types: set = set()
+    for qt in OBJECTIVE_SPECS.get(module_id, {}).get("quality_tasks", []):
+        quality_event_types.update(qt.get("event_types", []))
+    for g in OBJECTIVE_SPECS.get(module_id, {}).get("completion_groups", []):
+        quality_event_types.update(g)
+    module_known_types = spec_event_types | quality_event_types
+    module_events = [e for e in raw_events if e.get("event_type") in module_known_types]
+    quality = _quality_report(module_id, module_events)
+
+    # ── Safety / channel warnings (non-blocking) ─────────────────────────────
+    warnings: List[str] = []
+    if is_lab:
+        objective_types = {t for g in OBJECTIVE_SPECS.get(module_id, {}).get("completion_groups", []) for t in g}
+        counted_ids = {id(e) for e in events_for_progress}
+        uncounted_objective = [
+            e for e in module_events
+            if e.get("event_type") in objective_types and id(e) not in counted_ids
+        ]
+        if uncounted_objective and not success:
+            vias = sorted({str(e.get("via") or "unknown") for e in uncounted_objective})
+            warnings.append(
+                "You reached the objective outside the approved channel "
+                f"({', '.join(vias)}). In Operator Mode, redo it on the /op/ route "
+                "through ZAP Repeater/Fuzzer or the AttackBox so it counts."
+            )
+        if any(str(e.get("via") or "") == "unknown" for e in module_events):
+            warnings.append(
+                "Some requests came from an unrecognized source and were ignored — "
+                "drive the attack from ZAP or the AttackBox."
+            )
+
+    # ── Next recommended action (advisory, never a solution) ─────────────────
+    if quality["missing"]:
+        next_action = quality["missing"][0]["recommendation"]
+    elif not success:
+        next_action = OBJECTIVE_SPECS.get(module_id, {}).get("objective")
+    else:
+        next_action = None
 
     progress_percent = int(round(100 * len(completed_idx) / max(len(tasks_out), 1)))
 
-    if is_lab:
-        if success:
-            msg = "Lab complete! All steps were performed via Terminal/ZAP."
-        elif progress_percent >= 50:
-            msg = "Good lab progress. Continue with the next Terminal/ZAP step."
-        elif progress_percent > 0:
-            msg = "Lab mode: keep driving the attack from the Terminal or ZAP."
+    if success:
+        # Objective reached. Distinguish a clean run from one that skipped
+        # recommended methodology so the student knows they can finish now.
+        if quality["missing"]:
+            msg = (
+                "Attack objective reached. You can view the report now, or keep "
+                "improving your methodology score — "
+                f"{quality['score']}% of the recommended steps were observed."
+            )
         else:
-            msg = "Lab mode: open the Terminal or ZAP and run the Step 1 command."
+            msg = "Attack objective reached with strong methodology. View your report."
+    elif is_lab:
+        if completion["score"] >= 50:
+            msg = "Close — you're near the objective. Confirm the result through ZAP/AttackBox."
+        elif completion["score"] > 0:
+            msg = "Lab mode: keep driving the attack from the Terminal or ZAP toward the objective."
+        else:
+            msg = "Lab mode: open the Terminal or ZAP and work toward the objective."
     else:
-        if success:
-            msg = "Tutorial complete! Vulnerability demonstrated successfully."
-        elif progress_percent >= 50:
-            msg = "Good progress — finish the remaining task to confirm the vulnerability."
-        elif progress_percent > 0:
-            msg = "You're on your way. Follow the tutorial steps in the instructions panel."
+        if completion["score"] >= 50:
+            msg = "Good progress — one more step reaches the attack objective."
+        elif completion["score"] > 0:
+            msg = "You're on your way. Follow the recommended methodology toward the objective."
         else:
             msg = "Start the mission and interact with the target environment."
 
@@ -2283,6 +2562,18 @@ def compute(module_id: str,
         "defensive_insight":   spec.get("defensive_insight"),
         "events_examined":     len(raw_events),
         "brute_force_activity": brute_force_activity,
+
+        # ── Objective-based progress model ──────────────────────────────────
+        # Mission success == objective reached (the `success` field above).
+        # Quality is advisory and never blocks completion.
+        "objective":             OBJECTIVE_SPECS.get(module_id, {}).get("objective"),
+        "completion_score":      completion["score"],
+        "quality_score":         quality["score"],
+        "completed_required":    completion["completed_required"],
+        "completed_quality":     quality["completed"],
+        "missing_quality":       quality["missing"],
+        "warnings":              warnings,
+        "next_recommended_action": next_action,
     }
 
 

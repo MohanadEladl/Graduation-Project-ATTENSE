@@ -62,9 +62,9 @@ GUIDED_PATH = {
 
 
 def _success_types(module_id):
-    """The success_event_types of the module's default (first) variant."""
-    variant = lab_progress.get_variant_spec(module_id, None)
-    return list(variant["success_event_types"])
+    """The minimum event types that prove the objective (one per completion
+    group) under the objective-based model."""
+    return list(lab_progress.completion_event_types(module_id))
 
 
 def _events(module_id, *, path, backend, via):

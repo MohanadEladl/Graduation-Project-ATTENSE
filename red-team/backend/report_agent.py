@@ -637,27 +637,77 @@ def generate(session, events: list, timeline: list,
             "feedback":       fb,
         })
 
-    # Specific "did right" / "missed" lines
+    # Specific "did right" / "missed" lines.
+    # Objective-based model: separate mission COMPLETION (objective reached) from
+    # learning QUALITY (recommended methodology, advisory) and SAFETY (warnings).
     did_right: List[Dict[str, str]] = []
     missed:    List[Dict[str, str]] = []
-    for t in task_results:
-        if t["completed"]:
-            did_right.append({
-                "title":  t["title"],
-                "detail": f"Completed with {t['evidence_count']} supporting event(s).",
-            })
+
+    objective      = progress.get("objective")
+    completed_req  = progress.get("completed_required") or []
+    completed_qual = progress.get("completed_quality") or []
+    missing_qual   = progress.get("missing_quality") or []
+    warnings       = progress.get("warnings") or []
+    use_objective  = bool(objective or completed_req or missing_qual or warnings)
+
+    if use_objective:
+        # 1) Objective — the evidence that did (or didn't) complete the mission.
+        if progress.get("success"):
+            detail = f"Objective reached: {objective}" if objective else "Objective reached."
+            if completed_req:
+                detail += " Completed by: " + ", ".join(completed_req) + "."
+            did_right.append({"title": "Attack objective reached", "detail": detail})
         else:
             missed.append({
-                "title":      t["title"],
-                "detail":     f"Required {t['min_count']} event(s) — observed {t['evidence_count']}.",
-                "how_to_fix": "Follow the ideal-approach command below for this step.",
+                "title":      "Attack objective not reached",
+                "detail":     objective or "The core attack target was not reached yet.",
+                "how_to_fix": progress.get("next_recommended_action")
+                              or "Continue toward the objective using ZAP/AttackBox on the /op/ route.",
             })
-
-    if not missed and progress.get("success"):
-        did_right.append({
-            "title":  "Clean execution",
-            "detail": "Every required success event fired. The vulnerability was conclusively demonstrated.",
-        })
+        # 2) Methodology followed — the recommended steps that were observed.
+        for q in completed_qual:
+            did_right.append({
+                "title":  q.get("label", "Methodology step"),
+                "detail": "Recommended methodology step observed.",
+            })
+        # 3) Methodology skipped — advisory, NEVER blocked completion.
+        for q in missing_qual:
+            missed.append({
+                "title":      q.get("label", "Methodology step"),
+                "detail":     "Recommended methodology step not observed (advisory — it did not block completion).",
+                "how_to_fix": q.get("recommendation", ""),
+            })
+        # 4) Route/tool/safety confirmation and any channel warnings.
+        if progress.get("success") and not warnings:
+            did_right.append({
+                "title":  "Stayed inside safety boundaries",
+                "detail": "Completing evidence used the approved /op/ route through a local tool "
+                          "(ZAP/AttackBox) against target-agent only.",
+            })
+        for w in warnings:
+            missed.append({
+                "title":      "Channel / safety note",
+                "detail":     w,
+                "how_to_fix": "Redo the objective on the /op/ route through ZAP Repeater/Fuzzer or the AttackBox so it counts.",
+            })
+    else:
+        for t in task_results:
+            if t["completed"]:
+                did_right.append({
+                    "title":  t["title"],
+                    "detail": f"Completed with {t['evidence_count']} supporting event(s).",
+                })
+            else:
+                missed.append({
+                    "title":      t["title"],
+                    "detail":     f"Required {t['min_count']} event(s) — observed {t['evidence_count']}.",
+                    "how_to_fix": "Follow the ideal-approach command below for this step.",
+                })
+        if not missed and progress.get("success"):
+            did_right.append({
+                "title":  "Clean execution",
+                "detail": "Every required success event fired. The vulnerability was conclusively demonstrated.",
+            })
 
     brute_force_activity = progress.get("brute_force_activity")
     if module_id == "brute_force" and brute_force_activity:
@@ -715,11 +765,20 @@ def generate(session, events: list, timeline: list,
 
     mutation_eval = _mutation_adaptability(session, progress, timeline)
 
-    summary = (
-        f"Variant '{progress.get('variant_name') or variant_id or 'default'}' attempted in "
-        f"{mode} mode. {progress.get('progress_percent', 0)}% of the task ladder completed. "
-        f"{('Success criteria met.' if progress.get('success') else 'Success criteria NOT met yet.')}"
-    )
+    if use_objective:
+        summary = (
+            f"Variant '{progress.get('variant_name') or variant_id or 'default'}' attempted in "
+            f"{mode} mode. "
+            + ("Attack objective reached. " if progress.get("success") else "Attack objective not reached yet. ")
+            + f"Completion {progress.get('completion_score', 0)}%, "
+            + f"methodology quality {progress.get('quality_score', 0)}%."
+        )
+    else:
+        summary = (
+            f"Variant '{progress.get('variant_name') or variant_id or 'default'}' attempted in "
+            f"{mode} mode. {progress.get('progress_percent', 0)}% of the task ladder completed. "
+            f"{('Success criteria met.' if progress.get('success') else 'Success criteria NOT met yet.')}"
+        )
 
     return {
         "session_id":   session.session_id,
@@ -733,6 +792,16 @@ def generate(session, events: list, timeline: list,
         "score":        score,
         "duration_seconds": duration,
         "success":      bool(progress.get("success")),
+
+        # Objective-based model surfaced to the report UI.
+        "objective":            progress.get("objective"),
+        "completion_score":     progress.get("completion_score"),
+        "quality_score":        progress.get("quality_score"),
+        "completed_required":   completed_req,
+        "completed_quality":    completed_qual,
+        "missing_quality":      missing_qual,
+        "warnings":             warnings,
+        "next_recommended_action": progress.get("next_recommended_action"),
 
         "summary":            summary,
         "mitre_tactics":      mitre.get("tactics", []),

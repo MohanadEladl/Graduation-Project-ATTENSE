@@ -1,0 +1,216 @@
+"""
+Objective-based progress model tests.
+
+Mission COMPLETION is objective-based (reaching the real attack target), while
+learning QUALITY (methodology) is scored separately and never blocks completion.
+
+Covers Part 8 of the objective-based-progress change:
+  1. A completion event set alone marks the mission successful.
+  2. Missing quality events reduce quality_score but do NOT block success.
+  3. Browser-only objective evidence does not complete Operator Mode.
+  4. Guided /auth-style path does not complete Operator Mode.
+  5. Correct /op/ objective evidence completes Operator Mode.
+  6. The API response exposes success + completion_score + quality_score +
+     missing_quality + next_recommended_action.
+"""
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "red-team"))
+
+if "docker" not in sys.modules:
+    docker_stub = types.ModuleType("docker")
+    docker_error = type("DockerException", (Exception,), {})
+    docker_stub.from_env = lambda: None
+    docker_stub.errors = types.SimpleNamespace(
+        DockerException=docker_error, NotFound=docker_error, APIError=docker_error,
+    )
+    sys.modules["docker"] = docker_stub
+
+from backend import lab_progress, report_agent  # noqa: E402
+
+GATED_MODULES = ["recon", "xss", "cmd_injection", "dir_traversal", "file_upload", "csrf"]
+
+OP_PATH = {
+    "recon":         "/op/",
+    "xss":           "/op/search",
+    "cmd_injection": "/op/system/ping",
+    "dir_traversal": "/op/files/read",
+    "file_upload":   "/op/files/upload",
+    "csrf":          "/op/profile/update",
+}
+GUIDED_PATH = {
+    "recon":         "/",
+    "xss":           "/search",
+    "cmd_injection": "/system/ping",
+    "dir_traversal": "/files/read",
+    "file_upload":   "/files/upload",
+    "csrf":          "/profile/update",
+}
+
+
+def _completion_events(module_id, *, path, backend, via):
+    """One event per completion group — the minimum objective evidence."""
+    return [
+        {"event_type": t, "path": path, "method": "GET", "via": via,
+         "ts": float(i + 1), "extra": {"backend": backend, "path": path}}
+        for i, t in enumerate(lab_progress.completion_event_types(module_id))
+    ]
+
+
+def _patch(monkeypatch, events):
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: events)
+
+
+# 1 + 5. Objective evidence alone completes Operator Mode with completion_score 100.
+@pytest.mark.parametrize("module_id", GATED_MODULES)
+def test_completion_events_alone_mark_success(monkeypatch, module_id):
+    events = _completion_events(module_id, path=OP_PATH[module_id], backend="operator", via="zap_repeater")
+    _patch(monkeypatch, events)
+    r = lab_progress.compute(module_id, 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["completion_score"] == 100
+    assert r["completed_required"], "completed_required should name the objective evidence"
+
+
+# 2 + 6. Missing quality lowers quality_score but does not block success, and the
+# API surfaces the objective model fields incl. a next recommended action.
+@pytest.mark.parametrize("module_id", GATED_MODULES)
+def test_missing_quality_does_not_block_success(monkeypatch, module_id):
+    # Reaches the objective through Repeater only — several methodology signals
+    # (marker-first, context-inspected, fuzzer, etc.) are intentionally absent.
+    events = _completion_events(module_id, path=OP_PATH[module_id], backend="operator", via="zap_repeater")
+    _patch(monkeypatch, events)
+    r = lab_progress.compute(module_id, 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["quality_score"] < 100, "skipping methodology must lower quality, not block completion"
+    assert r["missing_quality"], "missing_quality should list the skipped methodology"
+    assert r["next_recommended_action"], "a next recommended action should be offered"
+    # every missing-quality entry carries an actionable, non-empty recommendation
+    assert all(m.get("recommendation") for m in r["missing_quality"])
+
+
+# 3. Browser-only objective evidence does not complete Operator Mode.
+@pytest.mark.parametrize("module_id", GATED_MODULES)
+def test_browser_only_objective_does_not_complete(monkeypatch, module_id):
+    events = _completion_events(module_id, path=OP_PATH[module_id], backend="operator", via="browser")
+    _patch(monkeypatch, events)
+    r = lab_progress.compute(module_id, 0.0, mode="lab")
+    assert r["success"] is False
+    assert r["completion_score"] == 0
+    assert r["warnings"], "a browser-only objective should raise a channel warning"
+
+
+# 4. Guided-surface objective evidence does not complete Operator Mode.
+@pytest.mark.parametrize("module_id", GATED_MODULES)
+def test_guided_surface_objective_does_not_complete_operator(monkeypatch, module_id):
+    events = _completion_events(module_id, path=GUIDED_PATH[module_id], backend="guided", via="zap_repeater")
+    _patch(monkeypatch, events)
+    assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is False
+
+
+# via=unknown never completes Operator Mode.
+@pytest.mark.parametrize("module_id", GATED_MODULES)
+def test_unknown_via_does_not_complete(monkeypatch, module_id):
+    events = _completion_events(module_id, path=OP_PATH[module_id], backend="operator", via="unknown")
+    _patch(monkeypatch, events)
+    assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is False
+
+
+# XSS worked example from the spec: one payload + reflection via Repeater →
+# success, completion 100, quality < 100, marker/context in missing_quality.
+def test_xss_worked_example(monkeypatch):
+    events = [
+        {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
+         "via": "zap_repeater", "ts": 1.0, "extra": {"backend": "operator", "path": "/op/search"}},
+        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+         "via": "zap_repeater", "ts": 2.0, "extra": {"backend": "operator", "path": "/op/search"}},
+    ]
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("xss", 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["completion_score"] == 100
+    assert r["quality_score"] < 100
+    missing_ids = {m["id"] for m in r["missing_quality"]}
+    assert "marker_first" in missing_ids
+    assert "context_inspected" in missing_ids
+
+
+# Quality credit accrues from methodology even before the objective is reached.
+def test_quality_scored_independently_of_completion(monkeypatch):
+    # A benign baseline + capture through Repeater, but no injection proof yet.
+    events = [
+        {"event_type": "diagnostics_used", "path": "/op/system/ping", "method": "GET",
+         "via": "zap_repeater", "ts": 1.0, "extra": {"backend": "operator", "path": "/op/system/ping"}},
+    ]
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("cmd_injection", 0.0, mode="lab")
+    assert r["success"] is False
+    assert r["completion_score"] == 0
+    assert r["quality_score"] > 0, "baseline + repeater usage should earn methodology credit"
+
+
+# Brute force keeps its stricter completion but is now also quality-scored.
+def test_brute_force_keeps_strict_completion(monkeypatch):
+    def ev(t, ts):
+        return {"event_type": t, "path": "/op/auth/login", "method": "POST",
+                "via": "zap_fuzzer", "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
+    events = [*[ev("login_failed", i) for i in range(6)], ev("credential_found", 9)]
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["completion_score"] == 100
+    # 3 failures alone: not complete, but partial completion score.
+    events_few = [ev("login_failed", i) for i in range(3)]
+    _patch(monkeypatch, events_few)
+    r2 = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert r2["success"] is False
+    assert 0 < r2["completion_score"] < 100
+
+
+# ── Report reflects objective vs skipped methodology (Part 8, item 6) ────────
+class _FakeModule:
+    module_id = "xss"
+    name = "Reflected XSS"
+    mitre = {"tactics": [], "techniques": []}
+
+
+class _FakeSession:
+    def __init__(self):
+        import threading
+        self.session_id = "s-obj-1"
+        self.module = _FakeModule()
+        self.module_id = "xss"
+        self.variant_id = None
+        self.mission_started_at = 0.0
+        self.logs = []
+        self.log_lock = threading.Lock()
+        self.mutation_timeline = []
+        self.learning_completed_at = None
+
+
+def test_report_explains_objective_and_missing_methodology(monkeypatch):
+    monkeypatch.setenv("REPORT_AI_COACH", "0")  # deterministic rule-based prose, no Ollama
+    events = [
+        {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
+         "via": "zap_repeater", "ts": 1.0, "extra": {"backend": "operator", "path": "/op/search"}},
+        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+         "via": "zap_repeater", "ts": 2.0, "extra": {"backend": "operator", "path": "/op/search"}},
+    ]
+    _patch(monkeypatch, events)
+    progress = lab_progress.compute("xss", 0.0, mode="lab")
+
+    report = report_agent.generate(_FakeSession(), events=events, timeline=[], progress=progress, mode="lab")
+
+    assert report["success"] is True
+    assert report["completion_score"] == 100
+    assert report["quality_score"] < 100
+    # Objective reached appears in did-right; skipped methodology appears in missed.
+    assert any("objective reached" in d["title"].lower() for d in report["what_you_did_right"])
+    assert report["missing_quality"], "report should carry the skipped methodology"
+    assert any(m.get("how_to_fix") for m in report["what_you_missed"]), \
+        "missed methodology entries should include an actionable recommendation"
