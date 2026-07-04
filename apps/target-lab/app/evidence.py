@@ -193,7 +193,14 @@ def _detect_patterns(ev: Dict[str, Any]) -> None:
                     f"Learner visited {len(visited_types)} distinct portal areas "
                     f"({', '.join(sorted(visited_types))}) — recon sequence confirmed."
                 ),
-                "extra":           {"visited_areas": sorted(visited_types)},
+                # Inherit backend from the triggering area visit so operator-mode
+                # gating recognizes an operator-surface recon sweep. Derived events
+                # carry no /op/ path of their own, so lab_progress gates them on
+                # backend + via rather than the path prefix.
+                "extra":           {
+                    "visited_areas": sorted(visited_types),
+                    "backend": (ev.get("extra") or {}).get("backend"),
+                },
             }
             with _lock:
                 _events.append(synth)

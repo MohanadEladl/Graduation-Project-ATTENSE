@@ -68,6 +68,45 @@ def _is_operator_tool_event(e: Dict[str, Any]) -> bool:
     return str(e.get("via") or "") in OPERATOR_TOOL_VIA
 
 
+# Derived/synthetic events are minted by the target-agent's pattern detector
+# rather than by a concrete /op/ route, so they inherit their via + backend from
+# the triggering request and have no /op/ path of their own. They are gated on
+# backend + tool channel, but exempt from the /op/ path-prefix requirement.
+DERIVED_EVENT_TYPES = {"brute_force_pattern", "recon_sequence_observed"}
+
+
+def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
+    """Generalized evidence gate shared by every module EXCEPT brute_force
+    (which keeps its dedicated failure-count logic in
+    ``_is_brute_force_event_for_mode``).  This is the same operator/guided
+    contract the brute-force module proved out, applied uniformly to recon,
+    xss, cmd_injection, dir_traversal, file_upload and csrf.
+
+    Lab / Operator mode — an event only counts toward mission progress when it
+    was produced by an approved local tool against the operator surface:
+      • via ∈ {attackbox, zap_repeater, zap_fuzzer}
+      • backend == "operator"
+      • path starts with "/op/"  (derived events are exempt — they inherit
+        backend/via but carry no /op/ path of their own)
+    Browser-only traffic (via=browser) and direct hits (via=unknown) stay
+    visible in the evidence panel but never complete the mission.
+
+    Tutorial / Guided mode — counts guided-surface evidence from any channel,
+    but NOT operator-surface events, so the two modes never cross-complete.
+    """
+    backend = _event_backend(e)
+    if is_lab:
+        if not _is_operator_tool_event(e):
+            return False
+        if backend != "operator":
+            return False
+        if e.get("event_type") in DERIVED_EVENT_TYPES:
+            return True
+        return _event_path(e).startswith("/op/")
+    # Tutorial/guided: exclude operator-surface events; any channel is fine.
+    return backend != "operator"
+
+
 def _is_brute_force_event_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
     if e.get("event_type") not in {
         "login_failed", "login_success", "brute_force_pattern", "credential_found",
@@ -2075,13 +2114,18 @@ def compute(module_id: str,
             e for e in raw_events
             if _is_brute_force_event_for_mode(e, is_lab=is_lab)
         ]
-    elif is_lab:
-        # Lab mode: only count evidence that came through local operator tools.
-        # Browser-driven events still appear in cards (so the learner can see what
-        # they did) but they are NOT counted toward task completion.
-        events_for_progress = [e for e in raw_events if _is_operator_tool_event(e)]
     else:
-        events_for_progress = raw_events
+        # Every other module now uses the SAME operator/guided contract the
+        # brute-force module proved out: in lab mode an event only counts when it
+        # hit the /op/ operator surface (backend=operator) through an approved
+        # local tool; in tutorial mode operator-surface events are excluded so the
+        # two modes never cross-complete. Browser-driven operator traffic still
+        # appears in cards (so the learner can see what they did) but does NOT
+        # count toward task completion.
+        events_for_progress = [
+            e for e in raw_events
+            if _event_counts_for_mode(e, is_lab=is_lab)
+        ]
 
     # Teaching content (TryHackMe-style) for this (module, variant), if any.
     walkthrough = get_walkthrough(module_id, variant_id_out)
@@ -2150,7 +2194,7 @@ def compute(module_id: str,
             "counts":      (
                 _is_brute_force_event_for_mode(e, is_lab=is_lab)
                 if module_id == "brute_force"
-                else ((not is_lab) or _is_operator_tool_event(e))
+                else _event_counts_for_mode(e, is_lab=is_lab)
             ),
             "extra":       e.get("extra", {}),
         })

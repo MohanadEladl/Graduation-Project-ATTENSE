@@ -194,3 +194,29 @@ def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
 
     monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: missing_via_complete)
     assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
+
+
+@pytest.mark.parametrize("via", ["attackbox", "zap_repeater", "zap_fuzzer"])
+def test_operator_completes_via_each_approved_tool(monkeypatch, via):
+    """Each approved local tool channel can complete Operator Mode on
+    /op/auth/login with 6+ failures + a found credential."""
+    def ev(event_type, ts):
+        return {"event_type": event_type, "path": "/op/auth/login", "method": "POST",
+                "via": via, "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
+    events = [*[ev("login_failed", i) for i in range(6)], ev("credential_found", 9)]
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: events)
+    progress = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert progress["success"] is True
+    assert progress["brute_force_activity"]["failed_attempt_count"] == 6
+    assert via in progress["brute_force_activity"]["tools_observed"]
+
+
+def test_operator_login_success_also_completes(monkeypatch):
+    """credential_found OR login_success should satisfy the credential requirement."""
+    def ev(event_type, ts):
+        return {"event_type": event_type, "path": "/op/auth/login", "method": "POST",
+                "via": "zap_repeater", "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
+    events = [*[ev("login_failed", i) for i in range(6)], ev("login_success", 9),
+              ev("credential_found", 10)]
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: events)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is True

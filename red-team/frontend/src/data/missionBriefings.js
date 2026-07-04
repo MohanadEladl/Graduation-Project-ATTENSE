@@ -418,6 +418,16 @@ export const MISSION_BRIEFINGS = {
       'In real-world pentests, recon determines your entire attack strategy. Missing an endpoint '
       + 'means missing a vulnerability. Tools like Nmap, Nikto, and Burp Suite automate this at scale.',
     tip: 'Check the HTML source code of each page — developers often leave sensitive information in comments.',
+    // Operator-mode staged hints — ZAP/AttackBox-driven, evidence-based, and
+    // kept SEPARATE from the guided tip so guided discovery help never leaks into
+    // Operator. Never names the exact hidden route.
+    operatorHints: [
+      'Browse the operator portal in the ZAP-routed browser — every /op/ request you make lands in ZAP Proxy History for review.',
+      'Check the common discovery files first: request /op/robots.txt and /op/.well-known/security.txt and read the status codes you get back.',
+      'The easy clues are hardened in Operator Mode — enumerate hidden paths with ffuf/gobuster from the AttackBox against http://target-agent/op/FUZZ.',
+      'Send any interesting path to Repeater and confirm its status before trusting it — a 200 is a live route, a 404 is noise.',
+      'Map at least four distinct /op/ areas through an approved tool; browser-only clicks are visible in history but do not complete the operator mission.',
+    ],
   },
 
   brute_force: {
@@ -492,6 +502,15 @@ export const MISSION_BRIEFINGS = {
       + 'perform actions on behalf of users, and exfiltrate data. '
       + 'Defenses: HTML entity encoding, CSP headers, HttpOnly cookies.',
     tip: 'After submitting a payload, inspect the page source to see exactly how your input was rendered.',
+    // Operator-mode staged hints — ZAP-Workspace-driven, evidence-based. Kept
+    // separate from the guided tip; never hands over a working payload.
+    operatorHints: [
+      'Submit a query in Operator Mode, then open the ZAP Workspace — the GET /op/search request appears in Proxy History.',
+      'Send it to Repeater and use the Inspector to find exactly where your input lands in the response — that reflection context decides the payload.',
+      'Change one thing at a time: test a harmless marker first, then a single proof payload, and compare the reflected output.',
+      'The operator search filters some tags — use the Fuzzer with a payload list to find a context that survives the filter.',
+      'Confirm from the response body, not the browser: a reflected proof through Repeater/Fuzzer completes the mission; browser-only reflection does not.',
+    ],
   },
 
   cmd_injection: {
@@ -524,6 +543,15 @@ export const MISSION_BRIEFINGS = {
       + 'This is how major breaches start. Never pass user input to system commands.',
     tip: 'The ; and && separators are the most reliable. Try reading /etc/passwd first — '
       + 'if you see "root:x:0:0:", injection is confirmed.',
+    // Operator-mode staged hints — Repeater/Fuzzer-driven, harmless local proofs
+    // only. Kept separate from the guided tip so it never hands over the answer.
+    operatorHints: [
+      'Run the diagnostics form once in Operator Mode; the GET /op/system/ping request shows up in ZAP Proxy History.',
+      'Send it to Repeater and establish a clean baseline with a normal host value before you change anything.',
+      'Add one shell separator at a time to the host parameter and compare responses — extra output after the ping means the separator got through.',
+      'Use the Fuzzer to test a short list of separators when you are unsure which one the backend accepts.',
+      'Keep every command harmless and local, and confirm via Repeater/Fuzzer output — browser-only requests are visible but do not complete the mission.',
+    ],
   },
 
   dir_traversal: {
@@ -556,6 +584,15 @@ export const MISSION_BRIEFINGS = {
       + 'Always validate and canonicalize file paths on the server side.',
     tip: '../../etc/passwd is the canonical test path. Each ../ moves one directory up. '
       + 'The base directory is /app/static/, so you need enough ../ to reach /etc/.',
+    // Operator-mode staged hints — Repeater/Fuzzer-driven, evidence-based. Kept
+    // separate from the guided tip; never names the exact traversal target.
+    operatorHints: [
+      'Open a file in the viewer once; the GET /op/files/read request appears in ZAP Proxy History.',
+      'Send it to Repeater and record the response for a valid filename as your baseline.',
+      'Modify only the filename parameter — walk up directories one level at a time and compare response length and status.',
+      'If plain sequences are filtered, use the Fuzzer with encoded traversal variants against that one parameter.',
+      'Confirm the disclosed lab file through Repeater/Fuzzer; browser-only reads are visible but do not complete the operator mission.',
+    ],
   },
 
   file_upload: {
@@ -588,6 +625,15 @@ export const MISSION_BRIEFINGS = {
       + 'Defenses: extension allowlists, content-type validation, '
       + 'storing files outside the web root, renaming uploads, and scanning with antivirus.',
     tip: 'Try uploading a .html file with <script>alert(1)</script> — it demonstrates stored XSS via file upload.',
+    // Operator-mode staged hints — Repeater/Fuzzer-driven, harmless proof files
+    // only. Kept separate from the guided tip; never asks for a real web shell.
+    operatorHints: [
+      'Upload a normal file in Operator Mode, then open the ZAP Workspace — the multipart POST /op/files/upload appears in Proxy History.',
+      'Send it to Repeater and inspect the multipart body: the filename field and the Content-Type of the file part.',
+      'Change one validation field at a time — the extension, or the file part Content-Type — and resend, comparing whether the server accepts it.',
+      'Use the Fuzzer to iterate over extension or content-type variants when probing what the server rejects.',
+      'Use only harmless proof files (never a real web shell); confirm storage/retrieval through Repeater — browser-only uploads do not complete the mission.',
+    ],
   },
 
   csrf: {
@@ -618,6 +664,15 @@ export const MISSION_BRIEFINGS = {
       + 'Modern frameworks (Django, Rails, Spring) include CSRF protection by default, but '
       + 'custom APIs and SPAs often forget it. Always use anti-CSRF tokens for state-changing operations.',
     tip: 'Log in as guest:guest first — the CSRF attack only works when you have an active session.',
+    // Operator-mode staged hints — Repeater/Inspector-driven, local lure only.
+    // Kept separate from the guided tip; never points at an external exploit host.
+    operatorHints: [
+      'Log in, then submit the profile form once — the state-changing POST /op/profile/update appears in ZAP Proxy History.',
+      'Send it to Repeater and check whether the request carries any anti-CSRF token or relies only on the session cookie.',
+      'Replay the request from Repeater without a token to confirm the endpoint performs the change on cookies alone.',
+      'Open the local lure page at /op/evil/csrf-demo to see a cross-site submission recreated entirely inside the lab.',
+      'Confirm the profile changed via an approved tool; keep every lure local — no external exploit servers, and browser-only traffic does not complete the mission.',
+    ],
   },
 }
 
