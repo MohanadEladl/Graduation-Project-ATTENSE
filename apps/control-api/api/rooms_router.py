@@ -294,10 +294,19 @@ def get(room_id: str, session: dict = Depends(require_session)):
 
     from main import controller
     from attense_core.evaluation.reports import generate_report
+    from api.incidents_router import _serialize_report
 
     incident_ids = room.get("incidents") or (
         [room["incident_id"]] if room.get("incident_id") else []
     )
+    room_timing = {
+        "exercise_mode": room.get("exercise_mode", "live"),
+        "attack_started_at": room.get("attack_started_at"),
+        "attack_completed_at": room.get("attack_completed_at"),
+        "packaged_at": room.get("packaged_at"),
+        "blue_started_at": room.get("blue_started_at"),
+        "blue_started_by": room.get("blue_started_by"),
+    }
     detail = []
     for incident_id in incident_ids:
         incident = controller.incidents.get(incident_id)
@@ -305,18 +314,11 @@ def get(room_id: str, session: dict = Depends(require_session)):
             detail.append({"incident_id": incident_id, "status": "no_events"})
         else:
             report = generate_report(incident)
-            report["room_timing"] = {
-                "exercise_mode": room.get("exercise_mode", "live"),
-                "attack_started_at": room.get("attack_started_at"),
-                "attack_completed_at": room.get("attack_completed_at"),
-                "packaged_at": room.get("packaged_at"),
-                "blue_started_at": room.get("blue_started_at"),
-                "blue_started_by": room.get("blue_started_by"),
-            }
+            report["room_timing"] = room_timing
             detail.append({
                 "incident_id": incident_id,
                 "status": incident.status,
-                "report": report,
+                "report": _serialize_report(report),
             })
     room["incidents_detail"] = detail
     # Blue Team users get the shared TheHive login creds + launch url on every
