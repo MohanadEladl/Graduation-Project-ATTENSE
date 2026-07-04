@@ -108,6 +108,27 @@ def test_zap_browse_rejects_external_without_touching_network(monkeypatch):
     assert called["n"] == 0
 
 
+def test_zap_history_model_full_fields_and_truncation():
+    big = "A" * (operator_api.MAX_HISTORY_BODY_LEN + 5000)
+    row = operator_api._record_zap_history(
+        "POST", "/op/auth/login", full_url="http://target-agent/op/auth/login",
+        status_code="401", request_headers={"Content-Type": "x"},
+        request_body="u=a&p=b", response_headers="HTTP/1.1 401\nX: y",
+        response_body=big, response_length=len(big), source="zap_repeater",
+        session_id="s1", module_id="brute_force",
+    )
+    for key in ("id", "method", "full_url", "path", "request_headers", "request_body",
+                "response_status", "response_headers", "response_body",
+                "response_length", "source", "session_id", "module_id", "timestamp"):
+        assert key in row, f"history row missing {key}"
+    # Oversized bodies are truncated so they can't break the Inspector UI.
+    assert len(row["response_body"]) <= operator_api.MAX_HISTORY_BODY_LEN + 64
+    assert "truncated" in row["response_body"]
+    assert row["source"] == "zap_repeater"
+    assert row["session_id"] == "s1" and row["module_id"] == "brute_force"
+    assert row["response_status"] == "401"
+
+
 def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
     def ev(event_type, path, backend, via="zap_fuzzer", ts=1.0):
         return {

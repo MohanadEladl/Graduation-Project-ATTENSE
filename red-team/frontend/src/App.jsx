@@ -12,6 +12,7 @@ import Settings          from './routes/Settings.jsx'
 import MissionReport     from './routes/MissionReport.jsx'
 import AttackReport      from './routes/AttackReport.jsx'
 import Gauntlet          from './routes/Gauntlet.jsx'
+import ZapWorkspace      from './routes/ZapWorkspace.jsx'
 
 export default function App() {
   return (
@@ -25,6 +26,9 @@ export default function App() {
         {/* ── Optional auxiliary screens ── */}
         <Route path="/login"     element={<Login />} />
         <Route path="/select"    element={<WhoAreYou />} />
+
+        {/* ── Standalone ZAP desktop workspace (opened in its own window) ── */}
+        <Route path="/zap-workspace" element={<ZapWorkspace />} />
 
         {/* ── Authenticated app (new-UI top nav, no sidebar) ── */}
         <Route element={<RangeLayout />}>

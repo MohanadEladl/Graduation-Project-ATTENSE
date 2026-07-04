@@ -3,7 +3,7 @@
  * the Lab Browser only when Lab Mode is active.
  */
 import TerminalPanel from './TerminalPanel.jsx'
-import ZapPanel from './ZapPanel.jsx'
+import ZapLauncher from './zap/ZapLauncher.jsx'
 
 export default function LabPanel({
   selectedTool,
@@ -15,9 +15,10 @@ export default function LabPanel({
   mode,
 }) {
   if (selectedTool === 'zap') {
+    // ZAP now opens as a separate desktop-style workspace (window.open) instead
+    // of being squeezed into the browser column. This is a compact launcher.
     return (
-      <ZapPanel
-        activeStep={activeStep}
+      <ZapLauncher
         minimized={minimized}
         onToggleMinimize={onToggleMinimize}
         sessionId={sessionId}

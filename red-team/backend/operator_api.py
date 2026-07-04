@@ -526,19 +526,65 @@ def normalize_zap_target_path(raw_path: str) -> str:
     return raw
 
 
-def _record_zap_history(method: str, path: str,
+# Truncation limits so a huge captured response can never break the UI.
+MAX_HISTORY_BODY_LEN = 20000
+MAX_HISTORY_HEADER_LEN = 8000
+
+
+def _truncate(text: Any, limit: int) -> str:
+    s = text if isinstance(text, str) else ("" if text is None else str(text))
+    if len(s) > limit:
+        return s[:limit] + f"\n…[truncated {len(s) - limit} more chars]"
+    return s
+
+
+def _headers_to_str(headers: Any) -> str:
+    if headers is None:
+        return ""
+    if isinstance(headers, str):
+        return headers
+    try:
+        return "\n".join(f"{k}: {v}" for k, v in dict(headers).items())
+    except Exception:
+        return str(headers)
+
+
+def _record_zap_history(method: str, path: str, *,
+                        full_url: Optional[str] = None,
                         status_code: str = "0",
+                        request_headers: Any = None,
+                        request_body: Any = "",
+                        response_headers: Any = None,
+                        response_body: Any = "",
                         response_length: int = 0,
-                        source: str = "zap") -> Dict[str, Any]:
+                        source: str = "zap",
+                        session_id: Optional[str] = None,
+                        module_id: Optional[str] = None) -> Dict[str, Any]:
+    """Record one request/response into ZAP tool history.
+
+    Stores the full Burp-like detail (method, url, path, request headers+body,
+    response status+headers+body+length, source, session/module, timestamp) with
+    safe truncation so oversized bodies can't break the Inspector UI.
+    """
+    url = full_url or f"http://target-agent{path}"
     row = {
         "id": len(_zap_history),
         "timestamp": time.time(),
-        "method": method.upper(),
-        "url": f"http://target-agent{path}",
+        "method": (method or "").upper(),
+        # Keep url/status_code for older consumers; add explicit new field names.
+        "url": url,
+        "full_url": url,
         "path": path,
-        "status_code": status_code,
+        "request_headers": _truncate(_headers_to_str(request_headers), MAX_HISTORY_HEADER_LEN),
+        "request_body": _truncate(request_body, MAX_HISTORY_BODY_LEN),
+        "status_code": str(status_code),
+        "response_status": str(status_code),
+        "response_headers": _truncate(_headers_to_str(response_headers), MAX_HISTORY_HEADER_LEN),
+        "response_body": _truncate(response_body, MAX_HISTORY_BODY_LEN),
         "response_length": response_length,
         "source": source,
+        "session_id": session_id,
+        "module_id": module_id,
     }
     with _zap_history_lock:
         _zap_history.append(row)
@@ -548,7 +594,8 @@ def _record_zap_history(method: str, path: str,
 
 
 def get_zap_history(limit: int = 50) -> List[Dict[str, Any]]:
-    """Fetch ZAP tool history. Normal Lab Browser traffic is not proxied here."""
+    """Fetch ZAP tool history (newest last). Includes Operator browser traffic
+    proxied through ZAP (source="browser") plus Repeater/Fuzzer requests."""
     with _zap_history_lock:
         local = list(_zap_history)[-limit:]
     if local:
@@ -620,7 +667,14 @@ def zap_repeater_send(method: str, path: str, headers: Optional[Dict] = None,
             parsed = _parse_zap_response(data)
             status_code = parsed.get("status_code", "0")
             length = int(parsed.get("length") or 0)
-            _record_zap_history(method, safe_path, status_code, length, via)
+            _record_zap_history(
+                method, safe_path, full_url=url, status_code=status_code,
+                request_headers=request_header, request_body=body or "",
+                response_headers=parsed.get("_resp_header", ""),
+                response_body=parsed.get("_body", ""),
+                response_length=length, source=via,
+                session_id=session_id, module_id=module_id,
+            )
             if record_event:
                 record_tool_evidence(
                     tool="zap_repeater",
@@ -642,7 +696,15 @@ def zap_repeater_send(method: str, path: str, headers: Optional[Dict] = None,
                 "path": safe_path,
                 "url": url,
                 "response": data,
-                "parsed": {k: v for k, v in parsed.items() if k != "_body"},
+                "parsed": {k: v for k, v in parsed.items() if not k.startswith("_")},
+                # Surface the response detail directly so the Repeater/Inspector
+                # can show headers + body without re-parsing the raw ZAP reply.
+                "response_status": status_code,
+                "response_headers": parsed.get("_resp_header", ""),
+                "response_body": _truncate(parsed.get("_body", ""), MAX_HISTORY_BODY_LEN),
+                "response_length": length,
+                "request_headers": request_header,
+                "request_body": body or "",
             }
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as e:
         return {"status": "error", "detail": str(e)}
@@ -663,7 +725,8 @@ def _parse_zap_response(data: Dict[str, Any]) -> Dict[str, Any]:
     body = msg.get("responseBody", "") or ""
     parts = resp_header.split(" ")
     status_code = parts[1] if len(parts) > 1 else "0"
-    return {"status_code": status_code, "length": len(body), "_body": body}
+    return {"status_code": status_code, "length": len(body),
+            "_body": body, "_resp_header": resp_header}
 
 
 def zap_fuzzer_send(method: str, path: str, body_template: str,
@@ -880,7 +943,9 @@ def _zap_browse_target_path(path: str) -> Optional[str]:
 def browse_through_zap(method: str, path: str, query_string: str = "", *,
                        req_headers: Optional[Dict[str, str]] = None,
                        body: bytes = b"",
-                       host: str = "target-agent") -> Dict[str, Any]:
+                       host: str = "target-agent",
+                       session_id: Optional[str] = None,
+                       module_id: Optional[str] = None) -> Dict[str, Any]:
     """Reverse-proxy one Operator-mode browser request through ZAP to the local
     target, so it lands in ZAP history like Burp Proxy History.
 
@@ -923,10 +988,24 @@ def browse_through_zap(method: str, path: str, query_string: str = "", *,
                 "headers": [("Content-Type", "text/plain; charset=utf-8")],
                 "content": f"ZAP proxy error: {exc}".encode("utf-8")}
 
-    # Record into ZAP tool history so the panel shows browser traffic.
+    # Record full request/response into ZAP tool history (Burp-Proxy-History
+    # style). source="browser" so it shows up but never completes a mission.
     try:
-        _record_zap_history(method, target_path, str(r.status_code),
-                            len(r.content), source="browser")
+        req_body_str = body.decode("utf-8", "replace") if body else ""
+    except Exception:
+        req_body_str = ""
+    try:
+        resp_body_str = r.content.decode("utf-8", "replace") if r.content else ""
+    except Exception:
+        resp_body_str = ""
+    try:
+        _record_zap_history(
+            method, target_path, full_url=url, status_code=str(r.status_code),
+            request_headers=fwd, request_body=req_body_str,
+            response_headers=r.headers, response_body=resp_body_str,
+            response_length=len(r.content), source="browser",
+            session_id=session_id, module_id=module_id,
+        )
     except Exception:
         pass
 
