@@ -10,7 +10,7 @@ How to complete every lab module in **Guided Mode** and **Operator Mode**.
 
 Both modes emit the same evidence event types, so progress is computed from
 the same `tasks` (guided) / `tasks_operator` (operator) ladders in
-`red-team/backend/lab_progress.py`. Every event is tagged with its channel.
+`apps/red-team-api/backend/lab_progress.py`. Every event is tagged with its channel.
 **Operator mode only credits `via=attackbox`, `via=zap_repeater`, or
 `via=zap_fuzzer`** — that's why the iframe is locked out behind a
 "Use the Terminal or ZAP" overlay when you flip the toggle.

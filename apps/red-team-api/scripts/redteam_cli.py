@@ -1,19 +1,21 @@
 """
-main.py — CLI fallback (v3).
+redteam_cli.py — Debug/CLI only. Not used by the main browser-based Red Team
+product.
 
-The primary operator interface is now the browser-based shell served by the
+The primary operator interface is the browser-based shell served by the
 red-team-frontend container. This CLI remains available inside the backend
 container for SSH sessions or debugging:
 
-    docker exec -it attense_red_team_backend python main.py --list
-    docker exec -it attense_red_team_backend python main.py --module brute_force
+    docker exec -it attense_red_team_backend python scripts/redteam_cli.py --list
+    docker exec -it attense_red_team_backend python scripts/redteam_cli.py --module brute_force
 """
 from __future__ import annotations
 import argparse, os, sys
+from pathlib import Path
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
 
 from core.engine import Engine
 from core.logger import LogManager
@@ -58,9 +60,9 @@ def main() -> int:
 
     # No args → tell the operator about the web shell
     print("\n  The primary interface is now the web shell at http://localhost:3000")
-    print("  For CLI use:  python main.py --list")
-    print("                python main.py --module <id>")
-    print("                python main.py --all\n")
+    print("  For CLI use:  python scripts/redteam_cli.py --list")
+    print("                python scripts/redteam_cli.py --module <id>")
+    print("                python scripts/redteam_cli.py --all\n")
     return 0
 
 

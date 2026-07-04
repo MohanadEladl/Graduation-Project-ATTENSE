@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "red-team"))
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(SERVICE_ROOT))
 
 
 if "docker" not in sys.modules:
@@ -39,7 +40,7 @@ LAB_MODULES = (
 
 def _load_mission_briefing_data():
     script = """
-import { LAB_REQUIRED_TOOLS, MISSION_BRIEFINGS } from './red-team/frontend/src/data/missionBriefings.js';
+import { LAB_REQUIRED_TOOLS, MISSION_BRIEFINGS } from './frontends/red-team/src/data/missionBriefings.js';
 
 const modules = ['recon', 'xss', 'cmd_injection', 'dir_traversal', 'file_upload', 'csrf', 'brute_force'];
 const data = { briefings: {}, tools: {}, commandFields: [] };
@@ -128,7 +129,7 @@ def test_attackbox_validate_allowed_and_blocked_examples():
 
 def test_mission_briefings_do_not_export_rigid_lab_checklists():
     """The frontend briefing data should not reintroduce rigid lab checklist exports."""
-    source = (ROOT / "red-team" / "frontend" / "src" / "data" / "missionBriefings.js").read_text(
+    source = (ROOT / "frontends" / "red-team" / "src" / "data" / "missionBriefings.js").read_text(
         encoding="utf-8"
     )
     assert "LAB_STEPS_BY_MODULE" not in source
@@ -137,8 +138,8 @@ def test_mission_briefings_do_not_export_rigid_lab_checklists():
 
 
 def test_legacy_red_team_routes_and_duplicate_constants_stay_removed():
-    frontend = ROOT / "red-team" / "frontend" / "src"
-    backend_main = (ROOT / "red-team" / "backend" / "main.py").read_text(encoding="utf-8")
+    frontend = ROOT / "frontends" / "red-team" / "src"
+    backend_main = (SERVICE_ROOT / "backend" / "main.py").read_text(encoding="utf-8")
     app = (frontend / "App.jsx").read_text(encoding="utf-8")
     client = (frontend / "api" / "client.js").read_text(encoding="utf-8")
     reports = (frontend / "routes" / "Reports.jsx").read_text(encoding="utf-8")
@@ -146,7 +147,7 @@ def test_legacy_red_team_routes_and_duplicate_constants_stay_removed():
     workspace = (frontend / "routes" / "Workspace.jsx").read_text(encoding="utf-8")
 
     assert not (frontend / "routes" / "AttackReport.jsx").exists()
-    assert not (ROOT / "red-team" / "backend" / "lab_analysis.py").exists()
+    assert not (SERVICE_ROOT / "backend" / "lab_analysis.py").exists()
 
     for legacy in ("AttackReport", "attack-report", "getAttackReport"):
         assert legacy not in app

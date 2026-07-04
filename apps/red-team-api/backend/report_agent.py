@@ -31,7 +31,7 @@ ATT&CK table still renders even when the model is unreachable.
 
 Priority chain:
   1. attense-analyst Ollama model (MITRE-specialised — see
-     red-team/ollama/Modelfile.attense-analyst; falls back to llama3.2:3b if
+     apps/red-team-api/ollama/Modelfile.attense-analyst; falls back to llama3.2:3b if
      the derived model hasn't been built)
   2. Rules-based fallback (if no Ollama container is reachable)
 """

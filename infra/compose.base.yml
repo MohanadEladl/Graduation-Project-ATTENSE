@@ -217,7 +217,7 @@ services:
   # ── Red Team Backend: FastAPI ───────────────────────────────────────────────
   red-team-backend:
     build:
-      context: ../red-team
+      context: ../apps/red-team-api
     container_name: attense_red_team_backend
     hostname: red-team-backend
     restart: unless-stopped
@@ -265,7 +265,7 @@ services:
   # ── Red Team Frontend: React + Vite ─────────────────────────────────────────
   red-team-frontend:
     build:
-      context: ../red-team/frontend
+      context: ../frontends/red-team
     container_name: attense_red_team_frontend
     hostname: red-team-frontend
     restart: unless-stopped

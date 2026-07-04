@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-TARGET_APP = Path(__file__).resolve().parents[3] / "apps" / "target-lab" / "app"
+TARGET_APP = Path(__file__).resolve().parents[4] / "apps" / "target-lab" / "app"
 sys.path.insert(0, str(TARGET_APP))
 
 import evidence  # noqa: E402

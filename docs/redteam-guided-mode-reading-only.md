@@ -50,7 +50,7 @@ call sites and comments were updated to describe them as "guided
 
 ## 4. What backend code was removed / changed
 
-**`red-team/backend/lab_progress.py`**
+**`apps/red-team-api/backend/lab_progress.py`**
 - Removed `tasks_tutorial` and `success_tutorial` from all 7 `PROGRESS_SPECS`
   module entries — dead data once Guided Mode stopped scoring evidence.
   `tasks_lab` / `success_lab` / `defensive_insight` are kept (Operator Mode's
@@ -66,7 +66,7 @@ call sites and comments were updated to describe them as "guided
 - Simplified the now-dead `is_lab`-ternary task-ladder/success-key logic (both
   always resolved to the lab branch once Guided Mode short-circuits earlier).
 
-**`red-team/backend/main.py`**
+**`apps/red-team-api/backend/main.py`**
 - `/api/sessions/{sid}/check-progress` — docstring clarified; behavior flows
   automatically from `compute()`'s short-circuit (no separate change needed).
 - `/api/sessions/{sid}/report` — now returns a short reading-only message for
@@ -74,14 +74,14 @@ call sites and comments were updated to describe them as "guided
   attack report, *before* touching the timeline/lab-events/report-agent
   machinery. `regenerate_report` inherits this via `get_report()`.
 
-**`red-team/backend/session_manager.py`**
+**`apps/red-team-api/backend/session_manager.py`**
 - `SessionManager.execute()` now refuses guided-mode sessions
   (`GUIDED_MODE_EXECUTE_DISABLED_MESSAGE`) **before** checking the
   instructor/demo `ENABLE_AUTO_ATTACKS` flag — Guided Mode cannot run scripted
   module execution under any configuration. Operator Mode's existing
   auto-attacks gate (disabled by default) is unchanged.
 
-**`red-team/backend/report_agent.py`**
+**`apps/red-team-api/backend/report_agent.py`**
 - `generate()` refuses to synthesize an attack report for `mode="tutorial"`
   (defense-in-depth; `main.py`'s `/report` endpoint already intercepts this).
 
@@ -95,7 +95,7 @@ call sites and comments were updated to describe them as "guided
 
 ## 5. What frontend behavior changed
 
-`red-team/frontend/src/routes/Workspace.jsx`:
+`frontends/red-team/src/routes/Workspace.jsx`:
 - **`GuidedWalkthrough`** (the sidebar component rendered inside the
   hands-on 3-column layout during a Guided-mode Mutation run — the one edge
   case where `LearningPanel` still renders in tutorial mode) no longer shows
@@ -117,19 +117,19 @@ call sites and comments were updated to describe them as "guided
   stop appearing in Guided Mode automatically, with no code change needed
   there.
 
-`red-team/frontend/src/routes/MissionReport.jsx`:
+`frontends/red-team/src/routes/MissionReport.jsx`:
 - Added a `report.reading_only` guard that renders a plain "Guided Mode is
   reading-only" message instead of attempting to render the full report UI
   (which expects grade/score/evidence fields a guided session never has).
   This protects against stale pre-migration sessions that may still have
   `learning_state === "completed"` in persisted session storage.
 
-`red-team/frontend/src/routes/Reports.jsx`:
+`frontends/red-team/src/routes/Reports.jsx`:
 - The "VIEW REPORT" button is now shown only for Operator (`lab`) sessions,
   so a stale guided session sitting in the completed-sessions list can't
   offer a report it will never receive.
 
-`red-team/frontend/src/data/missionBriefings.js`: reviewed against the
+`frontends/red-team/src/data/missionBriefings.js`: reviewed against the
 prohibited phrasing list ("complete the guided attack", "trigger guided
 evidence", "guided mission success") — **none of it was present**. The
 tutorial content already reads as concept/methodology narrative
@@ -150,7 +150,7 @@ and the CSRF browser-lure exception remains scoped to CSRF only.
 
 ## 7. Tests run
 
-`pytest red-team/backend/tests -q` → **160 passed**.
+`pytest apps/red-team-api/backend/tests -q` → **160 passed**.
 
 - **New: `test_guided_reading_only.py`** (26 tests) — the full Guided Mode
   contract: `reading_only=True` + `success=False` + zero scores + empty

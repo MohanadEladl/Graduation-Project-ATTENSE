@@ -42,7 +42,7 @@ confirm the objective → record evidence → update progress → report.
 | Brute Force | `/auth/login` | `/op/auth/login` | 6+ failures + valid credential | `brute_force_pattern` + `credential_found` |
 
 Per-module walkthroughs, variants (Easy/Medium/Hard), MITRE ATT&CK mappings, and
-OWASP/CWE/CAPEC references already exist in `red-team/backend/lab_progress.py`
+OWASP/CWE/CAPEC references already exist in `apps/red-team-api/backend/lab_progress.py`
 (`MODULE_VARIANTS`, `WALKTHROUGH`, `SECTION_TECHNIQUES`, `DATABASE_REFERENCES`)
 and are unchanged.
 
@@ -129,7 +129,7 @@ target-agent-only (`normalize_zap_target_path`, `validate_command`).
 ## 9. Mission Step / Validator Consistency Pass
 
 This pass aligns the student-facing mission steps with the strict AttackBox
-validator in `red-team/backend/operator_api.py`; the validator itself remains
+validator in `apps/red-team-api/backend/operator_api.py`; the validator itself remains
 unchanged.
 
 - Rewritten modules: `recon`, `xss`, `cmd_injection`, `dir_traversal`,
@@ -173,7 +173,7 @@ Remaining manual tests needed:
 
 ## 10. Tests run
 
-- `pytest red-team/backend/tests -q` → **89 passed**.
+- `pytest apps/red-team-api/backend/tests -q` → **89 passed**.
   - New: `test_operator_gating.py` — per-module (recon/xss/cmd/traversal/upload/csrf):
     approved tools complete; browser-only does not; `via=unknown` does not;
     guided surface does not complete operator; tutorial completes on guided
@@ -186,7 +186,7 @@ Remaining manual tests needed:
     `validate_command()`.
   - Unchanged and still green: brute-force operator gating, target-evidence
     synth-metadata inheritance, ZAP/AttackBox safety.
-- `python -m compileall red-team/backend apps/target-lab/app` → OK.
+- `python -m compileall apps/red-team-api/backend apps/target-lab/app` → OK.
 - `node --check` on `missionBriefings.js` → OK.
 - `npm install` (red-team frontend) → up to date.
 - `npm run build` (red-team frontend) → built in ~6 s.

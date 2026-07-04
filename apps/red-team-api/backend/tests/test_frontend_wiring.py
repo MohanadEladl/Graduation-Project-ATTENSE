@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[3]
-FE = ROOT / "red-team" / "frontend"
+ROOT = Path(__file__).resolve().parents[4]
+FE = ROOT / "frontends" / "red-team"
 
 
 def read(rel: str) -> str:

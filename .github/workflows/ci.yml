@@ -97,12 +97,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # The red-team frontend lives at red-team/frontend (NOT frontends/red-team,
-        # which does not exist); the blue-team frontend is under frontends/. Build
+        # Both Red Team and Blue Team frontends live under frontends/. Build
         # both so a broken bundle in either is caught before a demo.
         include:
           - name: red-team
-            path: red-team/frontend
+            path: frontends/red-team
           - name: blue-team
             path: frontends/blue-team
     steps:

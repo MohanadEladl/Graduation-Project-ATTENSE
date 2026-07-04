@@ -2,7 +2,7 @@
 # Build the MITRE-specialised ATT3NSE analyst model inside the running ollama
 # container. Idempotent — safe to re-run after editing the Modelfile.
 #
-#   bash red-team/ollama/build_ollama_model.sh
+#   bash apps/red-team-api/ollama/build_ollama_model.sh
 #
 # Requires: the attense_ollama container running, with llama3.2:3b already
 # pulled (the base model). Env overrides:

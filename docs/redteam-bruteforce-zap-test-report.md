@@ -28,7 +28,7 @@ Operator browser traffic:
 Repeater / Fuzzer:  frontend ──/api/operator/zap/{repeater,fuzzer}/send──▶ backend
        └▶ ZAP sendRequest ──▶ target-agent /op/auth/login  (via = zap_repeater | zap_fuzzer)
 
-Scoring (red-team/backend/lab_progress.py):
+Scoring (apps/red-team-api/backend/lab_progress.py):
   Operator (lab mode) brute-force completes ONLY when, on /op/auth/login with
   backend=operator and via ∈ {attackbox, zap_repeater, zap_fuzzer}:
     ≥ 6 failed logins  AND  credential_found | login_success.
@@ -42,7 +42,7 @@ Scoring (red-team/backend/lab_progress.py):
 
 ## 5. Automated tests added/updated
 
-All under `red-team/backend/tests/` (run with `pytest red-team/backend/tests -q`).
+All under `apps/red-team-api/backend/tests/` (run with `pytest apps/red-team-api/backend/tests -q`).
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -51,15 +51,15 @@ All under `red-team/backend/tests/` (run with `pytest red-team/backend/tests -q`
 | `test_frontend_wiring.py` (new) | 8 static-source checks | Frontend A–J: vite order, nginx route, /zap-workspace route, launcher context, api context+headers, controller sends, history actions, § marker, operator/guided hint separation + no credential leak |
 | existing | auto-guard, validate_command allow/block, ZAP normalization, browse local-only, history model + truncation, gating negatives | Items A, B (neg), E, F, G |
 
-**Result: 30 passed** (`pytest red-team/backend/tests -q` → `30 passed in ~30s`).
+**Result: 30 passed** (`pytest apps/red-team-api/backend/tests -q` → `30 passed in ~30s`).
 
 ## 6. Build/config checks
 
 | Check | Command | Result |
 | --- | --- | --- |
 | Python compile | `python -m compileall red-team apps/target-lab apps/signal-mapper apps/control-api blueteam` | **PASS** (adapted: repo moved `target-agent`→`apps/target-lab`, `signal-store`→`apps/signal-mapper`, `attense-app`→`apps/control-api`) |
-| Backend tests | `pytest red-team/backend/tests -q` | **PASS** — 30 passed |
-| Frontend build | `cd red-team/frontend && npm run build` | **PASS** — built in ~6s (chunk-size advisory only) |
+| Backend tests | `pytest apps/red-team-api/backend/tests -q` | **PASS** — 30 passed |
+| Frontend build | `cd frontends/red-team && npm run build` | **PASS** — built in ~6s (chunk-size advisory only) |
 | Compose validate | `docker compose config` | **VALID** |
 
 ## 7. Runtime tests (Docker)

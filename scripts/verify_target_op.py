@@ -98,7 +98,7 @@ def fetch_progress(module_id):
 
 
 # Match a subset of lab_progress.PROGRESS_SPECS for verification.
-# (Kept in sync with red-team/backend/lab_progress.py tasks_operator.)
+# (Kept in sync with apps/red-team-api/backend/lab_progress.py tasks_operator.)
 SPECS = {
     "recon": [
         ("portal_visited",  ["portal_visited"], 1),

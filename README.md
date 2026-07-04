@@ -296,7 +296,7 @@ Three advanced training features shipped in v8:
 
 ### Feature 1 — Skill Graph
 
-**Files:** `red-team/backend/skill_store.py`, `red-team/frontend/src/components/SkillRadar.jsx`, `red-team/frontend/src/routes/Dashboard.jsx`
+**Files:** `apps/red-team-api/backend/skill_store.py`, `frontends/red-team/src/components/SkillRadar.jsx`, `frontends/red-team/src/routes/Dashboard.jsx`
 
 The skill graph tracks per-learner progress across all 7 modules × 3 variants (21 skill entries total). Data persists to `/data/skills.json` inside the backend container.
 
@@ -332,7 +332,7 @@ The skill graph tracks per-learner progress across all 7 modules × 3 variants (
 
 ### Feature 2 — Attack Chains
 
-**Files:** `red-team/backend/chain_engine.py`, `red-team/frontend/src/routes/Gauntlet.jsx`
+**Files:** `apps/red-team-api/backend/chain_engine.py`, `frontends/red-team/src/routes/Gauntlet.jsx`
 
 Attack chains are multi-step missions. Each step requires completing one module (score ≥ 60%) before the next unlocks. Evidence is reset between steps.
 
@@ -367,7 +367,7 @@ Attack chains are multi-step missions. Each step requires completing one module 
 
 ### Feature 3 — Mutation Mode
 
-**Files:** `target-agent/app/mutation_engine.py`, `red-team/frontend/src/components/MutationBanner.jsx`, `red-team/backend/main.py` (proxy endpoints)
+**Files:** `target-agent/app/mutation_engine.py`, `frontends/red-team/src/components/MutationBanner.jsx`, `apps/red-team-api/backend/main.py` (proxy endpoints)
 
 Mutations change the behaviour of vulnerable routes mid-mission. The learner must adapt their technique. All mutation logic is wrapped in `try/except` — if mutation_engine fails, the route continues normally (fail-open).
 
@@ -423,14 +423,14 @@ curl http://localhost:8000/api/sessions/{sid}/mutations
 
 ```
 attense-v6/
-├── red-team/
+├── apps/red-team-api/
 │   ├── backend/        FastAPI — sessions, progress, evidence,
 │   │                   attackbox + zap operator APIs (operator_api.py, shell/)
-│   ├── frontend/       React + Vite — Lab Browser, Mission UI,
-│   │                   Operator Terminal + ZAP panels
 │   ├── engine/         Session state machine
 │   ├── core/           Base module + models
 │   └── modules/        7 attack modules (recon, brute_force, xss, etc.)
+├── frontends/red-team/ React + Vite — Lab Browser, Mission UI,
+│                       Operator Terminal + ZAP panels
 ├── target-agent/       Flask — purposefully vulnerable web app
 ├── attackbox/          AttackBox container (nmap, hydra, curl, ffuf, …) + wordlists
 ├── signal-store/       Detection pipeline

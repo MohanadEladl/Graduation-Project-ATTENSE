@@ -32,7 +32,7 @@ The model now **separates mission completion from learning quality**:
 
 ## Completion vs quality vs safety
 
-Implemented in `red-team/backend/lab_progress.py`:
+Implemented in `apps/red-team-api/backend/lab_progress.py`:
 
 - `OBJECTIVE_SPECS[module]["completion_groups"]` — list of OR-groups. A group is
   satisfied when **any** of its event types is observed *through the gated
@@ -105,7 +105,7 @@ stretch goal — there is always methodology to improve.
 
 ## How reports evaluate skipped steps
 
-`red-team/backend/report_agent.py` now builds coaching from the objective model
+`apps/red-team-api/backend/report_agent.py` now builds coaching from the objective model
 when it is present:
 
 - **What you did right:** objective reached (and the evidence that completed it),
@@ -148,7 +148,7 @@ being nudged toward better tradecraft.
 
 ## Tests
 
-`red-team/backend/tests/test_objective_progress.py` (plus the updated
+`apps/red-team-api/backend/tests/test_objective_progress.py` (plus the updated
 `test_operator_gating.py`) cover: completion events alone mark success; missing
 quality lowers quality_score without blocking; browser-only / `via=unknown` /
 guided-surface objective evidence do not complete Operator Mode; the API exposes

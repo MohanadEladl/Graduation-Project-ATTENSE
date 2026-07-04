@@ -39,7 +39,7 @@ RUN ln -s /wordlists /opt/wordlists
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Guided-tutorial wordlist aliases. The red-team walkthroughs / ideal_commands
-# (red-team/backend/lab_progress.py, red-team/modules/recon.py) reference the
+# (apps/red-team-api/backend/lab_progress.py, apps/red-team-api/modules/recon.py) reference the
 # standard Kali paths a student would use on a real engagement — rockyou, dirb's
 # common.txt, seclists, and /lab/users.txt. Those paths aren't installed in this
 # slimmed AttackBox, so the guided commands used to fail with "No such file".

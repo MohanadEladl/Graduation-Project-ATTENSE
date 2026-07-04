@@ -20,7 +20,7 @@ COPY core/     ./core/
 COPY modules/  ./modules/
 COPY engine/   ./engine/
 COPY backend/  ./backend/
-COPY main.py   ./main.py
+COPY scripts/  ./scripts/
 
 # Logs directory
 RUN mkdir -p /red-team/logs && chmod 777 /red-team/logs

@@ -192,7 +192,7 @@ app.detect_via = detect_via
 # Guided Mode is reading/tutorial-only in the current frontend and does not
 # drive a live target through these routes anymore (see
 # docs/redteam-guided-mode-reading-only.md). They are kept online only as a
-# fallback demo surface for instructors — red-team/backend/lab_progress.py no
+# fallback demo surface for instructors — apps/red-team-api/backend/lab_progress.py no
 # longer scores or completes a Red Team mission from evidence recorded here
 # (backend="guided" events never satisfy Operator Mode's evidence gate, and
 # Guided Mode's compute() short-circuits to a reading-only response before any
