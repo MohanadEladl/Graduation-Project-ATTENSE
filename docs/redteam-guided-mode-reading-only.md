@@ -208,3 +208,43 @@ report generation are both blocked for guided sessions at every layer
 (lab_progress, session_manager, report_agent, main.py); Operator Mode is
 completely unchanged and still fully tested. **AMBER (runtime)** pending the
 manual Docker walkthrough, which is an environment step outside this change.
+
+## 10. Follow-up hardening pass
+
+A later pass re-verified the contract against a stricter product spec and
+made three small, backward-compatible additions (no behavior change to
+anything already working):
+
+- Added a top-level `"score": 0` field to the reading-only response
+  (alongside the existing `completion_score`/`quality_score`), matching the
+  literal example response shape in the product spec. No consumer previously
+  read a top-level `progress.score`, so this is additive only.
+- Added `reading_only_progress(module_id, mode="guided")` as a public,
+  non-underscored alias for `_guided_reading_only_response()` — same static
+  payload, verified byte-for-byte identical to what `compute()` returns for
+  guided/tutorial mode (`test_reading_only_progress_public_alias_matches_compute`).
+- Harmonized the exact wording of `GUIDED_MODE_REPORT_MESSAGE` in both
+  `main.py` and `report_agent.py` to match the spec verbatim: *"Guided Mode
+  is reading-only. No attack report was generated. Switch to Operator Mode
+  to perform the lab and receive AI/Purple feedback."*
+
+`ignored_reasons` was deliberately **kept as a dict of per-bucket counts**
+(`{bucket: 0, ...}`) rather than switched to an empty list for Guided Mode —
+Operator Mode's `ignored_reasons` is the same dict shape for the same key, so
+keeping one consistent type across both modes was judged better API design
+than an illustrative literal that would have made the field's type mode-
+dependent.
+
+The internal wire value for Guided Mode remains `"tutorial"` (not renamed to
+`"reading"`) — the required *outcome* (`check-progress?mode=guided` →
+`reading_only: true, success: false`) was already correct before this pass,
+and renaming the wire value would touch `SessionRecord.mode`, persisted
+session JSON, and the frontend `ModeSwitcher`/`mode` state for no behavioral
+gain, which conflicts with the instruction not to touch unrelated files
+without a functional reason.
+
+Full suite after this pass: **161 passed** (added
+`test_reading_only_progress_public_alias_matches_compute`; extended
+`test_compute_returns_full_api_shape_for_guided_mode` and
+`test_guided_mode_is_always_reading_only` to also assert the new `score`
+field).

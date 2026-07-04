@@ -47,7 +47,7 @@ API_FIELDS = [
     "next_recommended_action", "tasks", "objective_tasks",
     "raw_event_count", "counted_event_count", "ignored_event_count",
     "ignored_reasons", "last_observed_events", "last_counted_events",
-    "evidence", "progress_percent", "completed_tasks",
+    "evidence", "progress_percent", "completed_tasks", "score",
 ]
 
 
@@ -67,6 +67,7 @@ def test_guided_mode_is_always_reading_only(monkeypatch, module_id, wire_mode):
     r = lab_progress.compute(module_id, 0.0, mode=wire_mode)
     assert r["reading_only"] is True
     assert r["success"] is False
+    assert r["score"] == 0
     assert r["completion_score"] == 0
     assert r["quality_score"] == 0
     assert r["tasks"] == []
@@ -78,6 +79,17 @@ def test_guided_mode_is_always_reading_only(monkeypatch, module_id, wire_mode):
     assert r["counted_event_count"] == 0
     assert "Operator Mode" in r["next_recommended_action"]
     assert any("reading-only" in w.lower() for w in r["warnings"])
+
+
+def test_reading_only_progress_public_alias_matches_compute():
+    """reading_only_progress() is the stable, non-underscored entry point the
+    product spec names directly; it must return the exact same contract."""
+    via_alias = lab_progress.reading_only_progress("xss")
+    via_compute = lab_progress.compute("xss", 0.0, mode="guided")
+    # Same keys, same static values (compute() adds nothing dynamic for guided).
+    assert via_alias.keys() == via_compute.keys()
+    for key in via_alias:
+        assert via_alias[key] == via_compute[key], f"mismatch on {key!r}"
 
 
 @pytest.mark.parametrize("module_id", ALL_MODULES)

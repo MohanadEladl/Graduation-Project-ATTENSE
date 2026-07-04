@@ -586,8 +586,8 @@ def _mutation_adaptability(session, progress: dict, timeline: list) -> Dict[str,
 
 
 GUIDED_MODE_REPORT_MESSAGE = (
-    "Guided Mode is reading-only. No attack report is generated. Start "
-    "Operator Mode to perform the lab and receive AI feedback."
+    "Guided Mode is reading-only. No attack report was generated. Switch to "
+    "Operator Mode to perform the lab and receive AI/Purple feedback."
 )
 
 

@@ -8,7 +8,9 @@
 > to a static `reading_only=True` response before any of the machinery
 > described below ever runs. Where this document says "the mission" or "the
 > student's evidence," read that as Operator Mode's mission/evidence — Guided
-> Mode has neither.
+> Mode has neither. AI/Purple Team **reports are generated for Operator Mode
+> only** — `/api/sessions/{sid}/report` returns a short reading-only message
+> for Guided Mode sessions instead of a generated report.
 
 ## Why the progress model changed
 

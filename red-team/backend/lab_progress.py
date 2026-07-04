@@ -2247,6 +2247,7 @@ def _guided_reading_only_response(module_id: str, variant_id: Optional[str] = No
         "tasks":               [],
         "evidence":            [],
         "success":             False,
+        "score":               0,
         "learner_message": (
             "Guided Mode is reading-only. Switch to Operator Mode to perform "
             "the lab and generate an AI/Purple Team report."
@@ -2274,6 +2275,18 @@ def _guided_reading_only_response(module_id: str, variant_id: Optional[str] = No
         "last_observed_events": [],
         "last_counted_events":  [],
     }
+
+
+def reading_only_progress(module_id: str, mode: str = "guided") -> Dict[str, Any]:
+    """Public alias for `_guided_reading_only_response()`.
+
+    Same static, zero-scoring payload — no event fetching, no evidence
+    evaluation. Exists so callers outside `compute()` (e.g. a future endpoint
+    that wants the reading-only shape without a full compute() call) have a
+    stable, non-underscored name to import. `compute()` itself calls the
+    private helper directly.
+    """
+    return _guided_reading_only_response(module_id)
 
 
 def compute(module_id: str,
