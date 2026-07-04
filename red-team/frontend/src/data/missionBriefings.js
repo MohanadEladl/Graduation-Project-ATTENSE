@@ -119,60 +119,60 @@ export const LAB_STEPS_BY_MODULE = {
     },
   ],
 
+  // Operator brute force — ZAP-Workspace-first flow (PortSwigger-style, but
+  // harder: generic errors, evidence-based completion). No credential is ever
+  // shown; the answer lives only in the local /lab/operator-passwords.txt seed.
   brute_force: [
     {
       n: 1,
-      title: 'Confirm the login endpoint responds',
-      goal: 'Verify /auth/login is up and inspect the form structure.',
-      command: 'curl -i http://target-agent/op/auth/login',
-      expected: 'HTTP/1.1 200 OK\n<form method="POST" action="/auth/login">\n  <input name="username" ...\n  <input name="password" ...',
+      title: 'Open the ZAP Workspace',
+      goal: 'In Operator Mode, open the ZAP tool card and click "Open ZAP Workspace" — a desktop-style window bound to this session (Proxy History, Inspector, Repeater, Fuzzer).',
     },
     {
       n: 2,
-      title: 'Confirm error response is generic',
-      goal: 'The harder backend returns "Invalid credentials" for everything — no username enumeration here. You will need to brute force usernames AND passwords together.',
-      commands: [
-        "curl -s -X POST http://target-agent/op/auth/login -d 'username=admin&password=wrong'",
-        "curl -s -X POST http://target-agent/op/auth/login -d 'username=ghost&password=wrong'",
-      ],
-      expected: 'Invalid credentials\nInvalid credentials',
-      hint: 'Same error for known and unknown users — no leak. Stick to a small candidate list.',
+      title: 'Confirm /op/auth/login is in Proxy History',
+      goal: 'Submit any wrong login in the lab browser, then open the ZAP Workspace Proxy History and find the POST /op/auth/login row.',
+      hint: 'Operator browser traffic is proxied through ZAP automatically — the request appears with source=browser.',
     },
     {
       n: 3,
-      title: 'Inspect the local candidate username list',
-      goal: 'Use the preloaded local username list shipped inside the AttackBox.',
-      command: 'cat /wordlists/users.txt',
-      expected: 'admin\noperator\nservice',
+      title: 'Send the captured POST to Repeater',
+      goal: 'Click "Send to Repeater" on the POST /op/auth/login row. Method, path, headers and body are loaded so you can study the request.',
     },
     {
       n: 4,
-      title: 'Run hydra with the local seed wordlist',
-      goal: 'Use Hydra against the operator endpoint with the local-only password seed mounted in the AttackBox.',
-      command: "hydra -L /wordlists/users.txt -P /lab/operator-passwords.txt target-agent http-post-form '/op/auth/login:username=^USER^&password=^PASS^:Invalid credentials' -t 4 -f",
-      flags: [
-        '-L /wordlists/users.txt → username list',
-        '-P /lab/operator-passwords.txt → local-only password seed for this lab instance',
-        "http-post-form 'PATH:BODY:FAIL_STRING' → fail string is now \"Invalid credentials\"",
-        '-t 4 → reduce threads (the backend has a 600ms artificial delay per attempt)',
-        '-f → stop on first valid credential',
-      ],
-      expected: 'Hydra prints one login/password pair and stops.',
-      success_marker: 'brute_force_pattern (≥3 fails)',
-      hint: 'If Hydra exhausts the list, ask the instructor to refresh the local seed file; the answer is intentionally not exposed in the frontend.',
+      title: 'Test one wrong credential in Repeater',
+      goal: 'Edit the password to a wrong value and Send. The operator backend returns a generic 401 "Invalid credentials" — it does not leak which field is wrong.',
+      hint: 'No username enumeration here: every failure looks identical, so you must brute usernames AND passwords.',
     },
     {
       n: 5,
-      title: 'Verify the credential by hand',
-      goal: 'Confirm the username and password reported by Hydra against the harder backend.',
-      command: "curl -i -X POST http://target-agent/op/auth/login -d 'username=<HYDRA_USER>&password=<HYDRA_PASSWORD>'",
-      expected: 'HTTP/1.1 302 FOUND\nLocation: /profile/',
-      hint: 'Replace the placeholders with Hydra output. A 302 to /profile/ means login succeeded; 401 means the credential is wrong.',
+      title: 'Send the request to the Fuzzer',
+      goal: 'Click "Send to Fuzzer". The captured body is preserved and a § marker is placed around the password value.',
     },
     {
       n: 6,
-      title: 'Run Check Progress',
-      goal: 'Confirm the brute-force pattern + credential-found events fired with via=attackbox.',
+      title: 'Load the local lab password list',
+      goal: 'In the AttackBox terminal, print the local-only seed and paste it into the Fuzzer payload list. This list is never on the public internet and is not shown in the UI.',
+      command: 'cat /lab/operator-passwords.txt',
+      hint: 'The valid password is somewhere in this local seed — the Fuzzer will surface it by response difference, not by revealing it in a hint.',
+    },
+    {
+      n: 7,
+      title: 'Run the attack — generate 6+ failed attempts',
+      goal: 'START ATTACK. Each wrong payload is a 401; the run produces the failed-attempt volume the detector needs.',
+      success_marker: 'brute_force_pattern (via=zap_fuzzer)',
+    },
+    {
+      n: 8,
+      title: 'Find the valid credential',
+      goal: 'Sort the Fuzzer results by STATUS. The single 302 row is the working password (redirect to /profile/ instead of a 401).',
+      success_marker: 'credential_found',
+    },
+    {
+      n: 9,
+      title: 'Confirm the successful login',
+      goal: 'Back in Repeater, set that password and Send — a 302 to /profile/ confirms access. Run Check Progress: the mission completes only from Repeater/Fuzzer/AttackBox evidence on /op/auth/login.',
     },
   ],
 
@@ -447,7 +447,20 @@ export const MISSION_BRIEFINGS = {
       'Tools like Hydra, Burp Intruder, and Medusa automate this at scale. '
       + 'Without rate limiting, an attacker can test thousands of credentials per minute. '
       + 'Defenses: rate limiting, CAPTCHA, MFA, account lockout, bcrypt/scrypt password hashing.',
+    // Guided-mode hint (beginner PortSwigger lab): the enumeration + planted
+    // credential help is intentional here and appears only in Guided Mode.
     tip: 'admin:password123 is planted in the lab — pay attention to the error messages to confirm the username first.',
+    // Operator-mode staged hints (harder lab): ZAP-Workspace-driven, generic
+    // errors, evidence-based. NEVER reveals the credential — the answer lives
+    // only in the local /lab/operator-passwords.txt seed. Kept SEPARATE from the
+    // guided hints above so guided enumeration help never leaks into Operator.
+    operatorHints: [
+      'Capture the login request: submit any wrong login in Operator Mode, then open the ZAP Workspace — the POST /op/auth/login appears in Proxy History.',
+      'Send it to Repeater to understand the request format — the fields, headers, and the generic 401 "Invalid credentials" (no field-level leak here).',
+      'Send it to the Fuzzer and put a § around the parameter you want to test (start with the password value).',
+      'Compare status code, length, and redirect between attempts — the valid password returns a 302 to /profile/ instead of a 401.',
+      'Use the provided local wordlist as your payloads: run `cat /lab/operator-passwords.txt` in the AttackBox and paste the list into the Fuzzer.',
+    ],
   },
 
   xss: {

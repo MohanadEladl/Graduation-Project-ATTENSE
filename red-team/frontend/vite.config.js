@@ -10,6 +10,24 @@ export default defineConfig({
       '/api':      { target: 'http://localhost:8000', changeOrigin: true },
       '/health':   { target: 'http://localhost:8000', changeOrigin: true },
       '/ws':       { target: 'ws://localhost:8000',   ws: true },
+      // Operator/Lab browser-through-ZAP. MUST come before '/target' (Vite
+      // matches the first prefix key) or '/target' would swallow '/target-zap'.
+      // Routes to the backend's /zap-browse reverse proxy so browser traffic in
+      // dev goes through ZAP exactly like production nginx does.
+      '/target-zap': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/target-zap/, '/zap-browse'),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('X-Forwarded-Prefix', '/target-zap')
+          })
+          proxy.on('proxyRes', (proxyRes) => {
+            delete proxyRes.headers['x-frame-options']
+            delete proxyRes.headers['content-security-policy']
+          })
+        },
+      },
       // Vulnerable lab target — same-origin preview + deep links.
       // Inject X-Forwarded-Prefix so Flask emits prefixed URLs that keep
       // forms/links inside the /target/* path even when iframed.

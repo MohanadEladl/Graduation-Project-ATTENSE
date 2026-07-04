@@ -75,6 +75,9 @@ function LabModePanel({ moduleId, briefing }) {
   const tools = requiredToolsFor(moduleId)
   const [hintsRevealed, setHintsRevealed] = useState(0)
   const hints = useMemo(() => {
+    // Operator Mode uses its own staged hints (no guided enumeration / credential
+    // leak). Fall back to tip + watchFor for modules without operator hints.
+    if (briefing?.operatorHints?.length) return briefing.operatorHints
     const h = []
     if (briefing?.tip) h.push(briefing.tip)
     if (briefing?.watchFor) briefing.watchFor.forEach(w => h.push(w))
@@ -953,13 +956,16 @@ function LearningPanel({
   const requiredTools = isLab ? requiredToolsFor(moduleId) : []
   const [hintsRevealed, setHintsRevealed] = useState(0)
 
-  // Build hint tiers from briefing
+  // Build hint tiers from briefing. In Lab/Operator Mode use the dedicated
+  // staged operatorHints (no guided enumeration/credential leak); Guided Mode
+  // keeps tip + watchFor.
   const hints = useMemo(() => {
+    if (isLab && briefing?.operatorHints?.length) return briefing.operatorHints
     const h = []
     if (briefing?.tip) h.push(briefing.tip)
     if (briefing?.watchFor) briefing.watchFor.forEach(w => h.push(w))
     return h
-  }, [briefing])
+  }, [briefing, isLab])
 
   return (
     <motion.aside
