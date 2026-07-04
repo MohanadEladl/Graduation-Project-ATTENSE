@@ -32,6 +32,7 @@ RUN echo 'Acquire::Retries "5";'           >  /etc/apt/apt.conf.d/99-retries \
 WORKDIR /lab
 
 COPY wordlists /wordlists
+COPY payloads /lab/payloads
 
 # Symlink so both /wordlists/ and /opt/wordlists/ work in operator commands
 RUN ln -s /wordlists /opt/wordlists

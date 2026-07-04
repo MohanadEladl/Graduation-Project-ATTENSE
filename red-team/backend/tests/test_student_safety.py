@@ -1,4 +1,6 @@
+import json
 import os
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -23,6 +25,39 @@ if "docker" not in sys.modules:
 
 
 from backend import lab_progress, operator_api, session_manager  # noqa: E402
+
+
+def _load_mission_briefing_commands():
+    script = """
+import { LAB_STEPS_BY_MODULE } from './red-team/frontend/src/data/missionBriefings.js';
+
+const modules = ['recon', 'xss', 'cmd_injection', 'dir_traversal', 'file_upload', 'csrf', 'brute_force'];
+const commands = [];
+
+for (const moduleId of modules) {
+  const steps = LAB_STEPS_BY_MODULE[moduleId] || [];
+  for (const step of steps) {
+    if (typeof step.command === 'string') {
+      commands.push({ moduleId, step: step.n, command: step.command });
+    }
+    if (Array.isArray(step.commands)) {
+      for (const command of step.commands) {
+        commands.push({ moduleId, step: step.n, command });
+      }
+    }
+  }
+}
+
+process.stdout.write(JSON.stringify(commands));
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
 
 
 def test_auto_attacks_disabled_by_default(monkeypatch):
@@ -61,6 +96,22 @@ def test_attackbox_validate_allowed_and_blocked_examples():
 
     assert [operator_api.validate_command(cmd) for cmd in allowed] == [None] * len(allowed)
     assert all(operator_api.validate_command(cmd) == operator_api.BLOCKED_EXTERNAL_MSG for cmd in blocked)
+
+
+def test_lab_briefing_attackbox_commands_match_validator():
+    """Every command rendered as an AttackBox copy block must execute safely."""
+    commands = _load_mission_briefing_commands()
+    assert commands
+
+    failures = []
+    for item in commands:
+        err = operator_api.validate_command(item["command"])
+        if err:
+            failures.append(
+                f"{item['moduleId']} step {item['step']}: {item['command']!r} -> {err}"
+            )
+
+    assert not failures, "\n".join(failures)
 
 
 def test_zap_target_normalization_blocks_external_urls():
