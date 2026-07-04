@@ -39,7 +39,7 @@ export default function ZapRepeater({ c }) {
       </div>
 
       <div className="text-[9px] tracking-[0.2em] mb-1" style={{ color: '#5a6680' }}>REQUEST HEADERS (one per line, Key: Value)</div>
-      <textarea value={c.repHeaders} onChange={e => c.setRepHeaders(e.target.value)} rows={2}
+      <textarea value={c.repHeaders} onChange={e => c.setRepHeaders(e.target.value)} rows={8}
         className="w-full text-[11px] px-3 py-2 rounded mb-2 resize-y"
         style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', color: '#d0d8e8', outline: 'none' }}
         placeholder="Content-Type: application/x-www-form-urlencoded" />
