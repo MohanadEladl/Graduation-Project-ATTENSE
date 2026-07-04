@@ -27,6 +27,7 @@ async function del(path) {
 
 export const api = {
   health:     () => get('/health'),
+  config:     () => get('/api/config'),
   modules:    () => get('/api/modules'),
   target:     () => get('/api/target'),
 
@@ -84,7 +85,7 @@ export const api = {
   // Lab Mode: AttackBox
   attackbox: {
     status:   ()              => get('/api/operator/attackbox/status'),
-    exec:     (command, module_id) => post('/api/operator/attackbox/exec', { command, module_id }),
+    exec:     (command, module_id, session_id) => post('/api/operator/attackbox/exec', { command, module_id, session_id }),
     evidence: (since = 0)     => get(`/api/operator/attackbox/evidence?since=${since}`),
   },
 
@@ -92,10 +93,10 @@ export const api = {
   zap: {
     status:   ()              => get('/api/operator/zap/status'),
     history:  (limit = 50)    => get(`/api/operator/zap/history?limit=${limit}`),
-    repeater: (method, path, headers, body) =>
-      post('/api/operator/zap/repeater/send', { method, path, headers, body }),
-    fuzzer: (method, path, body_template, payloads, marker = '§', grep = null) =>
-      post('/api/operator/zap/fuzzer/send', { method, path, body_template, payloads, marker, grep }),
+    repeater: (method, path, headers, body, context = {}) =>
+      post('/api/operator/zap/repeater/send', { method, path, headers, body, ...context }),
+    fuzzer: (method, path, body_template, payloads, marker = '§', grep = null, context = {}) =>
+      post('/api/operator/zap/fuzzer/send', { method, path, body_template, payloads, marker, grep, ...context }),
   },
 
   skills: {

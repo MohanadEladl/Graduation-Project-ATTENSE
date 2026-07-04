@@ -2,7 +2,7 @@
  * ZapPanel — Lab Mode OWASP ZAP panel with real status.
  *
  * Connects to the local ZAP proxy via the backend API.
- * Shows proxy history, request inspector, and repeater tabs.
+ * Shows ZAP tool history, request inspector, and repeater tabs.
  * All requests are scoped to the local target-agent only.
  */
 import { useEffect, useState } from 'react'
@@ -16,7 +16,7 @@ const STATUS_STYLES = {
 }
 
 const TABS = [
-  { id: 'history',   label: 'Proxy History' },
+  { id: 'history',   label: 'Tool History' },
   { id: 'inspector', label: 'Request Inspector' },
   { id: 'repeater',  label: 'Repeater' },
   { id: 'fuzzer',    label: 'Fuzzer' },
@@ -50,7 +50,10 @@ function markLastValue(body) {
   return idx === -1 ? body + '§' : body.slice(0, idx + 1) + '§'
 }
 
-export default function ZapPanel({ minimized, onToggleMinimize }) {
+export default function ZapPanel({ minimized, onToggleMinimize, sessionId, moduleId, mode = 'tutorial' }) {
+  const isOperatorMode = mode === 'lab' || mode === 'operator'
+  const defaultAuthPath = isOperatorMode ? '/op/auth/login' : '/auth/login'
+  const context = { session_id: sessionId, module_id: moduleId }
   const [status, setStatus] = useState('checking')
   const [zapVersion, setZapVersion] = useState('')
   const [activeTab, setActiveTab] = useState('history')
@@ -59,14 +62,14 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
 
   // Repeater state
   const [repMethod, setRepMethod] = useState('GET')
-  const [repPath, setRepPath] = useState('/')
+  const [repPath, setRepPath] = useState(moduleId === 'brute_force' ? defaultAuthPath : '/')
   const [repBody, setRepBody] = useState('')
   const [repResult, setRepResult] = useState(null)
   const [repLoading, setRepLoading] = useState(false)
 
   // Fuzzer (Intruder-style) state
   const [fuzMethod, setFuzMethod] = useState('POST')
-  const [fuzPath, setFuzPath] = useState('/auth/login')
+  const [fuzPath, setFuzPath] = useState(defaultAuthPath)
   const [fuzBody, setFuzBody] = useState('')
   const [fuzPreset, setFuzPreset] = useState('none')
   const [fuzList, setFuzList] = useState('')
@@ -90,6 +93,21 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
     return () => clearInterval(iv)
   }, [])
 
+  useEffect(() => {
+    if (moduleId !== 'brute_force') return
+    setFuzPath(p => (p === '/auth/login' || p === '/op/auth/login') ? defaultAuthPath : p)
+    setRepPath(p => (p === '/' || p === '/auth/login' || p === '/op/auth/login') ? defaultAuthPath : p)
+  }, [defaultAuthPath, moduleId])
+
+  const avoidGuidedAuthInOperator = (path) => {
+    const raw = path || defaultAuthPath
+    if (!isOperatorMode || moduleId !== 'brute_force') return raw
+    if (raw.includes('/op/auth/login')) return raw
+    return raw.replace('http://target-agent/auth/login', 'http://target-agent/op/auth/login')
+      .replace('https://target-agent/auth/login', 'https://target-agent/op/auth/login')
+      .replace('/auth/login', '/op/auth/login')
+  }
+
   // Fetch history when tab is active and ZAP is running
   useEffect(() => {
     if (activeTab !== 'history' || status !== 'running') return
@@ -107,7 +125,9 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
   const handleSendRepeater = async () => {
     setRepLoading(true)
     try {
-      const r = await api.zap.repeater(repMethod, repPath, null, repBody || null)
+      const safePath = avoidGuidedAuthInOperator(repPath)
+      setRepPath(safePath)
+      const r = await api.zap.repeater(repMethod, safePath, null, repBody || null, context)
       setRepResult(r)
     } catch (e) {
       setRepResult({ status: 'error', detail: e.message })
@@ -124,7 +144,7 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
   // value with § as a sensible default payload position.
   const handleSendToFuzzer = (method, path, body) => {
     setFuzMethod(method || 'POST')
-    setFuzPath(path || '/')
+    setFuzPath(avoidGuidedAuthInOperator(path || defaultAuthPath))
     setFuzBody(markLastValue(body || ''))
     setFuzResult(null)
     setActiveTab('fuzzer')
@@ -136,7 +156,9 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
     setFuzSort('order')
     try {
       const payloads = fuzList.split('\n').map(s => s.trim()).filter(Boolean)
-      const r = await api.zap.fuzzer(fuzMethod, fuzPath, fuzBody, payloads, '§', fuzGrep || null)
+      const safePath = avoidGuidedAuthInOperator(fuzPath)
+      setFuzPath(safePath)
+      const r = await api.zap.fuzzer(fuzMethod, safePath, fuzBody, payloads, '§', fuzGrep || null, context)
       setFuzResult(r)
     } catch (e) {
       setFuzResult({ status: 'error', detail: e.message })
@@ -254,6 +276,7 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
             onMethodChange={setRepMethod} onPathChange={setRepPath} onBodyChange={setRepBody}
             onSend={handleSendRepeater} loading={repLoading} result={repResult}
             onSendToFuzzer={() => handleSendToFuzzer(repMethod, repPath, repBody)}
+            defaultAuthPath={defaultAuthPath}
           />
         ) : (
           <FuzzerTab
@@ -263,6 +286,7 @@ export default function ZapPanel({ minimized, onToggleMinimize }) {
             onSelectPreset={handleSelectPreset} onListChange={setFuzList}
             onSort={setFuzSort} onGrepChange={setFuzGrep}
             onRun={handleRunFuzzer} loading={fuzLoading} result={fuzResult}
+            defaultAuthPath={defaultAuthPath}
           />
         )}
       </div>
@@ -277,15 +301,15 @@ function HistoryTab({ messages, onSelect, onSendToFuzzer }) {
     return (
       <div className="font-mono text-[11px] text-attense-dim">
         <div className="mb-2 text-attense-text font-semibold">ZAP is running.</div>
-        <div>No proxy history yet. Browse the target in the Lab Browser to generate traffic,</div>
-        <div>or use the Repeater tab to send requests.</div>
+        <div>No ZAP tool history yet. Use Repeater or Fuzzer to send local target requests.</div>
+        <div>Normal Lab Browser traffic is not proxied through this history.</div>
       </div>
     )
   }
   return (
     <div>
       <div className="font-mono text-[9px] tracking-[0.3em] text-attense-dim mb-2">
-        PROXY HISTORY ({messages.length} requests) · hover a row to send it to the Fuzzer
+        ZAP TOOL HISTORY ({messages.length} requests) · hover a row to send it to the Fuzzer
       </div>
       <div className="space-y-px">
         {messages.map((m, i) => (
@@ -321,7 +345,7 @@ function InspectorTab({ message }) {
   if (!message) {
     return (
       <div className="font-mono text-[11px] text-attense-dim">
-        Select a request from Proxy History to inspect it.
+        Select a request from Tool History to inspect it.
       </div>
     )
   }
@@ -341,7 +365,7 @@ function InspectorTab({ message }) {
   )
 }
 
-function RepeaterTab({ method, path, body, onMethodChange, onPathChange, onBodyChange, onSend, loading, result, onSendToFuzzer }) {
+function RepeaterTab({ method, path, body, onMethodChange, onPathChange, onBodyChange, onSend, loading, result, onSendToFuzzer, defaultAuthPath = '/auth/login' }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -376,7 +400,7 @@ function RepeaterTab({ method, path, body, onMethodChange, onPathChange, onBodyC
             onChange={e => onPathChange(e.target.value)}
             className="flex-1 font-mono text-[11px] px-2 py-1.5 bg-transparent outline-none"
             style={{ color: '#d0d8e8' }}
-            placeholder="/auth/login"
+            placeholder={defaultAuthPath}
           />
         </div>
         <button
@@ -418,6 +442,7 @@ function FuzzerTab({
   method, path, body, preset, list, sort, grep,
   onMethodChange, onPathChange, onBodyChange,
   onSelectPreset, onListChange, onSort, onGrepChange, onRun, loading, result,
+  defaultAuthPath = '/auth/login',
 }) {
   const rows = result?.status === 'ok' ? (result.results || []) : []
   const count = list.split('\n').map(s => s.trim()).filter(Boolean).length
@@ -483,7 +508,7 @@ function FuzzerTab({
             onChange={e => onPathChange(e.target.value)}
             className="flex-1 font-mono text-[11px] px-2 py-1.5 bg-transparent outline-none"
             style={{ color: '#d0d8e8' }}
-            placeholder="/auth/login"
+            placeholder={defaultAuthPath}
           />
         </div>
       </div>
@@ -557,7 +582,7 @@ function FuzzerTab({
       >{loading ? `ATTACKING ${count} PAYLOADS…` : `START ATTACK · ${count} payloads`}</button>
 
       {/* ── 3 · RESULTS ── */}
-      {result?.status === 'error' && (
+      {result && result.status !== 'ok' && (
         <div className="font-mono text-[10.5px] mt-3" style={{ color: '#f87171' }}>
           Error: {result.detail || 'unknown'}
         </div>

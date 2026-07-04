@@ -610,7 +610,14 @@ def generate(session, events: list, timeline: list,
 
     # Browser vs AttackBox event count for grading penalty
     browser_n   = sum(1 for e in events if e.get("via") == "browser")
-    attackbox_n = sum(1 for e in events if e.get("via") == "attackbox")
+    attackbox_n = sum(1 for e in events if e.get("via") in ("attackbox", "zap_repeater", "zap_fuzzer"))
+    terminal_n  = sum(1 for x in timeline if x.get("channel") == "terminal")
+    zap_n       = sum(1 for x in timeline if x.get("channel") == "zap")
+    tool_names = sorted({
+        str((x.get("raw") or {}).get("tool"))
+        for x in timeline
+        if (x.get("raw") or {}).get("tool")
+    })
 
     # Score & grade
     grade, score = _grade(progress, (browser_n, attackbox_n))
@@ -650,6 +657,18 @@ def generate(session, events: list, timeline: list,
         did_right.append({
             "title":  "Clean execution",
             "detail": "Every required success event fired. The vulnerability was conclusively demonstrated.",
+        })
+
+    brute_force_activity = progress.get("brute_force_activity")
+    if module_id == "brute_force" and brute_force_activity:
+        did_right.append({
+            "title": "Brute-force activity captured",
+            "detail": (
+                f"{brute_force_activity.get('failed_attempt_count', 0)} failed attempts "
+                f"observed on {brute_force_activity.get('path')}; "
+                f"credential discovery="
+                f"{'yes' if brute_force_activity.get('credential_found') else 'no'}."
+            ),
         })
 
     # Ideal approach — from the variant's ideal_commands
@@ -742,5 +761,13 @@ def generate(session, events: list, timeline: list,
         "channel_breakdown": {
             "browser":   browser_n,
             "attackbox": attackbox_n,
+            "terminal":  terminal_n,
+            "zap":       zap_n,
         },
+        "tool_activity": {
+            "terminal_commands": terminal_n,
+            "zap_actions": zap_n,
+            "tools_used": tool_names,
+        },
+        "brute_force_activity": brute_force_activity,
     }

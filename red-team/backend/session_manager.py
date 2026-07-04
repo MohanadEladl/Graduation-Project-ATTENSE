@@ -31,6 +31,16 @@ from engine.session import AttackSession
 # Temp file — lives inside the container; removed when `docker rm` clears /tmp
 _PERSIST_PATH = os.getenv("SESSION_STORE", "/tmp/attense_sessions.json")
 
+AUTO_ATTACK_DISABLED_MESSAGE = (
+    "Auto execution is disabled in student mode. Use Guided or Operator tools."
+)
+
+
+def auto_attacks_enabled() -> bool:
+    return os.getenv("ENABLE_AUTO_ATTACKS", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
 
 # Small ring buffer of recent log lines per session.
 _MAX_LOG_LINES = 2000
@@ -360,13 +370,10 @@ class SessionManager:
         if record.attack.state == "running":
             raise RuntimeError("attack already running")
 
-        # Automated scan is an instructor-demo tool, OFF by default for everyone.
-        # Do NOT key on record.mode — students run in "tutorial".
-        if os.getenv("ATTENSE_ALLOW_AUTO_SCAN") != "1":
-            raise RuntimeError(
-                "Automated scan is disabled. This is a hands-on lab — run the "
-                "attack yourself from the Terminal or ZAP, then Check Progress."
-            )
+        # Automated module execution is instructor/demo-only. Student mode must
+        # be driven by observed lab evidence from the browser, AttackBox, or ZAP.
+        if not auto_attacks_enabled():
+            raise RuntimeError(AUTO_ATTACK_DISABLED_MESSAGE)
 
         def _run() -> None:
             record.attack._cmd_execute([])  # noqa: SLF001

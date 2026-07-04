@@ -23,6 +23,8 @@ import json
 # Where to reach the target-agent's evidence API. In docker-compose,
 # resolved by service hostname.
 TARGET_AGENT_URL = os.getenv("LAB_EVENTS_URL", "http://target-agent")
+OPERATOR_TOOL_VIA = {"attackbox", "zap_repeater", "zap_fuzzer"}
+BRUTE_FORCE_MIN_FAILURES = 6
 
 
 def fetch_events(since: float = 0.0,
@@ -39,6 +41,65 @@ def fetch_events(since: float = 0.0,
             return data.get("events", [])
     except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError):
         return []
+
+
+def _event_extra(e: Dict[str, Any]) -> Dict[str, Any]:
+    extra = e.get("extra")
+    return extra if isinstance(extra, dict) else {}
+
+
+def _event_path(e: Dict[str, Any]) -> str:
+    return str(e.get("path") or _event_extra(e).get("path") or "")
+
+
+def _event_backend(e: Dict[str, Any]) -> str:
+    extra_backend = _event_extra(e).get("backend")
+    if extra_backend:
+        return str(extra_backend)
+    path = _event_path(e)
+    if path.startswith("/op/"):
+        return "operator"
+    if path.startswith("/auth/"):
+        return "guided"
+    return ""
+
+
+def _is_operator_tool_event(e: Dict[str, Any]) -> bool:
+    return str(e.get("via") or "") in OPERATOR_TOOL_VIA
+
+
+def _is_brute_force_event_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
+    if e.get("event_type") not in {
+        "login_failed", "login_success", "brute_force_pattern", "credential_found",
+    }:
+        return False
+    path = _event_path(e)
+    backend = _event_backend(e)
+    if is_lab:
+        # Older target-agent builds tag ZAP-originated requests as "unknown"
+        # because they do not know the new ZAP user agents. The path/backend
+        # pair is still authoritative; exclude browser traffic so operator
+        # brute-force completion remains tool-driven.
+        return path == "/op/auth/login" and backend == "operator" and e.get("via") != "browser"
+    return path == "/auth/login" and backend != "operator"
+
+
+def _brute_force_activity(events: List[Dict[str, Any]], *, is_lab: bool) -> Dict[str, Any]:
+    scoped = [e for e in events if _is_brute_force_event_for_mode(e, is_lab=is_lab)]
+    failures = [e for e in scoped if e.get("event_type") == "login_failed"]
+    credentials = [e for e in scoped if e.get("event_type") == "credential_found"]
+    paths = sorted({_event_path(e) for e in scoped if _event_path(e)})
+    tools = sorted({str(e.get("via")) for e in scoped if str(e.get("via") or "") in OPERATOR_TOOL_VIA})
+    return {
+        "failed_attempt_count": len(failures),
+        "credential_found": bool(credentials),
+        "required_failed_attempts": BRUTE_FORCE_MIN_FAILURES,
+        "path": "/op/auth/login" if is_lab else "/auth/login",
+        "paths_observed": paths,
+        "tools_observed": tools,
+        "first_failed_at": failures[0].get("ts") if failures else None,
+        "credential_found_at": credentials[-1].get("ts") if credentials else None,
+    }
 
 
 # ── Per-module success specs ────────────────────────────────────────────────
@@ -111,9 +172,10 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Submit the login form to interact with the vulnerable endpoint.",
             },
             {
-                "title": "Trigger multiple failed logins",
-                "event_types": ["brute_force_pattern"],
-                "explain": "3+ failed attempts from your IP within 5 minutes triggers this.",
+                "title": "Make at least 6 failed login attempts",
+                "event_types": ["login_failed"],
+                "min_count": BRUTE_FORCE_MIN_FAILURES,
+                "explain": "Use the guided login form enough times to create a realistic failed-attempt pattern.",
             },
             {
                 "title": "Find a valid credential",
@@ -137,7 +199,7 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
             {
                 "title": "Trigger the brute-force pattern detection",
                 "event_types": ["brute_force_pattern"],
-                "explain": "After repeated AttackBox failures, the pattern event fires.",
+                "explain": "After repeated local-tool failures, the pattern event fires.",
             },
             {
                 "title": "Confirm a valid credential by hand",
@@ -145,8 +207,8 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Use curl with the credential found by hydra to confirm a 302 redirect to /profile/.",
             },
         ],
-        "success_tutorial": ["brute_force_pattern", "credential_found"],
-        "success_lab":      ["brute_force_pattern", "credential_found"],
+        "success_tutorial": ["login_failed", "credential_found"],
+        "success_lab":      ["login_failed", "credential_found"],
         "defensive_insight":
             "Add per-account and per-IP rate limiting, account lockout after "
             "5 failures, and detection rules for repeated 401 responses.",
@@ -1943,6 +2005,7 @@ def compute(module_id: str,
             session_completed_steps: Optional[List[int]] = None,
             mode: str = "tutorial",
             variant_id: Optional[str] = None,
+            session_id: Optional[str] = None,
             ) -> Dict[str, Any]:
     """
     Returns a learner-facing progress payload:
@@ -2010,11 +2073,16 @@ def compute(module_id: str,
     # task 2) must be visible. Task-level event_type matching below handles scoping.
     raw_events = fetch_events(since=mission_started_at, limit=500)
 
-    # Lab mode: only count evidence that came through the AttackBox.
-    # Browser-driven events still appear in cards (so the learner can see what
-    # they did) but they are NOT counted toward task completion.
-    if is_lab:
-        events_for_progress = [e for e in raw_events if e.get("via") == "attackbox"]
+    if module_id == "brute_force":
+        events_for_progress = [
+            e for e in raw_events
+            if _is_brute_force_event_for_mode(e, is_lab=is_lab)
+        ]
+    elif is_lab:
+        # Lab mode: only count evidence that came through local operator tools.
+        # Browser-driven events still appear in cards (so the learner can see what
+        # they did) but they are NOT counted toward task completion.
+        events_for_progress = [e for e in raw_events if _is_operator_tool_event(e)]
     else:
         events_for_progress = raw_events
 
@@ -2082,7 +2150,11 @@ def compute(module_id: str,
             "severity":    e.get("severity", "info"),
             "module_id":   e.get("module_id"),
             "via":         e.get("via", "unknown"),
-            "counts":      (not is_lab) or (e.get("via") == "attackbox"),
+            "counts":      (
+                _is_brute_force_event_for_mode(e, is_lab=is_lab)
+                if module_id == "brute_force"
+                else ((not is_lab) or _is_operator_tool_event(e))
+            ),
             "extra":       e.get("extra", {}),
         })
     cards.sort(key=lambda c: c.get("timestamp") or 0, reverse=True)
@@ -2095,6 +2167,8 @@ def compute(module_id: str,
         from backend import operator_api
         tool_events = operator_api.get_tool_evidence(since=mission_started_at)
         for te in tool_events:
+            if session_id and te.get("session_id") and te.get("session_id") != session_id:
+                continue
             # Filter by module_id if the tool command was tagged
             if te.get("module_id") and te["module_id"] != module_id:
                 continue
@@ -2105,9 +2179,13 @@ def compute(module_id: str,
                 "timestamp":   te.get("ts"),
                 "severity":    te.get("severity", "info"),
                 "module_id":   te.get("module_id"),
-                "via":         "attackbox",
+                "via":         te.get("via") or "attackbox",
                 "counts":      True,
-                "extra":       {"tool": te.get("tool"), "command": te.get("command", "")[:80]},
+                "extra":       {
+                    "tool": te.get("tool"),
+                    "command": te.get("command", "")[:80],
+                    **(te.get("extra") or {}),
+                },
             })
     except ImportError:
         pass  # operator_api not available — skip tool evidence
@@ -2117,6 +2195,14 @@ def compute(module_id: str,
     # (success_required was set earlier — variant override or default spec)
     success_seen     = set(e.get("event_type") for e in events_for_progress) & success_required
     success          = len(success_required) > 0 and success_seen == success_required
+
+    brute_force_activity = None
+    if module_id == "brute_force":
+        brute_force_activity = _brute_force_activity(events_for_progress, is_lab=is_lab)
+        success = (
+            brute_force_activity["failed_attempt_count"] >= BRUTE_FORCE_MIN_FAILURES
+            and brute_force_activity["credential_found"]
+        )
 
     progress_percent = int(round(100 * len(completed_idx) / max(len(tasks_out), 1)))
 
@@ -2155,6 +2241,7 @@ def compute(module_id: str,
         "learner_message":     msg,
         "defensive_insight":   spec.get("defensive_insight"),
         "events_examined":     len(raw_events),
+        "brute_force_activity": brute_force_activity,
     }
 
 
@@ -2186,6 +2273,12 @@ def _evidence_title(event_type: Optional[str]) -> str:
         "csrf_lure_submitted":         "Forged form submitted from lure page",
         "profile_changed_without_csrf": "Profile changed without CSRF protection",
         "tool_command_observed":       "Lab tool command executed",
+        "tool_used":                   "Lab tool used",
+        "zap_repeater_request":        "ZAP Repeater request sent",
+        "zap_fuzzer_started":          "ZAP Fuzzer started",
+        "zap_fuzzer_payload_tested":   "ZAP Fuzzer payload tested",
+        "zap_fuzzer_completed":        "ZAP Fuzzer completed",
+        "zap_fuzzer_match_found":      "ZAP Fuzzer match found",
         "recon_sequence_observed":     "Recon sequence detected",
     }
     return titles.get(event_type or "", str(event_type or "unknown"))

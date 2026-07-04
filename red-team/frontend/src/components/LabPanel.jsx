@@ -5,7 +5,34 @@
 import TerminalPanel from './TerminalPanel.jsx'
 import ZapPanel from './ZapPanel.jsx'
 
-export default function LabPanel({ selectedTool, activeStep, minimized, onToggleMinimize }) {
-  if (selectedTool === 'zap') return <ZapPanel activeStep={activeStep} minimized={minimized} onToggleMinimize={onToggleMinimize} />
-  return <TerminalPanel activeStep={activeStep} minimized={minimized} onToggleMinimize={onToggleMinimize} />
+export default function LabPanel({
+  selectedTool,
+  activeStep,
+  minimized,
+  onToggleMinimize,
+  sessionId,
+  moduleId,
+  mode,
+}) {
+  if (selectedTool === 'zap') {
+    return (
+      <ZapPanel
+        activeStep={activeStep}
+        minimized={minimized}
+        onToggleMinimize={onToggleMinimize}
+        sessionId={sessionId}
+        moduleId={moduleId}
+        mode={mode}
+      />
+    )
+  }
+  return (
+    <TerminalPanel
+      activeStep={activeStep}
+      minimized={minimized}
+      onToggleMinimize={onToggleMinimize}
+      sessionId={sessionId}
+      moduleId={moduleId}
+    />
+  )
 }

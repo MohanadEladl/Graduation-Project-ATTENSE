@@ -98,7 +98,7 @@ def login():
             path="/auth/login", method="POST",
             source_ip=request.remote_addr,
         via=current_app.detect_via(),
-            extra={"username": username},
+            extra={"username": username, "backend": "guided", "path": "/auth/login"},
         )
         # Mark a credential pair as found (the success criterion)
         evidence.record(
@@ -109,7 +109,7 @@ def login():
         via=current_app.detect_via(),
             severity="high",
             learner_message=f"Valid credential confirmed: {username} / (correct password).",
-            extra={"username": username},
+            extra={"username": username, "backend": "guided", "path": "/auth/login"},
         )
         return redirect(current_app.lab_url("/profile/"))
     else:
@@ -134,7 +134,12 @@ def login():
             path="/auth/login", method="POST",
             source_ip=request.remote_addr,
         via=current_app.detect_via(),
-            extra={"username": username, "known_user": username in _USERS},
+            extra={
+                "username": username,
+                "known_user": username in _USERS,
+                "backend": "guided",
+                "path": "/auth/login",
+            },
         )
         return render_template_string(
             _LOGIN_PAGE, username=username, error=msg

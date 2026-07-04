@@ -35,6 +35,7 @@ const GRADE_COLORS = {
 const CHANNEL_COLOR = {
   browser:  { fg: '#fb923c', bd: 'rgba(251,146,60,0.3)',  bg: 'rgba(251,146,60,0.06)' },
   terminal: { fg: '#7dd3fc', bd: 'rgba(125,211,252,0.3)', bg: 'rgba(125,211,252,0.06)' },
+  zap:      { fg: '#c9a5ff', bd: 'rgba(201,165,255,0.3)', bg: 'rgba(201,165,255,0.06)' },
   evidence: { fg: '#2ee39a', bd: 'rgba(46,227,154,0.3)',  bg: 'rgba(46,227,154,0.06)' },
 }
 
@@ -468,10 +469,11 @@ export default function MissionReport() {
                 {report.success ? 'SUCCESS' : 'INCOMPLETE'}
               </span>
             </div>
-            <div className={`grid gap-3 ${(report.mutation_timeline || []).length > 0 ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'}`}>
+            <div className={`grid gap-3 ${(report.mutation_timeline || []).length > 0 ? 'grid-cols-2 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-5'}`}>
               <HeroStat label="DURATION" value={fmtDuration(report.duration_seconds)} />
               <HeroStat label="EVENTS"   value={(report.evidence_timeline || []).length} />
-              <HeroStat label="ATTACKBOX" value={report.channel_breakdown?.attackbox ?? '—'} />
+              <HeroStat label="TERMINAL" value={report.channel_breakdown?.terminal ?? '—'} />
+              <HeroStat label="ZAP" value={report.channel_breakdown?.zap ?? '—'} />
               <HeroStat label="BROWSER"  value={report.channel_breakdown?.browser ?? '—'} />
               {(report.mutation_timeline || []).length > 0 && (
                 <HeroStat
@@ -514,6 +516,18 @@ export default function MissionReport() {
           ))}
         </div>
       </motion.section>
+
+      {report.brute_force_activity && (
+        <motion.section {...fadeUp(0.12)} className="mb-5">
+          <SectionTitle title="Brute-Force Activity" subtitle="Observed attempts, route, and tools" color="#7dd3fc" />
+          <div className="grid md:grid-cols-4 gap-3">
+            <HeroStat label="FAILED ATTEMPTS" value={`${report.brute_force_activity.failed_attempt_count ?? 0} / ${report.brute_force_activity.required_failed_attempts ?? 6}`} />
+            <HeroStat label="PATH" value={report.brute_force_activity.path || '—'} />
+            <HeroStat label="CREDENTIAL" value={report.brute_force_activity.credential_found ? 'FOUND' : 'NOT FOUND'} />
+            <HeroStat label="TOOLS" value={(report.tool_activity?.tools_used || []).join(', ') || '—'} mono={false} />
+          </div>
+        </motion.section>
+      )}
 
       {/* ── WHAT YOU DID RIGHT ── */}
       <motion.section {...fadeUp(0.15)} className="mb-5">

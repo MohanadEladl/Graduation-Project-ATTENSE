@@ -1244,12 +1244,13 @@ function LearningPanel({
 // ── Advanced collapsed strip (bottom) ───────────────────────────────────────
 // Only visible when the user opts in via the LearningPanel toggle. Holds
 // the optional "Run Automated Scan" affordance for instructor demos.
-function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
+function AdvancedTools({ open, snapshot, sid, onExecute, executing, autoAttacksEnabled }) {
   if (!open) return null
   const instructor =
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('instructor') === '1'
   const attackDone = snapshot?.state === 'completed' || snapshot?.state === 'error'
+  const canAutoRun = instructor && autoAttacksEnabled
   return (
     <div
       className="shrink-0"
@@ -1263,7 +1264,7 @@ function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
         <div className="font-mono text-[9px] tracking-[0.28em] text-attense-dim">
           ADVANCED
         </div>
-        {instructor ? (
+        {canAutoRun ? (
           <>
             <button
               onClick={onExecute}
@@ -1792,6 +1793,7 @@ export default function Workspace() {
   const [missionStarted, setMissionStarted] = useState(false)
   const [showAdvanced, setShowAdvanced]     = useState(false)
   const [executing, setExecuting]           = useState(false)
+  const [autoAttacksEnabled, setAutoAttacksEnabled] = useState(false)
   const [labPanelMinimized, setLabPanelMinimized] = useState(false)
   const [leftCollapsed, setLeftCollapsed]   = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
@@ -1885,6 +1887,18 @@ export default function Workspace() {
   const [variantId, setVariantId] = useState(null)
   const toolsVisible = mode === 'lab' || isMutationRun
   const activeMutation = activeMutations[activeMutations.length - 1] || null
+
+  useEffect(() => {
+    let cancelled = false
+    api.config()
+      .then(cfg => {
+        if (!cancelled) setAutoAttacksEnabled(Boolean(cfg.enable_auto_attacks))
+      })
+      .catch(() => {
+        if (!cancelled) setAutoAttacksEnabled(false)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     if (!modeHydratedRef.current && snapshot?.mode) {
@@ -2293,6 +2307,9 @@ export default function Workspace() {
                 selectedTool={selectedLabTool}
                 minimized={labPanelMinimized}
                 onToggleMinimize={() => setLabPanelMinimized(v => !v)}
+                sessionId={sid}
+                moduleId={snapshot.module_id}
+                mode={mode}
               />
             </motion.div>
           )}
@@ -2317,6 +2334,7 @@ export default function Workspace() {
       <AdvancedTools
         open={showAdvanced} snapshot={snapshot} sid={sid}
         onExecute={handleAdvancedExecute} executing={executing}
+        autoAttacksEnabled={autoAttacksEnabled}
       />
 
       <ShapeshiftOverlay

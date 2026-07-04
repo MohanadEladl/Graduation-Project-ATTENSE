@@ -12,7 +12,7 @@ Endpoints:
   POST   /api/sessions/{sid}/options        – set one option
   POST   /api/sessions/{sid}/target         – set target host/port
   POST   /api/sessions/{sid}/start          – begin mission (no attack)
-  POST   /api/sessions/{sid}/execute        – execute the attack
+  POST   /api/sessions/{sid}/execute        – instructor/demo auto execution only
   GET    /api/sessions/{sid}/logs           – full log history
   WS     /ws/sessions/{sid}                 – live log stream
 
@@ -21,7 +21,7 @@ Endpoints:
   POST   /api/operator/attackbox/exec        – run command in AttackBox
   GET    /api/operator/attackbox/evidence     – tool command evidence
   GET    /api/operator/zap/status            – ZAP service status
-  GET    /api/operator/zap/history           – ZAP proxy history
+  GET    /api/operator/zap/history           – ZAP Repeater/Fuzzer history
   POST   /api/operator/zap/repeater/send     – send request through ZAP
   POST   /api/operator/zap/fuzzer/send       – fuzz a wordlist through ZAP (Intruder-style)
 
@@ -48,7 +48,11 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from core.module_loader import discover_modules    # noqa: E402
-from backend.session_manager import SessionManager # noqa: E402
+from backend.session_manager import (        # noqa: E402
+    AUTO_ATTACK_DISABLED_MESSAGE,
+    SessionManager,
+    auto_attacks_enabled,
+)
 from backend.detections import DetectionBroker     # noqa: E402
 from backend import operator_api                   # noqa: E402
 from backend import action_trace                   # noqa: E402
@@ -140,6 +144,14 @@ def list_modules() -> list[dict]:
 @app.get("/api/target")
 def get_target() -> dict:
     return {"host": DEFAULT_HOST, "port": DEFAULT_PORT}
+
+
+@app.get("/api/config")
+def get_config() -> dict[str, Any]:
+    return {
+        "enable_auto_attacks": auto_attacks_enabled(),
+        "student_mode_message": AUTO_ATTACK_DISABLED_MESSAGE,
+    }
 
 
 # ── Guided-mission sessions ───────────────────────────────────────────────────
@@ -261,6 +273,7 @@ async def check_progress(sid: str, mode: Optional[str] = None) -> dict:
         session_completed_steps=list(rec.completed_steps),
         mode=mode,
         variant_id=variant_id,
+        session_id=sid,
     )
     rec.update_learning_progress(result)
     _SESSIONS._persist()
@@ -347,11 +360,14 @@ async def get_session_timeline(sid: str) -> dict:
     # 2. Terminal commands from operator_api
     try:
         for c in operator_api.get_tool_evidence(since=started):
+            if c.get("session_id") and c.get("session_id") != sid:
+                continue
+            is_zap = str(c.get("tool") or "").startswith("zap_") or str(c.get("event_type") or "").startswith("zap_")
             timeline.append({
                 "ts":          c.get("ts", 0.0),
-                "channel":     "terminal",
-                "kind":        c.get("tool", "tool_command"),
-                "summary":     (c.get("command") or "")[:140],
+                "channel":     "zap" if is_zap else "terminal",
+                "kind":        c.get("event_type") or c.get("tool", "tool_command"),
+                "summary":     c.get("learner_message") or (c.get("command") or "")[:140],
                 "raw":         c,
             })
     except Exception:
@@ -384,6 +400,7 @@ async def get_session_timeline(sid: str) -> dict:
         "counts": {
             "browser":  sum(1 for x in timeline if x["channel"] == "browser"),
             "terminal": sum(1 for x in timeline if x["channel"] == "terminal"),
+            "zap":      sum(1 for x in timeline if x["channel"] == "zap"),
             "evidence": sum(1 for x in timeline if x["channel"] == "evidence"),
         },
     }
@@ -480,6 +497,7 @@ async def get_report(sid: str) -> dict:
         session_completed_steps=list(rec.completed_steps),
         mode=rec.mode,
         variant_id=getattr(rec, "variant_id", None),
+        session_id=sid,
     )
 
     # 4. Hand it all to the agent
@@ -627,6 +645,12 @@ async def get_lab_analysis(sid: str) -> dict:
 async def execute_session(sid: str) -> dict:
     """Execute the attack module. This is the ONLY endpoint that runs the attack."""
     rec = _require_session(sid)
+    if not auto_attacks_enabled():
+        return {
+            "status": "blocked",
+            "auto_attacks_enabled": False,
+            "message": AUTO_ATTACK_DISABLED_MESSAGE,
+        }
     loop = asyncio.get_running_loop()
     try:
         return await _SESSIONS.execute(rec, loop=loop)
@@ -787,6 +811,7 @@ def attackbox_status() -> dict:
 class ExecBody(BaseModel):
     command: str
     module_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 @app.post("/api/operator/attackbox/exec")
@@ -799,7 +824,9 @@ async def attackbox_exec(body: ExecBody) -> dict:
             tool=result.get("tool", "unknown"),
             command=body.command,
             module_id=body.module_id,
+            session_id=body.session_id,
             output_preview=result.get("output", "")[:200],
+            extra={"exit_code": result.get("exit_code"), "status": result.get("status")},
         )
     return result
 
@@ -825,6 +852,8 @@ class RepeaterBody(BaseModel):
     path: str = "/"
     headers: Optional[dict] = None
     body: Optional[str] = None
+    module_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 @app.post("/api/operator/zap/repeater/send")
@@ -832,6 +861,8 @@ def zap_repeater(body: RepeaterBody) -> dict:
     return operator_api.zap_repeater_send(
         method=body.method, path=body.path,
         headers=body.headers, body=body.body,
+        module_id=body.module_id,
+        session_id=body.session_id,
     )
 
 
@@ -843,6 +874,8 @@ class FuzzerBody(BaseModel):
     payloads: list[str] = []
     headers: Optional[dict] = None
     grep: Optional[str] = None
+    module_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 @app.post("/api/operator/zap/fuzzer/send")
@@ -851,6 +884,8 @@ def zap_fuzzer(body: FuzzerBody) -> dict:
         method=body.method, path=body.path,
         body_template=body.body_template, marker=body.marker,
         payloads=body.payloads, headers=body.headers, grep=body.grep,
+        module_id=body.module_id,
+        session_id=body.session_id,
     )
 
 
