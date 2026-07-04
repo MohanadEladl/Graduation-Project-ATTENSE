@@ -27,28 +27,65 @@ if "docker" not in sys.modules:
 from backend import lab_progress, operator_api, session_manager  # noqa: E402
 
 
-def _load_mission_briefing_commands():
+LAB_MODULES = (
+    "recon",
+    "xss",
+    "cmd_injection",
+    "dir_traversal",
+    "file_upload",
+    "csrf",
+    "brute_force",
+)
+
+KNOWN_STEP_TOOLS = {
+    "Browser",
+    "ZAP Proxy History",
+    "ZAP Inspector",
+    "ZAP Repeater",
+    "ZAP Fuzzer",
+    "AttackBox",
+    "Report",
+}
+
+
+def _load_mission_briefing_data():
     script = """
-import { LAB_STEPS_BY_MODULE } from './red-team/frontend/src/data/missionBriefings.js';
+import { LAB_STEPS_BY_MODULE, MISSION_BRIEFINGS } from './red-team/frontend/src/data/missionBriefings.js';
 
 const modules = ['recon', 'xss', 'cmd_injection', 'dir_traversal', 'file_upload', 'csrf', 'brute_force'];
-const commands = [];
+const data = { steps: [], briefings: {} };
 
 for (const moduleId of modules) {
   const steps = LAB_STEPS_BY_MODULE[moduleId] || [];
   for (const step of steps) {
+    const commands = [];
     if (typeof step.command === 'string') {
-      commands.push({ moduleId, step: step.n, command: step.command });
+      commands.push(step.command);
     }
     if (Array.isArray(step.commands)) {
       for (const command of step.commands) {
-        commands.push({ moduleId, step: step.n, command });
+        commands.push(command);
       }
     }
+    data.steps.push({
+      moduleId,
+      step: step.n,
+      tool: step.tool || '',
+      title: step.title || '',
+      commands,
+      raw: step,
+    });
   }
+
+  const briefing = MISSION_BRIEFINGS[moduleId] || {};
+  data.briefings[moduleId] = {
+    operatorHints: briefing.operatorHints || [],
+    tutorialStepsCount: Array.isArray(briefing.tutorial_steps) ? briefing.tutorial_steps.length : 0,
+    successCondition: briefing.successCondition || '',
+  };
 }
 
-process.stdout.write(JSON.stringify(commands));
+process.stdout.write(JSON.stringify(data));
 """
     result = subprocess.run(
         ["node", "--input-type=module", "-e", script],
@@ -100,18 +137,84 @@ def test_attackbox_validate_allowed_and_blocked_examples():
 
 def test_lab_briefing_attackbox_commands_match_validator():
     """Every command rendered as an AttackBox copy block must execute safely."""
-    commands = _load_mission_briefing_commands()
-    assert commands
+    data = _load_mission_briefing_data()
+    assert data["steps"]
 
     failures = []
-    for item in commands:
-        err = operator_api.validate_command(item["command"])
-        if err:
+    for item in data["steps"]:
+        tool = item["tool"]
+        commands = item["commands"]
+        if tool not in KNOWN_STEP_TOOLS:
+            failures.append(f"{item['moduleId']} step {item['step']}: unknown tool {tool!r}")
+        if commands and tool != "AttackBox":
             failures.append(
-                f"{item['moduleId']} step {item['step']}: {item['command']!r} -> {err}"
+                f"{item['moduleId']} step {item['step']}: command block is tagged as {tool!r}, "
+                "but copy-paste commands must be AttackBox-only"
             )
+        if tool == "AttackBox":
+            for command in commands:
+                err = operator_api.validate_command(command)
+                if err:
+                    failures.append(
+                        f"{item['moduleId']} step {item['step']}: {command!r} -> {err}"
+                    )
 
     assert not failures, "\n".join(failures)
+
+
+def test_zap_payload_instructions_are_not_attackbox_commands():
+    """Unsafe shell payload syntax is allowed only as ZAP HTTP payload text."""
+    data = _load_mission_briefing_data()
+
+    cmdi_zap_steps = [
+        item for item in data["steps"]
+        if item["moduleId"] == "cmd_injection" and item["tool"] in {"ZAP Repeater", "ZAP Fuzzer"}
+    ]
+    assert cmdi_zap_steps
+    cmdi_zap_text = json.dumps([item["raw"] for item in cmdi_zap_steps])
+    assert "127.0.0.1; id" in cmdi_zap_text
+    assert "127.0.0.1 | hostname" in cmdi_zap_text
+    assert "127.0.0.1$(id)" in cmdi_zap_text
+
+    for item in data["steps"]:
+        if item["tool"] != "AttackBox":
+            assert item["commands"] == [], (
+                f"{item['moduleId']} step {item['step']} has shell commands outside AttackBox"
+            )
+
+
+def test_each_module_has_operator_guidance_and_success_criteria():
+    data = _load_mission_briefing_data()
+
+    for module_id in LAB_MODULES:
+        steps = [item for item in data["steps"] if item["moduleId"] == module_id]
+        briefing = data["briefings"][module_id]
+
+        assert steps, f"{module_id} needs operator steps"
+        assert briefing["tutorialStepsCount"] > 0, f"{module_id} needs guided tutorial steps"
+        assert len(briefing["operatorHints"]) >= 4, f"{module_id} needs staged operator hints"
+        assert briefing["successCondition"], f"{module_id} needs success criteria"
+
+
+def test_operator_hints_do_not_reveal_direct_solutions():
+    data = _load_mission_briefing_data()
+    forbidden = (
+        "password123",
+        "br3akme",
+        "admin:password",
+        "tr0ub4dor",
+        "s3rvice@cct",
+        "guest:guest",
+        "root:x:0:0",
+        "../../etc/passwd",
+        "<script>alert",
+        "127.0.0.1$(",
+    )
+
+    for module_id, briefing in data["briefings"].items():
+        joined = "\n".join(briefing["operatorHints"]).lower()
+        for secret in forbidden:
+            assert secret.lower() not in joined, f"{module_id} operator hint leaks {secret!r}"
 
 
 def test_zap_target_normalization_blocks_external_urls():

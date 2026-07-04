@@ -126,9 +126,54 @@ target-agent-only (`normalize_zap_target_path`, `validate_command`).
 - Payloads remain local, harmless, and educational; no external callbacks, no
   real web shells, no destructive commands.
 
-## 9. Tests run
+## 9. Mission Step / Validator Consistency Pass
 
-- `pytest red-team/backend/tests -q` → **85 passed**.
+This pass aligns the student-facing mission steps with the strict AttackBox
+validator in `red-team/backend/operator_api.py`; the validator itself remains
+unchanged.
+
+- Rewritten modules: `recon`, `xss`, `cmd_injection`, `dir_traversal`,
+  `file_upload`, and `csrf`; `brute_force` was only tagged for consistency.
+- Every lab step now declares an explicit expected tool (`Browser`,
+  `ZAP Proxy History`, `ZAP Inspector`, `ZAP Repeater`, `ZAP Fuzzer`,
+  `AttackBox`, or `Report`).
+- Only `tool: "AttackBox"` steps carry copy-paste `command` / `commands`
+  values, and those commands are local `target-agent` requests that pass
+  `validate_command()`.
+- XSS payloads, command-injection separator/substitution payloads, path
+  traversal variants, upload multipart edits, and CSRF lure testing were moved
+  into ZAP Repeater/Fuzzer or Browser instructions instead of AttackBox command
+  blocks.
+- Output-filtering examples no longer use `| grep` or shell pipelines; students
+  are told to compare full output, status, response length, and response bodies
+  in ZAP.
+- Backend progress copy was refreshed to match the same Operator Mode tool
+  contract without changing the evidence gates.
+- Automated coverage now imports `missionBriefings.js`, walks all lab steps, and
+  runs every AttackBox-tagged command through `validate_command()`. It also
+  asserts that ZAP payload instructions may contain shell syntax precisely
+  because they are not AttackBox shell commands.
+
+Runtime smoke performed:
+
+- `docker compose down` and `docker compose up --build -d` completed
+  successfully.
+- All compose services reached healthy/running status, including `target-agent`,
+  `zap`, `attackbox`, `red-team-backend`, and `red-team-frontend`.
+- Running-stack Operator API smoke passed for `recon`, `xss`, `cmd_injection`,
+  `dir_traversal`, `file_upload`, and `csrf` using real lab sessions and local
+  ZAP Repeater requests through the frontend proxy.
+
+Remaining manual tests needed:
+
+- Visual click-through in the browser UI for each module's new step labels and
+  hints.
+- CSRF local lure submission from the actual Operator browser, not only the
+  Repeater/API equivalent.
+
+## 10. Tests run
+
+- `pytest red-team/backend/tests -q` → **89 passed**.
   - New: `test_operator_gating.py` — per-module (recon/xss/cmd/traversal/upload/csrf):
     approved tools complete; browser-only does not; `via=unknown` does not;
     guided surface does not complete operator; tutorial completes on guided
@@ -136,30 +181,34 @@ target-agent-only (`normalize_zap_target_path`, `validate_command`).
     operator cards are visible but `counts=False`.
   - Extended: `test_frontend_wiring.py` — all 7 modules have safe, tool-oriented
     operator hints with no solution leak.
+  - Extended: `test_student_safety.py` imports `missionBriefings.js` and
+    validates every AttackBox-tagged `command` / `commands` value with
+    `validate_command()`.
   - Unchanged and still green: brute-force operator gating, target-evidence
     synth-metadata inheritance, ZAP/AttackBox safety.
 - `python -m compileall red-team/backend apps/target-lab/app` → OK.
 - `node --check` on `missionBriefings.js` → OK.
-- `npm run build` (red-team frontend) → built in ~10 s.
+- `npm install` (red-team frontend) → up to date.
+- `npm run build` (red-team frontend) → built in ~6 s.
 - `docker compose config` → valid.
+- `docker compose down` → OK.
+- `docker compose up --build -d` → OK.
+- Running-stack Operator API smoke for recon/xss/cmdi/traversal/upload/csrf → OK.
 
-## 10. Remaining risks
+## 11. Remaining risks
 
-- **Runtime deploy of target-agent:** the `evidence.py` change (recon synth
-  backend inheritance) requires the target-agent container to be rebuilt /
-  redeployed (`docker cp` + restart, or `docker compose up --build`) before it
-  takes effect at runtime. Guided recon is unaffected; only operator-mode recon
-  completion depends on it.
-- **Full end-to-end manual validation** (the A–G browser walkthroughs) was not
-  executed in this session — it requires bringing the whole Docker stack up.
-  Logic is covered by unit tests against the real gating + real target evidence
-  shapes.
+- **Visual UI smoke:** the running-stack smoke used real sessions and ZAP
+  Repeater API requests through the frontend proxy, but did not click through the
+  browser UI manually.
+- **CSRF browser lure:** the local lure flow was verified through the same local
+  Repeater/request path; the actual Operator browser button click still needs a
+  visual pass.
 - Frontend bundle is large (chunk-size warning only), no functional impact.
 
-## 11. Final verdict
+## 12. Final verdict
 
-**GREEN (code)** — the brute-force operator/guided contract is now applied
-uniformly to all seven modules, proven by unit tests against the real evidence
-shapes, with backend + target-agent + frontend + tests + build + compose all
-passing. **AMBER (runtime)** only pending a target-agent redeploy and the manual
-Docker walkthrough, which are environment steps outside this change.
+**GREEN (code and API smoke)** - the shared operator/guided evidence contract
+and the mission-step/validator consistency pass are covered by automated tests,
+frontend build, compose validation, compose rebuild, and running-stack Operator
+API smoke. **AMBER (visual UI)** only for the remaining manual browser
+click-through checks.

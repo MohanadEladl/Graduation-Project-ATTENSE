@@ -121,7 +121,7 @@ function HelpTab() {
         <li><b>Proxy History</b> records every request — Operator browser traffic (proxied through ZAP), plus your Repeater and Fuzzer requests.</li>
         <li>Each history row has <b>Inspect</b>, <b>Send to Repeater</b> and <b>Send to Fuzzer</b> buttons.</li>
         <li><b>Repeater</b> replays one editable request. <b>Fuzzer</b> replaces a § marker with each payload (Sniper).</li>
-        <li>Mission completion for brute force still requires <b>Repeater / Fuzzer / AttackBox</b> against <code>/op/auth/login</code>. Browsing alone does not complete it.</li>
+        <li>Operator missions complete from approved local tools: <b>Repeater / Fuzzer / validator-safe AttackBox</b> against <code>/op/...</code> routes. Browsing is useful for capture and visibility, but exploit completion must come from those tools.</li>
         <li>All traffic is local-only — <b>target-agent</b> is the only allowed host. External URLs are blocked.</li>
       </ul>
     </div>
