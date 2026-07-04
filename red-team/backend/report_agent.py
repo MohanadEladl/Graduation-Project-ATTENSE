@@ -690,6 +690,26 @@ def generate(session, events: list, timeline: list,
                 "detail":     w,
                 "how_to_fix": "Redo the objective on the /op/ route through ZAP Repeater/Fuzzer or the AttackBox so it counts.",
             })
+        # Surface the operator-gate diagnostics: why observed evidence was ignored.
+        ignored_reasons = {k: v for k, v in (progress.get("ignored_reasons") or {}).items() if v}
+        if ignored_reasons:
+            _labels = {
+                "ignored_wrong_path":     "wrong route (not an /op/ operator path)",
+                "ignored_wrong_backend":  "wrong backend (not backend=operator)",
+                "ignored_wrong_via":      "wrong channel (not an approved local tool)",
+                "ignored_wrong_module":   "belonged to a different module",
+                "ignored_variant_mismatch": "did not match the selected variant",
+                "ignored_unknown_reason": "unrecognized/ignored",
+            }
+            detail = "; ".join(
+                f"{n}× {_labels.get(k, k)}" for k, n in ignored_reasons.items()
+            )
+            missed.append({
+                "title":      "Ignored evidence (operator gate)",
+                "detail":     f"{progress.get('ignored_event_count', 0)} observed event(s) did not count: {detail}.",
+                "how_to_fix": "Drive the attack on the /op/ route through ZAP Repeater/Fuzzer or the AttackBox "
+                              "(the browser lure is accepted for CSRF only).",
+            })
     else:
         for t in task_results:
             if t["completed"]:
@@ -802,6 +822,10 @@ def generate(session, events: list, timeline: list,
         "missing_quality":      missing_qual,
         "warnings":             warnings,
         "next_recommended_action": progress.get("next_recommended_action"),
+        "ignored_event_count":  progress.get("ignored_event_count", 0),
+        "ignored_reasons":      progress.get("ignored_reasons", {}),
+        "counted_event_count":  progress.get("counted_event_count", 0),
+        "raw_event_count":      progress.get("raw_event_count", 0),
 
         "summary":            summary,
         "mitre_tactics":      mitre.get("tactics", []),

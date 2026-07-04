@@ -94,8 +94,12 @@ def test_missing_quality_does_not_block_success(monkeypatch, module_id):
     assert all(m.get("recommendation") for m in r["missing_quality"])
 
 
-# 3. Browser-only objective evidence does not complete Operator Mode.
-@pytest.mark.parametrize("module_id", GATED_MODULES)
+# 3. Browser-only objective evidence does not complete Operator Mode
+#    (every module EXCEPT CSRF, whose objective is genuinely browser-driven).
+TOOL_ONLY_MODULES = [m for m in GATED_MODULES if m != "csrf"]
+
+
+@pytest.mark.parametrize("module_id", TOOL_ONLY_MODULES)
 def test_browser_only_objective_does_not_complete(monkeypatch, module_id):
     events = _completion_events(module_id, path=OP_PATH[module_id], backend="operator", via="browser")
     _patch(monkeypatch, events)
@@ -103,6 +107,16 @@ def test_browser_only_objective_does_not_complete(monkeypatch, module_id):
     assert r["success"] is False
     assert r["completion_score"] == 0
     assert r["warnings"], "a browser-only objective should raise a channel warning"
+
+
+# CSRF exception: the local browser lure on the /op/ route DOES complete CSRF,
+# but only with backend=operator on the approved operator route.
+def test_csrf_objective_completes_via_browser_lure(monkeypatch):
+    events = _completion_events("csrf", path="/op/profile/update", backend="operator", via="browser")
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("csrf", 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["completion_score"] == 100
 
 
 # 4. Guided-surface objective evidence does not complete Operator Mode.
@@ -170,6 +184,54 @@ def test_brute_force_keeps_strict_completion(monkeypatch):
     r2 = lab_progress.compute("brute_force", 0.0, mode="lab")
     assert r2["success"] is False
     assert 0 < r2["completion_score"] < 100
+
+
+# ── API shape (Part 8, item D) ───────────────────────────────────────────────
+API_FIELDS = [
+    "success", "objective", "completion_score", "quality_score",
+    "completed_required", "completed_quality", "missing_quality", "warnings",
+    "next_recommended_action", "raw_event_count", "counted_event_count",
+    "ignored_event_count", "ignored_reasons", "last_observed_events",
+    "last_counted_events", "tasks", "objective_tasks",
+]
+
+
+@pytest.mark.parametrize("module_id", GATED_MODULES + ["brute_force"])
+def test_compute_returns_full_api_shape(monkeypatch, module_id):
+    _patch(monkeypatch, [])  # no events — shape must still be complete
+    r = lab_progress.compute(module_id, 0.0, mode="lab")
+    for field in API_FIELDS:
+        assert field in r, f"{module_id}: compute() response missing {field!r}"
+    # ignored_reasons exposes every diagnostic bucket
+    for bucket in lab_progress.IGNORED_REASONS:
+        assert bucket in r["ignored_reasons"], f"missing ignore bucket {bucket}"
+    # typed tasks carry the required id/label/done/type
+    assert r["objective_tasks"], "objective_tasks should always include the required objective"
+    assert r["objective_tasks"][0]["type"] == "required"
+    for t in r["objective_tasks"]:
+        for k in ("id", "label", "done", "type"):
+            assert k in t
+
+
+def test_ignored_diagnostics_classify_wrong_channel(monkeypatch):
+    # Objective-shaped XSS evidence on the wrong channel is ignored + explained.
+    events = [
+        {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
+         "via": "browser", "ts": 1.0, "extra": {"backend": "operator", "path": "/op/search"}},
+        {"event_type": "reflected_input_detected", "path": "/search", "method": "GET",
+         "via": "zap_repeater", "ts": 2.0, "extra": {"backend": "guided", "path": "/search"}},
+        {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
+         "via": "unknown", "ts": 3.0, "extra": {"backend": "operator", "path": "/op/search"}},
+    ]
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("xss", 0.0, mode="lab")
+    assert r["success"] is False
+    assert r["raw_event_count"] == 3
+    assert r["counted_event_count"] == 0
+    assert r["ignored_event_count"] == 3
+    assert r["ignored_reasons"]["ignored_wrong_via"] >= 1     # browser + unknown on /op/
+    assert r["ignored_reasons"]["ignored_wrong_backend"] >= 1  # guided-surface event
+    assert r["last_observed_events"], "diagnostics should list recently observed events"
 
 
 # ── Report reflects objective vs skipped methodology (Part 8, item 6) ────────

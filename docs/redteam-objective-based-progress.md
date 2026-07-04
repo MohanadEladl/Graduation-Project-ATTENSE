@@ -142,4 +142,101 @@ quality lowers quality_score without blocking; browser-only / `via=unknown` /
 guided-surface objective evidence do not complete Operator Mode; the API exposes
 completion/quality/missing_quality/next_recommended_action; brute force keeps its
 stricter completion; and the report explains objective + skipped methodology.
-Full backend suite: 123 passed.
+
+---
+
+## Completion pass — final implemented shape
+
+The implementation was completed to expose the full contract and diagnostics.
+
+### Final `compute()` API shape
+
+Objective model + operator-gate diagnostics (in addition to legacy `tasks`,
+`evidence`, `score`, `progress_percent`, `brute_force_activity`):
+
+```json
+{
+  "success": true,
+  "objective": "Trigger a safe reflected XSS proof on /op/search.",
+  "completion_score": 100,
+  "quality_score": 40,
+  "completed_required": ["XSS-shaped payload submitted", "Reflected input observed"],
+  "completed_quality": [{ "id": "repeater_used", "label": "Test through Repeater" }],
+  "missing_quality":   [{ "id": "marker_first", "label": "Test a harmless marker first",
+                          "recommendation": "..." }],
+  "warnings": [],
+  "next_recommended_action": "...",
+  "tasks": [{ "id": "...", "label": "...", "done": false, "type": "optional", "reason": "..." }],
+  "objective_tasks": [{ "id": "objective", "label": "...", "done": true, "type": "required" },
+                      { "id": "repeater_used", "label": "...", "done": true, "type": "quality" }],
+  "raw_event_count": 3,
+  "counted_event_count": 2,
+  "ignored_event_count": 1,
+  "ignored_reasons": { "ignored_wrong_path": 0, "ignored_wrong_backend": 1,
+                       "ignored_wrong_via": 0, "ignored_wrong_module": 0,
+                       "ignored_variant_mismatch": 0, "ignored_unknown_reason": 0 },
+  "last_observed_events": [{ "event_type": "...", "path": "...", "backend": "operator", "via": "...", "ts": 0 }],
+  "last_counted_events":  [ ... ]
+}
+```
+
+`OBJECTIVE_SPECS[module]` also exposes the explicit operator-contract metadata:
+`objective`, `required_completion`, `quality_events`, `expected_operator_paths`,
+`expected_backend` (`operator`), `allowed_operator_via`, `next_recommended_action`.
+`completion_event_types(module_id)` returns one representative event per
+completion group (the minimum objective evidence).
+
+### Typed tasks (backward compatible)
+
+`tasks` keeps its legacy fields (`title`, `complete`, `what`, `how`, `look_for`)
+and gains `id`, `label`, `done`, `type` (`required` | `quality` | `optional`),
+and `reason`. `objective_tasks` is the compact typed view: one `required`
+objective task (which decides `success`) plus the `quality` tasks (which feed
+`quality_score`).
+
+### CSRF browser exception (the one documented exception)
+
+CSRF's objective is genuinely browser-driven: the local lure at
+`/op/evil/csrf-demo` auto-submits the state-changing request from the ZAP-routed
+lab browser (`via=browser`). For CSRF **only**, `via=browser` is an approved
+completion channel — but still tightly gated: the request must hit an `/op/`
+route with `backend=operator`, and the completion event (`profile_changed_without_csrf`)
+must fire. AttackBox curl (`via=attackbox`) also completes CSRF. The exception is
+implemented via `BROWSER_COMPLETABLE_MODULES = {"csrf"}` / `_allowed_via_for()`
+and does **not** generalize to any other module (proved by
+`test_browser_exception_does_not_leak_to_other_modules`). `via=unknown` never
+completes, even for CSRF.
+
+### Operator-gate diagnostics
+
+Every observed-but-uncounted in-scope event is classified into one of
+`ignored_wrong_path`, `ignored_wrong_backend`, `ignored_wrong_via`,
+`ignored_wrong_module`, `ignored_variant_mismatch`, `ignored_unknown_reason`.
+The report renders these as an "Ignored evidence (operator gate)" coaching line
+so students see exactly why browser/guided/unknown traffic did not count.
+
+### Command safety scrub
+
+All variant `ideal_commands` were rewritten to be AttackBox-validator-safe: no
+shell pipes, `grep`, `&&`, `||`, `;`, redirection, loops, command substitution
+`$()`, or backticks; no leaked credentials; and pointed at `/op/` routes.
+Payloads that need special characters (XSS/command-injection/traversal) are now
+described as ZAP Repeater/Fuzzer actions in comments, not as runnable AttackBox
+commands. A test-time check runs every runnable line through
+`operator_api.validate_command` — all pass.
+
+### Tests run (final)
+
+Full backend suite: **132 passed**. Added/updated: CSRF browser-exception tests,
+the leak-guard test, the full API-shape test (all modules + brute_force), the
+ignored-diagnostics classification test, and the report-explains-methodology
+test. `test_student_safety.py` continues to assert `via=unknown` does **not**
+complete Operator Mode.
+
+### Final verdict
+
+**GREEN (code)** — objective-based completion, quality scoring, operator-gate
+diagnostics, the documented CSRF exception, and the command scrub are all
+implemented and covered by passing unit tests, with compileall, frontend build,
+and `docker compose config` green. **AMBER (runtime)** only for the manual Docker
+smoke tests and the pending target-lab redeploy, which are environment steps.

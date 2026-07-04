@@ -41,6 +41,9 @@ from backend import lab_progress  # noqa: E402
 # Modules that now share the generalized operator contract (NOT brute_force).
 GATED_MODULES = ["recon", "xss", "cmd_injection", "dir_traversal", "file_upload", "csrf"]
 APPROVED_TOOLS = ["attackbox", "zap_repeater", "zap_fuzzer"]
+# CSRF's objective is genuinely browser-driven (the local lure), so browser is an
+# approved completion channel for CSRF ONLY. Tool-only modules exclude it.
+TOOL_ONLY_MODULES = [m for m in GATED_MODULES if m != "csrf"]
 
 # Canonical operator + guided route for each module's success events.
 OP_PATH = {
@@ -95,7 +98,7 @@ def test_operator_completes_via_each_approved_tool(monkeypatch, module_id, via):
     assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is True
 
 
-@pytest.mark.parametrize("module_id", GATED_MODULES)
+@pytest.mark.parametrize("module_id", TOOL_ONLY_MODULES)
 def test_operator_browser_only_does_not_complete(monkeypatch, module_id):
     events = _events(module_id, path=OP_PATH[module_id], backend="operator", via="browser")
     _patch(monkeypatch, events)
@@ -134,10 +137,38 @@ def test_tutorial_not_completed_by_operator_events(monkeypatch, module_id):
 
 
 # ── Evidence-card `counts` flag mirrors the gate ─────────────────────────────
-@pytest.mark.parametrize("module_id", GATED_MODULES)
+@pytest.mark.parametrize("module_id", TOOL_ONLY_MODULES)
 def test_browser_operator_evidence_is_visible_but_not_counted(monkeypatch, module_id):
     events = _events(module_id, path=OP_PATH[module_id], backend="operator", via="browser")
     _patch(monkeypatch, events)
     result = lab_progress.compute(module_id, 0.0, mode="lab")
     assert result["evidence"], "browser operator traffic must still be visible as cards"
     assert all(card["counts"] is False for card in result["evidence"])
+
+
+# ── CSRF browser exception — real but tightly gated ──────────────────────────
+def test_csrf_browser_lure_completes_on_operator_route(monkeypatch):
+    # The local lure auto-submits from the ZAP-routed browser (via=browser) on the
+    # /op/ route with backend=operator — that IS the CSRF objective.
+    events = _events("csrf", path="/op/profile/update", backend="operator", via="browser")
+    _patch(monkeypatch, events)
+    assert lab_progress.compute("csrf", 0.0, mode="lab")["success"] is True
+
+
+def test_csrf_browser_exception_still_requires_operator_surface(monkeypatch):
+    # Browser on the GUIDED profile route must NOT complete Operator CSRF.
+    guided = _events("csrf", path="/profile/update", backend="guided", via="browser")
+    _patch(monkeypatch, guided)
+    assert lab_progress.compute("csrf", 0.0, mode="lab")["success"] is False
+    # via=unknown never completes, even for CSRF.
+    unknown = _events("csrf", path="/op/profile/update", backend="operator", via="unknown")
+    _patch(monkeypatch, unknown)
+    assert lab_progress.compute("csrf", 0.0, mode="lab")["success"] is False
+
+
+def test_browser_exception_does_not_leak_to_other_modules(monkeypatch):
+    # The browser exception is CSRF-only: no other module completes on browser.
+    for module_id in TOOL_ONLY_MODULES:
+        events = _events(module_id, path=OP_PATH[module_id], backend="operator", via="browser")
+        _patch(monkeypatch, events)
+        assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is False
