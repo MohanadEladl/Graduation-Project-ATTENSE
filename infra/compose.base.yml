@@ -307,7 +307,13 @@ services:
     depends_on:
       - attense-app
     ports:
-      - "127.0.0.1:3100:8080"  # loopback only, Blue Team workspace
+      # Published on all interfaces so the browser's localhost resolves on every
+      # OS: macOS resolves localhost to IPv6 ::1 first, Windows/Linux to IPv4
+      # 127.0.0.1. Docker Desktop forwards localhost on both stacks to this
+      # publish (same as red-team-frontend). Pinning to 127.0.0.1 broke macOS
+      # (Chrome hit an unbound ::1) and pinning to [::1] risks failing to start
+      # on hosts with IPv6 loopback disabled.
+      - "3100:8080"            # Blue Team workspace
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
@@ -329,7 +335,8 @@ services:
       - red-team-frontend
       - blue-team-frontend
     ports:
-      - "127.0.0.1:5173:8080"
+      # All-interfaces publish for cross-OS localhost — see blue-team-frontend above.
+      - "5173:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
