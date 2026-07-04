@@ -47,8 +47,8 @@ export default function ZapHistory({ messages, isOperatorMode, onInspect, onRepe
               <span className="w-12 shrink-0">METHOD</span>
               <span className="flex-1">PATH</span>
               <span className="w-10 text-right shrink-0">CODE</span>
-              <span className="w-16 text-right shrink-0">LEN</span>
-              <span className="w-[150px] shrink-0 text-right">ACTIONS</span>
+              <span className="w-12 text-right shrink-0">LEN</span>
+              <span className="w-[190px] shrink-0 text-right">ACTIONS</span>
             </div>
             <div style={{ maxHeight: 'calc(100vh - 320px)', minHeight: 120, overflow: 'auto' }}>
               {messages.slice().reverse().map((m, i) => (
@@ -69,8 +69,8 @@ export default function ZapHistory({ messages, isOperatorMode, onInspect, onRepe
                   <span className="w-10 text-right shrink-0" style={{ color: statusColor(m.status_code || m.response_status) }}>
                     {m.status_code || m.response_status}
                   </span>
-                  <span className="w-16 text-right shrink-0 text-[#5a6680]">{m.response_length}</span>
-                  <div className="w-[150px] shrink-0 flex items-center justify-end gap-1">
+                  <span className="w-12 text-right shrink-0 text-[#5a6680]">{m.response_length}</span>
+                  <div className="w-[190px] shrink-0 flex items-center justify-end gap-1.5">
                     <RowButton label="Inspect"  title="Open in Request Inspector" onClick={() => onInspect(m)} />
                     <RowButton label="Repeater" title="Send to Repeater" onClick={() => onRepeater(m)} tone="#c9a5ff" />
                     <RowButton label="Fuzzer"   title="Send to Fuzzer" onClick={() => onFuzzer(m)} tone="#2ee39a" />

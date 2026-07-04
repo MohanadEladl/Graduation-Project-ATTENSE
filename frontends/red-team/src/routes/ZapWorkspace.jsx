@@ -53,7 +53,6 @@ export default function ZapWorkspace() {
           {c.zapVersion && <span className="font-mono text-[8.5px] text-attense-dim">v{c.zapVersion}</span>}
         </div>
         <div className="flex items-center gap-6">
-          <ConnField label="SESSION" value={sessionId} color="#7dd3fc" />
           <ConnField label="MODULE" value={moduleId} />
           <ConnField label="MODE" value={mode} />
           <ConnField label="TARGET" value="target-agent (local only)" color="#2ee39a" />
