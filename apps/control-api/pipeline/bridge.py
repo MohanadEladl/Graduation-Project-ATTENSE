@@ -39,9 +39,7 @@ score_incident,
 score_members,
 )
 from attense_core.evaluation.attack_rules import (
-ATTACK_RULE_DATA_DIR as _RULE_DATA_DIR,
-ATTACK_RULE_FILES as _ATTACK_RULE_FILES,
-load_attack_rule_data,
+    load_attack_rule_data,
 )
 from attense_core.evaluation.live_thresholds import compute_live_thresholds
 

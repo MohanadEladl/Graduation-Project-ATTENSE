@@ -25,8 +25,8 @@ for _p in (_APP, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from pipeline.bridge import member_events, run_bridge
-from pipeline.report_generator import generate
+from pipeline.bridge import member_events, run_bridge  # noqa: E402
+from pipeline.report_generator import generate  # noqa: E402
 
 ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
 SEP = "=" * 65
@@ -126,7 +126,7 @@ def _check_env() -> None:
         lines.append(f" {var} - {desc}")
     lines += [
         "",
-        f" Run this before starting the pipeline:",
+        " Run this before starting the pipeline:",
         f" {_ENV_HINT}",
         "",
     ]
@@ -156,7 +156,7 @@ def main(incident_id: str) -> None:
     print(f"\n [2/3] Wrote report - {result['report_path']}")
 
     print(f"\n{SEP}")
-    print(f" REPORT")
+    print(" REPORT")
     print(f"{SEP}\n")
     print(result["markdown"])
     print(f"\n{SEP}\n")

@@ -90,7 +90,7 @@ jobs:
           python-version: "3.12"
       - run: pip install ruff
       - name: Ruff (canonical modules)
-        run: ruff check packages/attense-core/attense_core apps/control-api/ATTENSE_app apps/blue-team-api/blueteam
+        run: ruff check packages/attense-core/attense_core apps/control-api/api apps/control-api/core apps/control-api/pipeline apps/control-api/dependencies apps/blue-team-api/blueteam
 
   frontend-build:
     # Report Phase 9: frontend lint/build.

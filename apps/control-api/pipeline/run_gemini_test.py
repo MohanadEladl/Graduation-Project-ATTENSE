@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from attense_core.models.event import Event
 from attense_core.models.incident import Incident
 from attense_core.evaluation.reports import generate_report
-from pipeline.bridge import _load_rule_data, _scoring_to_dict
+from pipeline.bridge import _scoring_to_dict
 from pipeline.report_generator import generate
 from pipeline.scoring_engine import score_incident
 
