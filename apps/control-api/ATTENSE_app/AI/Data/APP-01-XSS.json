@@ -1,0 +1,558 @@
+{
+  "schema_version": "2.0.0",
+  "attack_id": "APP-01",
+  "attack_name": "Cross-Site Scripting (XSS)",
+  "description": "Injection of malicious client-side scripts into vulnerable web application inputs.",
+  "owasp": {
+    "category": "A05:2025",
+    "name": "Injection",
+    "source": "https://owasp.org/Top10/2025/A05_2025-Injection/"
+  },
+  "mitre_attack": {
+    "primary": [
+      {
+        "technique_id": "T1190",
+        "technique_name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "source": "https://attack.mitre.org/techniques/T1190/"
+      }
+    ],
+    "related": [
+      {
+        "technique_id": "T1059.007",
+        "technique_name": "Command and Scripting Interpreter: JavaScript",
+        "tactic": "Execution",
+        "source": "https://attack.mitre.org/techniques/T1059/007/"
+      }
+    ],
+    "mapping_note": "T1190 describes exploitation of the web application. T1059.007 applies only when the XSS payload executes JavaScript; ATT&CK is a behavior taxonomy, not a vulnerability taxonomy."
+  },
+  "cvss_methodology": {
+    "version": "CVSS v3.1",
+    "source": "https://www.first.org/cvss/v3-1/specification-document",
+    "note": "CVSS measures vulnerability severity. It does not prescribe SOC response deadlines.",
+    "latest_available_version": "CVSS v4.0",
+    "latest_specification": "https://www.first.org/cvss/v4-0/specification-document",
+    "migration_note": "CVSS v4.0 is current, but its metrics and scoring are not one-to-one with v3.1. Existing scenario vectors remain v3.1 until individually re-assessed."
+  },
+  "response_framework": {
+    "name": "NIST SP 800-61 Rev. 3",
+    "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final",
+    "note": "Response events implement Detect, Respond, Recover, and continuous-improvement outcomes. Numeric exercise thresholds are local policy, not NIST requirements."
+  },
+  "timing_model": {
+    "type": "exercise_policy",
+    "ttc_expected_formula": "max(900, 3600 * (10 - cvss_base_score))",
+    "ttc_max_formula": "ttc_expected_sec * 1.5",
+    "minimum_ttc_sec": 900,
+    "mtta_thresholds_sec": {
+      "low": 600,
+      "medium": 750,
+      "high": 900,
+      "very_high": 1200
+    },
+    "note": "The 900-second floor prevents zero-length and division-by-zero windows at CVSS 10.0. These values are simulation policy and must be calibrated with organizational risk and service objectives."
+  },
+  "incident_response_rules": [
+    {
+      "id": "XSS-R01",
+      "description": "Alert triage started within the difficulty-adjusted MTTA threshold",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "alert_investigation_started occurs after mtta_threshold_sec or is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R02",
+      "description": "Incident assessed and confirmed or formally dismissed",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "neither incident_confirmed nor dismissal_approved is present",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R03",
+      "description": "Relevant evidence preserved before destructive containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "incident_confirmed is present but evidence_preserved is absent or occurs after containment_initiated",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R04",
+      "description": "Containment initiated before TTC maximum",
+      "type": "critical",
+      "penalty_points": -25,
+      "trigger": "containment_initiated is absent or occurs after ttc_max_sec",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R05",
+      "description": "Containment succeeded",
+      "type": "critical",
+      "penalty_points": -30,
+      "trigger": "containment_succeeded is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R06",
+      "description": "Root cause or malicious artifact eradicated after containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "containment_succeeded is present but eradication_completed is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R07",
+      "description": "Recovery validated before normal operation resumed",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "eradication_completed is present but recovery_validated is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R08",
+      "description": "Lessons learned and improvement actions recorded",
+      "type": "minor",
+      "penalty_points": -5,
+      "trigger": "recovery_validated is present but lessons_learned_recorded is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "XSS-R09",
+      "description": "Medium-or-higher alerts are not denied without documented approval",
+      "type": "major",
+      "penalty_points": -20,
+      "trigger": "alert_denied is present for severity medium or higher without a preceding dismissal_approved event",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    }
+  ],
+  "scoring": {
+    "base_score": 100,
+    "formula": "clamp(round((base_score + penalty_total) * ttc_factor + response_difficulty_bonus, 2), 0, 100)",
+    "ttc_factor": "1 when containment succeeds by ttc_expected; linear decay to 0 at ttc_max; 0 when containment is absent or later than ttc_max",
+    "response_difficulty_bonus": {
+      "formula": "min(4500 * difficulty_numeric / max(investigation_delay_sec, 1), 25)",
+      "condition": "awarded only when containment_succeeded is present",
+      "difficulty_numeric": {
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "very_high": 4
+      },
+      "maximum": 25,
+      "zero_delay_policy": "A zero-second investigation delay uses a one-second denominator and therefore receives the capped bonus."
+    },
+    "verdict_bands": {
+      "excellent": {
+        "min": 90,
+        "max": 100
+      },
+      "acceptable": {
+        "min": 70,
+        "max": 89.99
+      },
+      "needs_review": {
+        "min": 50,
+        "max": 69.99
+      },
+      "failed": {
+        "min": 0,
+        "max": 49.99
+      }
+    }
+  },
+  "wazuh": {
+    "custom_rule_id_range": "100000-120000",
+    "custom_rule_guidance": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html",
+    "stock_rules": [
+      {
+        "rule_id": "31105",
+        "level": 6,
+        "description": "XSS (Cross Site Scripting) attempt",
+        "source": "https://github.com/wazuh/wazuh/blob/master/ruleset/rules/0245-web_rules.xml"
+      },
+      {
+        "rule_id": "31106",
+        "level": 6,
+        "description": "A web attack returned HTTP 200",
+        "source": "https://github.com/wazuh/wazuh/blob/master/ruleset/rules/0245-web_rules.xml"
+      },
+      {
+        "rule_id": "31154",
+        "level": 10,
+        "description": "Multiple XSS attempts from the same source IP",
+        "source": "https://github.com/wazuh/wazuh/blob/master/ruleset/rules/0245-web_rules.xml"
+      }
+    ],
+    "custom_rules": [
+      {
+        "rule_id": "100103",
+        "level": 8,
+        "description": "CSP report contains a blocked script execution and the document URL or sink telemetry identifies a dangerous DOM source-to-sink flow",
+        "depends_on": [
+          "browser CSP report decoder"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      }
+    ],
+    "note": "Custom entries are dataset detection specifications and must be implemented and tested in the deployed Wazuh manager before use. Stock rule descriptions and levels match the linked upstream ruleset."
+  },
+  "scenarios": [
+    {
+      "scenario_id": "XSS-S1",
+      "label": "Stored XSS — admin session targeted, good response",
+      "description": "Stored XSS payload executes in an admin session. Submitted via an authenticated low-privilege account through a profile editor. Triggered when admin loads the page. Blue team detects, investigates, confirms, and contains well within the computed TTC budget.",
+      "attack_context": {
+        "requires_authentication": true,
+        "authentication_level": "low_privilege",
+        "rationale": "The injection point is a profile field accessible only to logged-in users. An unauthenticated attacker cannot submit the payload — PR:L is justified here and must not be changed to PR:N without modifying the scenario description."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:L/A:N",
+        "base_score": 7.6,
+        "component_rationale": {
+          "AV_N": "Attack delivered over the network via web input",
+          "AC_L": "No special conditions required — standard authenticated form injection",
+          "PR_L": "Attacker must hold a low-privilege account to reach the profile editor injection point. PR:N applies only if the form is publicly accessible without login.",
+          "UI_R": "Admin interaction required to trigger the stored payload when loading the affected page",
+          "S_C": "Payload executes in the admin's browser, crossing the application's security boundary",
+          "C_H": "Admin session token disclosed — full confidentiality loss of that privileged session",
+          "I_L": "Attacker can modify rendered page content but cannot directly alter backend data",
+          "A_N": "No availability impact"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 600,
+        "ttc_expected_sec": 8640,
+        "ttc_max_sec": 12960
+      },
+      "detection": {
+        "difficulty": "low",
+        "rationale": "Stored XSS payloads appear verbatim in HTTP request bodies and server access logs. No correlated telemetry required. Detection uses stock Wazuh rule 31105 (XSS pattern in a web request); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "31105",
+        "level": 6,
+        "rule_source": "stock",
+        "description": "XSS pattern in a web request"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh stock rule 31105 level 6 fired: XSS pattern in a web request."
+        },
+        {
+          "t_offset_sec": 360,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — 6 min MTTA, within 10 min threshold for low difficulty"
+        },
+        {
+          "t_offset_sec": 540,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed payload stored in DB, escalated to incident"
+        },
+        {
+          "t_offset_sec": 3540,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 3600,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 initiated WAF rule to block script tags — 60 min, well within 2.4hr TTC_expected"
+        },
+        {
+          "t_offset_sec": 3900,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "WAF rule active, payload stripped — 65 min TTC, within 2.4hr expected / 3.6hr max window"
+        },
+        {
+          "t_offset_sec": 4200,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 4500,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 4800,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [],
+        "penalty_total": 0,
+        "ttc_actual_sec": 3900,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 12.5,
+        "final_score": 100,
+        "verdict": "excellent"
+      }
+    },
+    {
+      "scenario_id": "XSS-S2",
+      "label": "Reflected XSS — obfuscated payload, alert dismissed incorrectly",
+      "description": "Reflected XSS with an encoded payload is delivered through a crafted link without authentication. Wazuh stock rule 31105 raises a level 6 alert, but the analyst incorrectly denies it without confirmation or approved dismissal. The missing response actions and XSS-R09 are evaluated independently.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Attacker crafts a URL and delivers to victim — no account required. PR:N is correct."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:N/A:N",
+        "base_score": 3.4,
+        "component_rationale": {
+          "AV_N": "Delivered over network via crafted link",
+          "AC_H": "Obfuscated payload requires attacker to overcome WAF filters",
+          "PR_N": "No account needed",
+          "UI_R": "Victim must click the attacker-crafted link",
+          "S_C": "Payload executes in victim browser context",
+          "C_L": "Partial session info may be exposed",
+          "I_N": "No integrity impact",
+          "A_N": "No availability impact"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "low",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 23760,
+        "ttc_max_sec": 35640
+      },
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "False-positive rate is higher than for plaintext XSS, increasing cognitive load. Detection uses stock Wazuh rule 31105 (Encoded XSS pattern after URL decoding); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "31105",
+        "level": 6,
+        "rule_source": "stock",
+        "description": "Encoded XSS pattern after URL decoding"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh stock rule 31105 level 6 fired: Encoded XSS pattern after URL decoding."
+        },
+        {
+          "t_offset_sec": 400,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — 6.6 min MTTA, within 12.5 min threshold for medium difficulty"
+        },
+        {
+          "t_offset_sec": 600,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_denied",
+          "outcome": "failure",
+          "detail": "The analyst denied the alert without documented approval. This triggers XSS-R09; all other missing response actions are evaluated independently."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [
+          "XSS-R02",
+          "XSS-R04",
+          "XSS-R05"
+        ],
+        "penalty_total": -70,
+        "ttc_actual_sec": null,
+        "ttc_factor": 0.0,
+        "response_difficulty_bonus": 0,
+        "final_score": 0,
+        "verdict": "failed"
+      }
+    },
+    {
+      "scenario_id": "XSS-S3",
+      "label": "DOM-Based XSS — delayed detection, successful containment",
+      "description": "CSP violation alert raised. No malicious payload in server-side HTTP logs — payload executes entirely in the browser via a vulnerable JavaScript sink. Analyst confirms DOM-based XSS via browser-side forensics and deploys CSP fix. Proportional detection difficulty bonus applies because high-difficulty attack was detected fast.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Victim clicks attacker-crafted link — no account required. PR:N is correct."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "base_score": 4.7,
+        "component_rationale": {
+          "AV_N": "Delivered over the network — victim clicks a crafted link",
+          "AC_H": "Payload never hits server; must exploit a specific client-side JS sink",
+          "PR_N": "No account required",
+          "UI_R": "Victim must interact with attacker-controlled link or page",
+          "S_C": "Payload executes in victim browser outside the app's server-side control boundary",
+          "C_L": "Fragment data exposed but no full session compromise",
+          "I_L": "DOM content manipulated but no server-side data modified",
+          "A_N": "No availability impact"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "medium",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 900,
+        "ttc_expected_sec": 19080,
+        "ttc_max_sec": 28620
+      },
+      "detection": {
+        "difficulty": "high",
+        "rationale": "DOM-based XSS executes entirely client-side — no server log artifact. Detection depends solely on CSP violation reports, an uncommon telemetry source absent from many SOC baselines. Standard WAF and Wazuh web rules will not fire. Analyst must pivot to browser-side forensics — non-standard for most L1/L2 analysts. Detection uses custom Wazuh rule 100103 (CSP violation correlated with a dangerous DOM sink); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100103",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "CSP violation correlated with a dangerous DOM sink"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100103 level 8 fired: CSP violation correlated with a dangerous DOM sink."
+        },
+        {
+          "t_offset_sec": 650,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — 10.8 min MTTA, within 15 min threshold for high difficulty; no payload in HTTP body or query string"
+        },
+        {
+          "t_offset_sec": 1200,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed DOM-based XSS via document.location fragment injection into innerHTML sink"
+        },
+        {
+          "t_offset_sec": 3040,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 3100,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 deployed updated CSP and replaced innerHTML sink with textContent"
+        },
+        {
+          "t_offset_sec": 3200,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "CSP active and sink patched — 53 min TTC, well within computed 5.3hr expected / 7.95hr max window"
+        },
+        {
+          "t_offset_sec": 3500,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 3800,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 4100,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [],
+        "penalty_total": 0,
+        "ttc_actual_sec": 3200,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 20.77,
+        "final_score": 100,
+        "verdict": "excellent"
+      }
+    }
+  ],
+  "references": [
+    {
+      "title": "NIST SP 800-61 Rev. 3",
+      "url": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "title": "FIRST CVSS v3.1 Specification",
+      "url": "https://www.first.org/cvss/v3-1/specification-document"
+    },
+    {
+      "title": "FIRST CVSS v4.0 Specification (current migration target)",
+      "url": "https://www.first.org/cvss/v4-0/specification-document"
+    },
+    {
+      "title": "Wazuh custom rules",
+      "url": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+    },
+    {
+      "title": "OWASP Top 10:2025 — Injection",
+      "url": "https://owasp.org/Top10/2025/A05_2025-Injection/"
+    }
+  ],
+  "dataset_metadata": {
+    "last_authoritative_source_review": "2026-06-20",
+    "source_policy": "Use upstream standards and vendor rulesets; label project-specific detection logic as custom.",
+    "cvss_profile": "Validated CVSS v3.1 compatibility profile; migrate through a separate expert review rather than automatic vector conversion."
+  }
+}

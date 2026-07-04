@@ -61,10 +61,10 @@ class ReconModule(BaseModule):
              "technique": "T1592.002 Gather Victim Host Information: Software",
              "command": "curl -s http://target-agent/ | grep -iE \"<!--|version|powered\"",
              "expected": "Comments / markup reveal stack details that guide the exploit modules."},
-            {"action": "Compile the attack-surface inventory for downstream modules.",
+            {"action": "Compile the attack-surface inventory — and hypothesise the weakness of each route YOURSELF before moving on.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
-             "command": "# map each route to a candidate weakness: /search→XSS, /system/ping→cmd-i, /files/read→LFI, /files/upload→upload, /profile/update→CSRF, /auth/login→brute-force",
-             "expected": "A route→vulnerability map ready to drive the exploit modules."},
+             "command": "# For every route you found, note: what input it takes, what it does with it,\n# and the FIRST weakness class you would test. Don't look it up — reason it out,\n# then confirm (or disprove) each guess in the exploit modules that follow.",
+             "expected": "Your own route→weakness hypotheses. You verify them in the later modules — recon hands you the map to fill in, not the answers."},
         ],
         "detection_rule": "Wazuh web-scanner signature / sequential path probes from one IP",
         "success_markers": [

@@ -1,0 +1,1 @@
+# Signal Mapper application package

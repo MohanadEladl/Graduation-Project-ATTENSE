@@ -1,0 +1,25 @@
+# Local override: Windows Hyper-V reserves TCP 7731-8130 on this host,
+# which swallows 8000 (backend), 8005 (signal-store), and 8080 (target).
+# We remap those host ports above 18000. Intra-docker networking still
+# uses the original container ports — only host-side access changes.
+services:
+  red-team-backend:
+    # Backend isn't reached from the host; nginx proxies via docker network.
+    ports: !reset []
+  wazuh-manager:
+    # Windows reserves TCP 55000 (and 1514/1515 can clash), which left this
+    # container stuck in "created" with a bind failure. The Wazuh agent inside
+    # target-agent connects over the internal docker network (wazuh.manager),
+    # so no host port publishing is needed for the SIEM pipeline. Drop them.
+    ports: !reset []
+  # signal-store and target-agent publish NO ports in the base compose files, so
+  # we only need to ADD host mappings here. `!reset` nulls the value out (its job
+  # is to drop an inherited value, as on red-team-backend above) and would discard
+  # the list that follows -- which is exactly why 18005/18080 never published. A
+  # plain `ports:` list merges cleanly on top of "no ports" and publishes them.
+  signal-store:
+    ports:
+      - "18005:8000"
+  target-agent:
+    ports:
+      - "18080:80"

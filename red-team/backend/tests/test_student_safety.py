@@ -110,6 +110,16 @@ def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
         *[ev("login_failed", "/op/auth/login", "operator", via="unknown", ts=i) for i in range(6)],
         ev("credential_found", "/op/auth/login", "operator", via="unknown", ts=9),
     ]
+    empty_via_complete = [
+        *[ev("login_failed", "/op/auth/login", "operator", via="", ts=i) for i in range(6)],
+        ev("credential_found", "/op/auth/login", "operator", via="", ts=9),
+    ]
+    missing_via_complete = [
+        *[ev("login_failed", "/op/auth/login", "operator", ts=i) for i in range(6)],
+        ev("credential_found", "/op/auth/login", "operator", ts=9),
+    ]
+    for event in missing_via_complete:
+        event.pop("via", None)
 
     monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: wrong_path)
     assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
@@ -127,4 +137,10 @@ def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
     assert progress["brute_force_activity"]["path"] == "/op/auth/login"
 
     monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: legacy_zap_complete)
-    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is True
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
+
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: empty_via_complete)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
+
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: missing_via_complete)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False

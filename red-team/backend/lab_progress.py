@@ -8,7 +8,7 @@ LearningPanel renders directly.
 
 Modes:
   tutorial — all evidence counts; rich explanations for each task
-  lab      — only via="attackbox" evidence counts; requires real tool usage
+  lab      — only approved local tool evidence counts; requires real tool usage
 """
 from __future__ import annotations
 
@@ -76,11 +76,11 @@ def _is_brute_force_event_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
     path = _event_path(e)
     backend = _event_backend(e)
     if is_lab:
-        # Older target-agent builds tag ZAP-originated requests as "unknown"
-        # because they do not know the new ZAP user agents. The path/backend
-        # pair is still authoritative; exclude browser traffic so operator
-        # brute-force completion remains tool-driven.
-        return path == "/op/auth/login" and backend == "operator" and e.get("via") != "browser"
+        return (
+            path == "/op/auth/login"
+            and backend == "operator"
+            and _is_operator_tool_event(e)
+        )
     return path == "/auth/login" and backend != "operator"
 
 
@@ -575,10 +575,7 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                 "# Advanced track — real CLI tooling. For the GUI-only path, use the",
                 "# ZAP Fuzzer instead (Password Spraying / Credential Stuffing variants).",
                 "# Hydra form-template: path:body:failure-string",
-                "hydra -L /lab/users.txt -P /wordlists/rockyou-mini.txt \\",
-                "      target-agent http-post-form \\",
-                "      '/auth/login:username=^USER^&password=^PASS^:Incorrect password|Account not found' \\",
-                "      -t 8 -f",
+                "hydra -l admin -P /wordlists/rockyou-mini.txt target-agent http-post-form '/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 8 -f",
                 "# Verify the credential by hand",
                 "curl -i -X POST http://target-agent/auth/login \\",
                 "     -d 'username=admin&password=password123'   # → 302 /profile/",
@@ -1130,9 +1127,9 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {
                     "what": "Now replay a leaked password list against a known account. This is the heart of "
                             "stuffing: a curated wordlist of real, previously-breached passwords.",
-                    "how":  "Loop a small leaked wordlist against username=admin. From the AttackBox: "
-                            "`while read pw; do curl -s -o /dev/null -w '%{http_code}\\n' -d \"username=admin&password=$pw\" "
-                            "http://target-agent/auth/login; done < /wordlists/rockyou-mini.txt`",
+                    "how":  "Run Hydra against username=admin with the local leaked list: "
+                            "`hydra -l admin -P /wordlists/rockyou-mini.txt target-agent "
+                            "http-post-form '/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 4 -f`",
                     "look_for": "8+ failed-login attempts recorded against admin marks this step done.",
                 },
                 {
@@ -2019,7 +2016,7 @@ def compute(module_id: str,
 
     `mode` selects evidence-channel gating:
       - "tutorial" → counts evidence from any channel (browser, attackbox, …)
-      - "lab"      → only counts evidence with via="attackbox".
+      - "lab"      → only counts evidence from attackbox/zap_repeater/zap_fuzzer.
 
     `variant_id` selects the specific attack flavour (e.g. "password_spray",
     "credential_stuffing", "hydra_targeted" for brute_force).  When set, the

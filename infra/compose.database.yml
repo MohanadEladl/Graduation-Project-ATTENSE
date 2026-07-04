@@ -1,0 +1,39 @@
+# =============================================================================
+# ATTENSE Cyber Range - PostgreSQL persistence
+# =============================================================================
+
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: attense_postgres
+    hostname: postgres
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-attense}
+      POSTGRES_USER: ${POSTGRES_USER:-attense}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-attense-dev-password}
+    volumes:
+      - attense_postgres_data:/var/lib/postgresql/data
+      - ./database/postgresql/ATTENSE_database.sql:/docker-entrypoint-initdb.d/001_ATTENSE_database.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - attense_net
+
+networks:
+  attense_net:
+    driver: bridge
+
+volumes:
+  attense_postgres_data:

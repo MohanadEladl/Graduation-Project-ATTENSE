@@ -1,0 +1,30 @@
+{
+  "spec_version": "1.0",
+  "attack_id": "APP-04",
+  "module_id": "file_upload",
+  "name": "File Upload Exploit",
+  "description": "Upload and execution of malicious files due to weak validation controls.",
+  "target_path": "/files/upload",
+  "owasp": "A04:2021",
+  "severity": "high",
+  "attack_steps": [
+    "Upload a malicious file disguised as a legitimate file type",
+    "Server stores the file without enforcing validation rules",
+    "Attacker executes the uploaded payload"
+  ],
+  "impact": [
+    "Persistent backdoor installation",
+    "Privilege escalation",
+    "Complete application compromise"
+  ],
+  "defense_checkpoints": [
+    "Malicious file upload detection",
+    "Unauthorized file execution monitoring",
+    "Backdoor containment time"
+  ],
+  "required_tools": [
+    "Terminal",
+    "ZAP",
+    "curl"
+  ]
+}

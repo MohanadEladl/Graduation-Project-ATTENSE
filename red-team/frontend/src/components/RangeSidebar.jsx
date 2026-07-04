@@ -38,28 +38,20 @@ export default function RangeSidebar({
             collapsed ? 'w-0 opacity-0' : 'opacity-100'
           }`}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            style={{ filter: 'drop-shadow(0 0 8px rgba(255,21,53,0.55))', flexShrink: 0 }}
-          >
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#ff1535" />
-          </svg>
+          <img
+            src="/logo.png"
+            alt="ATTENSE"
+            style={{ height: 18, width: 'auto', filter: 'drop-shadow(0 0 8px rgba(255,21,53,0.55))', flexShrink: 0 }}
+          />
           <span className="whitespace-nowrap text-sm font-bold tracking-tight text-white">ATTENSE</span>
         </div>
 
         {collapsed && (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            style={{ filter: 'drop-shadow(0 0 8px rgba(255,21,53,0.55))', flexShrink: 0 }}
-          >
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#ff1535" />
-          </svg>
+          <img
+            src="/logo.png"
+            alt="ATTENSE"
+            style={{ height: 18, width: 'auto', filter: 'drop-shadow(0 0 8px rgba(255,21,53,0.55))', flexShrink: 0 }}
+          />
         )}
 
         <button

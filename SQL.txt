@@ -1,0 +1,106 @@
+Create Database ATTENSE 
+
+Create Table Amin(
+Name VarChar(20) PrimaryKey,
+HashedPassword  Varchar()
+
+);
+
+Create Table Compant(
+CompanyID [] PrimaryKey,
+name VarChar(100)
+);
+
+Create Table User(
+UserId  [] PrimaryKey,
+email varchar(100),//add checker for emaol containing company name and @
+hashedPassword Varchar(),
+Status Varchar(),// in a room or free
+ForeignKey (CompanyID) Refrences Company( CompanyID )
+ForeignKey (AdmineName) Refrences Admin(Name)
+);
+
+Create Table RedTeam(
+RedID [] PrimaryKey,
+ZapApiKey varchar(100),
+ForeignKey (UserId ) Refrences User(UserId )
+);
+
+Create Table BlueTeam(
+BlueId [] PrimaryKey,
+Role varrchar(50),
+TheHiveApi_Key varchar(100),
+CortexApi_key varchar(100),
+ForeignKey (UserId ) Refrences User(UserId )
+);
+
+Create Table Room(
+RoomId[] PrimaryKey,
+StartTime timestamp,
+EndTime timestamp,
+Status varchar(50),
+ForeignKey (UserId ) Refrences User(UserId )
+);
+
+Create Table ParticipatedIn(
+RoomId [] PrimaryKey,
+BlueId [] PrimaryKey,
+RedID [] PrimaryKey,
+ForeignKey (RoomId ) Refrences Room(RoomId ),
+ForeignKey (BlueId ) Refrences BlueTeam(BlueId ),
+ForeignKey (RedID ) Refrences RedTeam(RedID )
+);
+
+create Table Scenario(
+ScenarioID [] PrimaryKey,
+name varchar(30),
+description varchar(250),
+difficulty varchar(30),
+attackplan varchar(250),
+ForeignKey (AdmineName) Refrences Admin(Name)
+);
+
+create Table Incident(
+IncidentId[] PrimaryKey,
+tittle varchar(30),
+description varchar(250),
+ForeignKey (RoomId ) Refrences Room(RoomId )
+);
+
+create table ZeroDayAttack(
+ZeroDayId [] PrimaryKey,
+name varchar(30),
+description varchar(250),
+Severity varchar(30),
+
+Discoveryday date,
+);
+
+create table RedTeamAcion(
+ActionID[] PrimaryKey,
+Technique varchar(100),
+ActionTime timestamp,
+jasonpayload varchar(250),
+ForeignKey (ZeroDayId) Refrences ZeroDayAttack(ZeroDayId),
+ForeignKey (RoomId ) Refrences Room(RoomId )
+);
+
+create table BlueTeamAcion(
+ActionID[] PrimaryKey,
+event_name varchar(100),
+ActionTime timestamp,
+jasonpayload varchar(250),
+ForeignKey (ZeroDayId) Refrences ZeroDayAttack(ZeroDayId),
+ForeignKey (RoomId ) Refrences Room(RoomId )
+);
+
+create table AIReport(
+ReportID [] PrrimaryKey,
+Score Int,
+TTD INT,
+TTC INT,
+Summary,
+ForeignKey (RoomId ) Refrences Room(RoomId )
+);
+
+

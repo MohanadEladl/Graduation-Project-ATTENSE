@@ -1,0 +1,119 @@
+{
+  "defense_profiles": [
+
+    {
+      "scenario_id": "APP-01",
+      "attack_type": "XSS",
+      "containment": {
+        "allowed_actions": [
+          "block_request",
+          "sanitize_input",
+          "disable_endpoint"
+        ],
+        "correct_actions": [
+          "sanitize_input"
+        ]
+      },
+      "detection_hints": [
+        "unexpected script in response",
+        "reflected user input"
+      ]
+    },
+
+    {
+      "scenario_id": "APP-02",
+      "attack_type": "Command Injection",
+      "containment": {
+        "allowed_actions": [
+          "kill_process",
+          "isolate_host",
+          "block_input"
+        ],
+        "correct_actions": [
+          "kill_process"
+        ]
+      },
+      "detection_hints": [
+        "unexpected system command execution",
+        "suspicious shell activity"
+      ]
+    },
+
+    {
+      "scenario_id": "APP-03",
+      "attack_type": "Directory Traversal",
+      "containment": {
+        "allowed_actions": [
+          "block_path",
+          "restrict_permissions",
+          "disable_endpoint"
+        ],
+        "correct_actions": [
+          "block_path"
+        ]
+      },
+      "detection_hints": [
+        "multiple '../' patterns",
+        "unauthorized file access"
+      ]
+    },
+
+    {
+      "scenario_id": "APP-04",
+      "attack_type": "File Upload Exploit",
+      "containment": {
+        "allowed_actions": [
+          "remove_file",
+          "block_upload",
+          "isolate_host"
+        ],
+        "correct_actions": [
+          "remove_file"
+        ]
+      },
+      "detection_hints": [
+        "unexpected file execution",
+        "suspicious uploaded file"
+      ]
+    },
+
+    {
+      "scenario_id": "APP-05",
+      "attack_type": "CSRF",
+      "containment": {
+        "allowed_actions": [
+          "invalidate_session",
+          "block_request",
+          "enable_csrf_protection"
+        ],
+        "correct_actions": [
+          "enable_csrf_protection"
+        ]
+      },
+      "detection_hints": [
+        "unexpected authenticated action",
+        "missing csrf token"
+      ]
+    },
+
+    {
+      "scenario_id": "APP-06",
+      "attack_type": "Broken Authentication",
+      "containment": {
+        "allowed_actions": [
+          "disable_account",
+          "block_ip",
+          "invalidate_session"
+        ],
+        "correct_actions": [
+          "disable_account"
+        ]
+      },
+      "detection_hints": [
+        "multiple failed logins",
+        "login success after many failures"
+      ]
+    }
+
+  ]
+}

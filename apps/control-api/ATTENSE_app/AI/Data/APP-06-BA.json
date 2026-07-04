@@ -1,0 +1,576 @@
+{
+  "schema_version": "2.0.0",
+  "attack_id": "APP-06",
+  "attack_name": "Broken Authentication",
+  "description": "Broken Authentication encompasses weaknesses in credential management, session handling, and identity verification that allow attackers to assume legitimate user identities. Common attack patterns include credential stuffing, password brute force, and predictable session token exploitation.",
+  "owasp": {
+    "category": "A07:2025",
+    "name": "Authentication Failures",
+    "source": "https://owasp.org/Top10/2025/A07_2025-Authentication_Failures/"
+  },
+  "mitre_attack": {
+    "primary": [
+      {
+        "technique_id": "T1110",
+        "technique_name": "Brute Force",
+        "tactic": "Credential Access",
+        "source": "https://attack.mitre.org/techniques/T1110/"
+      }
+    ],
+    "related": [
+      {
+        "technique_id": "T1110.004",
+        "technique_name": "Brute Force: Credential Stuffing",
+        "tactic": "Credential Access",
+        "source": "https://attack.mitre.org/techniques/T1110/004/"
+      },
+      {
+        "technique_id": "T1110.001",
+        "technique_name": "Brute Force: Password Guessing",
+        "tactic": "Credential Access",
+        "source": "https://attack.mitre.org/techniques/T1110/001/"
+      },
+      {
+        "technique_id": "T1550.004",
+        "technique_name": "Use Alternate Authentication Material: Web Session Cookie",
+        "tactic": "Defense Evasion, Lateral Movement",
+        "source": "https://attack.mitre.org/techniques/T1550/004/"
+      }
+    ],
+    "mapping_note": "Use the scenario-specific sub-technique: T1110.004 for credential stuffing, T1110.001 for password guessing, and T1550.004 only for use of a forged or stolen web session cookie."
+  },
+  "cvss_methodology": {
+    "version": "CVSS v3.1",
+    "source": "https://www.first.org/cvss/v3-1/specification-document",
+    "note": "CVSS measures vulnerability severity. It does not prescribe SOC response deadlines.",
+    "latest_available_version": "CVSS v4.0",
+    "latest_specification": "https://www.first.org/cvss/v4-0/specification-document",
+    "migration_note": "CVSS v4.0 is current, but its metrics and scoring are not one-to-one with v3.1. Existing scenario vectors remain v3.1 until individually re-assessed."
+  },
+  "response_framework": {
+    "name": "NIST SP 800-61 Rev. 3",
+    "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final",
+    "note": "Response events implement Detect, Respond, Recover, and continuous-improvement outcomes. Numeric exercise thresholds are local policy, not NIST requirements."
+  },
+  "timing_model": {
+    "type": "exercise_policy",
+    "ttc_expected_formula": "max(900, 3600 * (10 - cvss_base_score))",
+    "ttc_max_formula": "ttc_expected_sec * 1.5",
+    "minimum_ttc_sec": 900,
+    "mtta_thresholds_sec": {
+      "low": 600,
+      "medium": 750,
+      "high": 900,
+      "very_high": 1200
+    },
+    "note": "The 900-second floor prevents zero-length and division-by-zero windows at CVSS 10.0. These values are simulation policy and must be calibrated with organizational risk and service objectives."
+  },
+  "incident_response_rules": [
+    {
+      "id": "BA-R01",
+      "description": "Alert triage started within the difficulty-adjusted MTTA threshold",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "alert_investigation_started occurs after mtta_threshold_sec or is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R02",
+      "description": "Incident assessed and confirmed or formally dismissed",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "neither incident_confirmed nor dismissal_approved is present",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R03",
+      "description": "Relevant evidence preserved before destructive containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "incident_confirmed is present but evidence_preserved is absent or occurs after containment_initiated",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R04",
+      "description": "Containment initiated before TTC maximum",
+      "type": "critical",
+      "penalty_points": -25,
+      "trigger": "containment_initiated is absent or occurs after ttc_max_sec",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R05",
+      "description": "Containment succeeded",
+      "type": "critical",
+      "penalty_points": -30,
+      "trigger": "containment_succeeded is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R06",
+      "description": "Root cause or malicious artifact eradicated after containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "containment_succeeded is present but eradication_completed is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R07",
+      "description": "Recovery validated before normal operation resumed",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "eradication_completed is present but recovery_validated is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R08",
+      "description": "Lessons learned and improvement actions recorded",
+      "type": "minor",
+      "penalty_points": -5,
+      "trigger": "recovery_validated is present but lessons_learned_recorded is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "BA-R09",
+      "description": "Medium-or-higher alerts are not denied without documented approval",
+      "type": "major",
+      "penalty_points": -20,
+      "trigger": "alert_denied is present for severity medium or higher without a preceding dismissal_approved event",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    }
+  ],
+  "scoring": {
+    "base_score": 100,
+    "formula": "clamp(round((base_score + penalty_total) * ttc_factor + response_difficulty_bonus, 2), 0, 100)",
+    "ttc_factor": "1 when containment succeeds by ttc_expected; linear decay to 0 at ttc_max; 0 when containment is absent or later than ttc_max",
+    "response_difficulty_bonus": {
+      "formula": "min(4500 * difficulty_numeric / max(investigation_delay_sec, 1), 25)",
+      "condition": "awarded only when containment_succeeded is present",
+      "difficulty_numeric": {
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "very_high": 4
+      },
+      "maximum": 25,
+      "zero_delay_policy": "A zero-second investigation delay uses a one-second denominator and therefore receives the capped bonus."
+    },
+    "verdict_bands": {
+      "excellent": {
+        "min": 90,
+        "max": 100
+      },
+      "acceptable": {
+        "min": 70,
+        "max": 89.99
+      },
+      "needs_review": {
+        "min": 50,
+        "max": 69.99
+      },
+      "failed": {
+        "min": 0,
+        "max": 49.99
+      }
+    }
+  },
+  "wazuh": {
+    "custom_rule_id_range": "100000-120000",
+    "custom_rule_guidance": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html",
+    "stock_rules": [],
+    "custom_rules": [
+      {
+        "rule_id": "100601",
+        "level": 9,
+        "description": "Many username/password pairs across distributed sources produce failures plus anomalous successful logins",
+        "depends_on": [
+          "application authentication log",
+          "threat intelligence enrichment"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      },
+      {
+        "rule_id": "100602",
+        "level": 8,
+        "description": "Session identifiers fail entropy or uniqueness checks and are reused across unrelated network identities",
+        "depends_on": [
+          "session issuance log",
+          "session access log"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      },
+      {
+        "rule_id": "100603",
+        "level": 9,
+        "description": "Repeated admin authentication failures are followed by success and access to an object outside the authenticated role",
+        "depends_on": [
+          "authentication log",
+          "authorization audit log"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      }
+    ],
+    "note": "Custom entries are dataset detection specifications and must be implemented and tested in the deployed Wazuh manager before use. Stock rule descriptions and levels match the linked upstream ruleset."
+  },
+  "scenarios": [
+    {
+      "scenario_id": "BA-S1",
+      "label": "Credential Stuffing Attack — High Confidentiality, Limited Integrity",
+      "description": "Attacker uses a credential-stuffing tool to test 2400 username/password pairs from a leaked database against the login endpoint. Multiple successful logins result in full account takeover for compromised users. High confidentiality impact; limited integrity (account data viewable but no financial transaction endpoint exposed).",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Authentication requirement follows the endpoint access described by the scenario."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "base_score": 8.2,
+        "component_rationale": {
+          "AV_N": "Attack conducted remotely over the network",
+          "AC_L": "No special conditions; endpoint has no rate limiting or CAPTCHA",
+          "PR_N": "No existing account required; attack tests external credentials",
+          "UI_N": "No victim interaction needed",
+          "S_U": "Account access scope confined to individual user accounts",
+          "C_H": "Full read access to victim account data, PII, and private messages",
+          "I_L": "Limited integrity: attacker can alter account preferences but not execute financial actions",
+          "A_N": "No availability impact",
+          "formula_trace": "ISCBase=1−(0.44×0.78×1)=0.6568; ISC=6.42×0.6568=4.217; Expl=8.22×0.85×0.77×0.85×0.85=3.887; Score=Roundup(min(4.217+3.887,10))=Roundup(8.104)=8.2"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 600,
+        "ttc_expected_sec": 6480,
+        "ttc_max_sec": 9720
+      },
+      "detection": {
+        "difficulty": "low",
+        "rationale": "Detection uses custom Wazuh rule 100601 (Distributed credential stuffing with successful account access); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100601",
+        "level": 9,
+        "rule_source": "custom",
+        "description": "Distributed credential stuffing with successful account access"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100601 level 9 fired: Distributed credential stuffing with successful account access."
+        },
+        {
+          "t_offset_sec": 400,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 400s, within 600s low threshold. Login failure volume confirmed: 2400 failures in 60s from 18 IPs; 37 successful logins correlated with known-leaked credential database (Have I Been Pwned cross-reference)."
+        },
+        {
+          "t_offset_sec": 800,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed credential stuffing: 37 compromised accounts accessed; PII records viewed in session logs. Attacker IPs geolocated to anonymizing VPN nodes. Account takeover confirmed for 37 users."
+        },
+        {
+          "t_offset_sec": 4940,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 5000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 force-invalidated all 37 compromised sessions; applied rate limiting (5 attempts/IP/minute); CAPTCHA deployed on login endpoint; compromised users notified and forced to reset passwords."
+        },
+        {
+          "t_offset_sec": 5600,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "Credential stuffing tool rate-limited: 403 Too Many Requests on all attacker IPs. Compromised sessions terminated. Password-reset emails sent to affected users. TTC_actual=5600s < TTC_expected=6480s."
+        },
+        {
+          "t_offset_sec": 5900,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 6200,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 6500,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [],
+        "penalty_total": 0,
+        "ttc_actual_sec": 5600,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 11.25,
+        "final_score": 100,
+        "verdict": "excellent"
+      }
+    },
+    {
+      "scenario_id": "BA-S2",
+      "label": "Session Token Prediction — High Difficulty, Alert Dismissed",
+      "description": "Attacker exploits a weak pseudo-random session token generator to predict valid session tokens for active accounts. No brute-force login failures are generated; the attacker directly forges valid session identifiers. High detection difficulty. Alert dismissed as a false positive.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Authentication requirement follows the endpoint access described by the scenario."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "base_score": 6.5,
+        "component_rationale": {
+          "AV_N": "Attack conducted remotely over the network",
+          "AC_H": "Session token prediction requires reverse-engineering the PRNG algorithm from observable tokens",
+          "PR_N": "No existing account required; attacker exploits token predictability",
+          "UI_N": "No victim interaction needed",
+          "S_U": "Access confined to individual hijacked user account scope",
+          "C_H": "Full read access to hijacked account including PII",
+          "I_L": "Limited write: account preferences modifiable but critical transactions require re-auth",
+          "A_N": "No availability impact",
+          "formula_trace": "ISCBase=1−(0.44×0.78×1)=0.6568; ISC=6.42×0.6568=4.217; Expl=8.22×0.85×0.44×0.85×0.85=2.221; Score=Roundup(min(4.217+2.221,10))=Roundup(6.438)=6.5"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "medium",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 900,
+        "ttc_expected_sec": 12600,
+        "ttc_max_sec": 18900
+      },
+      "detection": {
+        "difficulty": "high",
+        "rationale": "Token prediction produces no failed-login events; forged sessions appear identical to legitimate ones. Detection requires statistical analysis of session-token entropy across the active session pool, which generates ambiguous signals. Detection uses custom Wazuh rule 100602 (Low-entropy or sequential web session identifiers); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100602",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "Low-entropy or sequential web session identifiers"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100602 level 8 fired: Low-entropy or sequential web session identifiers."
+        },
+        {
+          "t_offset_sec": 750,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 750s, within 900s high threshold. Analyst reviewed session entropy report; assessed as coincidental geographic distribution from legitimate VPN users."
+        },
+        {
+          "t_offset_sec": 1000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_denied",
+          "outcome": "failure",
+          "detail": "The analyst denied the alert without documented approval. This triggers BA-R09; all other missing response actions are evaluated independently."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [
+          "BA-R02",
+          "BA-R04",
+          "BA-R05",
+          "BA-R09"
+        ],
+        "penalty_total": -90,
+        "ttc_actual_sec": null,
+        "ttc_factor": 0.0,
+        "response_difficulty_bonus": 0,
+        "final_score": 0,
+        "verdict": "failed"
+      }
+    },
+    {
+      "scenario_id": "BA-S3",
+      "label": "Brute Force Admin Account with Session Hijack — Scope Changed, Good Response",
+      "description": "Attacker brute-forces a low-privilege account password, then leverages the session to pivot via insecure direct object reference to an admin session. Scope is changed because admin context grants access to a separate management plane beyond the attacker's initial login scope.",
+      "attack_context": {
+        "requires_authentication": true,
+        "authentication_level": "low_privilege",
+        "rationale": "Attacker must first compromise a low-privilege account to perform the IDOR-based admin session pivot."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N",
+        "base_score": 8.5,
+        "component_rationale": {
+          "AV_N": "Attack conducted remotely over the network",
+          "AC_L": "Brute force requires no special conditions; no lockout or CAPTCHA on admin panel",
+          "PR_L": "Attacker needs a valid low-privilege account to exploit IDOR for session pivot",
+          "UI_N": "No victim interaction needed",
+          "S_C": "Session pivot from user scope to admin management plane constitutes scope change",
+          "C_H": "Full read of all admin resources, user PII, and configuration",
+          "I_L": "Admin account modification capability limited by partial role separation",
+          "A_N": "No availability impact observed",
+          "formula_trace": "ISCBase=1−(0.44×0.78×1)=0.6568; ISC(S:C)=7.52×(0.6568−0.029)−3.25×((0.6568−0.02)^15)=4.717; Expl=8.22×0.85×0.77×0.68×0.85=3.110; Score=Roundup(min(1.08×(4.717+3.110),10))=Roundup(min(8.452,10))=8.5"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 5400,
+        "ttc_max_sec": 8100
+      },
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "High-volume login failures on the admin panel generate clear Wazuh signals; correlation of brute force pattern with subsequent IDOR-based session pivot requires cross-referencing authentication and access-control logs. Detection uses custom Wazuh rule 100603 (Admin password guessing followed by an authorization bypass); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100603",
+        "level": 9,
+        "rule_source": "custom",
+        "description": "Admin password guessing followed by an authorization bypass"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100603 level 9 fired: Admin password guessing followed by an authorization bypass."
+        },
+        {
+          "t_offset_sec": 450,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 450s, within 750s medium threshold. Authentication logs show brute-force success; access log shows IDOR request GET /admin/session?id=admin_sess_0041 from attacker IP using user-privilege token."
+        },
+        {
+          "t_offset_sec": 1000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed full admin session takeover via IDOR: admin_sess_0041 belongs to sysadmin account; attacker used it to access user management console and view all registered users. Scope extended to management plane confirmed."
+        },
+        {
+          "t_offset_sec": 3940,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 4000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 invalidated admin_sess_0041 and all active admin sessions; applied rate limiting (10 attempts/IP/minute) to admin login; IDOR vulnerability patched — session IDs now bound to originating user context with HMAC verification."
+        },
+        {
+          "t_offset_sec": 4800,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "Admin session re-test with IDOR payload returns 403 Forbidden. Brute force attempts now rate-limited. HMAC session binding deployed. Compromised low-privilege account password reset. TTC_actual=4800s < TTC_expected=5400s."
+        },
+        {
+          "t_offset_sec": 5100,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 5400,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 5700,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [],
+        "penalty_total": 0,
+        "ttc_actual_sec": 4800,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 20.0,
+        "final_score": 100,
+        "verdict": "excellent"
+      }
+    }
+  ],
+  "references": [
+    {
+      "title": "NIST SP 800-61 Rev. 3",
+      "url": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "title": "FIRST CVSS v3.1 Specification",
+      "url": "https://www.first.org/cvss/v3-1/specification-document"
+    },
+    {
+      "title": "FIRST CVSS v4.0 Specification (current migration target)",
+      "url": "https://www.first.org/cvss/v4-0/specification-document"
+    },
+    {
+      "title": "Wazuh custom rules",
+      "url": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+    },
+    {
+      "title": "OWASP Top 10:2025 — Authentication Failures",
+      "url": "https://owasp.org/Top10/2025/A07_2025-Authentication_Failures/"
+    }
+  ],
+  "dataset_metadata": {
+    "last_authoritative_source_review": "2026-06-20",
+    "source_policy": "Use upstream standards and vendor rulesets; label project-specific detection logic as custom.",
+    "cvss_profile": "Validated CVSS v3.1 compatibility profile; migrate through a separate expert review rather than automatic vector conversion."
+  }
+}

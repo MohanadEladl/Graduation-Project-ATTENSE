@@ -37,6 +37,28 @@ COPY wordlists /wordlists
 RUN ln -s /wordlists /opt/wordlists
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Guided-tutorial wordlist aliases. The red-team walkthroughs / ideal_commands
+# (red-team/backend/lab_progress.py, red-team/modules/recon.py) reference the
+# standard Kali paths a student would use on a real engagement — rockyou, dirb's
+# common.txt, seclists, and /lab/users.txt. Those paths aren't installed in this
+# slimmed AttackBox, so the guided commands used to fail with "No such file".
+# Expose them as links to the lab's shipped lists so every tutorial command runs
+# verbatim AND students still learn the real-world paths:
+#   rockyou-mini.txt      -> passwords-small.txt (contains the planted cred)
+#   dirb/seclists common  -> web-common.txt (slash-free web-content list)
+#   /lab/users.txt        -> users.txt (usernames incl. admin)
+# ─────────────────────────────────────────────────────────────────────────────
+# Strip any CRLF line endings first: the source files are edited on Windows, and
+# a trailing \r makes `while read pw; do curl -d "password=$pw"` send "pass\r",
+# which never matches — the loop-based tutorial commands would silently fail.
+RUN sed -i 's/\r$//' /wordlists/*.txt \
+ && mkdir -p /usr/share/wordlists/dirb /usr/share/seclists/Discovery/Web-Content \
+ && ln -sf /wordlists/passwords-small.txt /wordlists/rockyou-mini.txt \
+ && ln -sf /wordlists/web-common.txt /usr/share/wordlists/dirb/common.txt \
+ && ln -sf /wordlists/web-common.txt /usr/share/seclists/Discovery/Web-Content/common.txt \
+ && cp /wordlists/users.txt /lab/users.txt
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tag every outbound request from this container with a User-Agent the
 # target-agent recognizes as "via=attackbox". This is what lets operator-mode
 # missions distinguish AttackBox traffic from the lab-browser iframe traffic.
@@ -79,4 +101,10 @@ RUN printf '%s\n' \
 ENV USER_AGENT="AttenseAttackBox/1.0" \
     HTTP_USER_AGENT="AttenseAttackBox/1.0"
 
+# Security boundary exception: this container intentionally stays root.
+# The red-team-backend runs operator commands here via `docker exec`, and
+# tools like nmap's SYN scan need CAP_NET_RAW; non-root would silently break
+# half the toolset's scan modes. There's also no build-vs-runtime split for
+# apt-installed pentest binaries, so multistage wouldn't shrink this image —
+# see attackbox/Dockerfile history for that reasoning.
 CMD ["sleep", "infinity"]

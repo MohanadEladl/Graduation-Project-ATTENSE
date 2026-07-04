@@ -1,0 +1,557 @@
+{
+  "schema_version": "2.0.0",
+  "attack_id": "APP-03",
+  "attack_name": "Directory Traversal",
+  "description": "Directory Traversal (Path Traversal) exploits insufficient validation of file-path input, allowing an attacker to read arbitrary files outside the intended web root using sequences such as '../'. Sensitive files such as /etc/passwd, application configs, and private keys may be exposed.",
+  "owasp": {
+    "category": "A01:2025",
+    "name": "Broken Access Control",
+    "source": "https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/"
+  },
+  "mitre_attack": {
+    "primary": [
+      {
+        "technique_id": "T1190",
+        "technique_name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+        "source": "https://attack.mitre.org/techniques/T1190/"
+      }
+    ],
+    "related": [
+      {
+        "technique_id": "T1083",
+        "technique_name": "File and Directory Discovery",
+        "tactic": "Discovery",
+        "source": "https://attack.mitre.org/techniques/T1083/"
+      }
+    ],
+    "mapping_note": "T1083 applies only when traversal is used to discover files or directories. T1190 describes exploitation of the public-facing vulnerable endpoint."
+  },
+  "cvss_methodology": {
+    "version": "CVSS v3.1",
+    "source": "https://www.first.org/cvss/v3-1/specification-document",
+    "note": "CVSS measures vulnerability severity. It does not prescribe SOC response deadlines.",
+    "latest_available_version": "CVSS v4.0",
+    "latest_specification": "https://www.first.org/cvss/v4-0/specification-document",
+    "migration_note": "CVSS v4.0 is current, but its metrics and scoring are not one-to-one with v3.1. Existing scenario vectors remain v3.1 until individually re-assessed."
+  },
+  "response_framework": {
+    "name": "NIST SP 800-61 Rev. 3",
+    "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final",
+    "note": "Response events implement Detect, Respond, Recover, and continuous-improvement outcomes. Numeric exercise thresholds are local policy, not NIST requirements."
+  },
+  "timing_model": {
+    "type": "exercise_policy",
+    "ttc_expected_formula": "max(900, 3600 * (10 - cvss_base_score))",
+    "ttc_max_formula": "ttc_expected_sec * 1.5",
+    "minimum_ttc_sec": 900,
+    "mtta_thresholds_sec": {
+      "low": 600,
+      "medium": 750,
+      "high": 900,
+      "very_high": 1200
+    },
+    "note": "The 900-second floor prevents zero-length and division-by-zero windows at CVSS 10.0. These values are simulation policy and must be calibrated with organizational risk and service objectives."
+  },
+  "incident_response_rules": [
+    {
+      "id": "DIR-R01",
+      "description": "Alert triage started within the difficulty-adjusted MTTA threshold",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "alert_investigation_started occurs after mtta_threshold_sec or is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R02",
+      "description": "Incident assessed and confirmed or formally dismissed",
+      "type": "major",
+      "penalty_points": -15,
+      "trigger": "neither incident_confirmed nor dismissal_approved is present",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R03",
+      "description": "Relevant evidence preserved before destructive containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "incident_confirmed is present but evidence_preserved is absent or occurs after containment_initiated",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R04",
+      "description": "Containment initiated before TTC maximum",
+      "type": "critical",
+      "penalty_points": -25,
+      "trigger": "containment_initiated is absent or occurs after ttc_max_sec",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R05",
+      "description": "Containment succeeded",
+      "type": "critical",
+      "penalty_points": -30,
+      "trigger": "containment_succeeded is absent",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R06",
+      "description": "Root cause or malicious artifact eradicated after containment",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "containment_succeeded is present but eradication_completed is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R07",
+      "description": "Recovery validated before normal operation resumed",
+      "type": "major",
+      "penalty_points": -10,
+      "trigger": "eradication_completed is present but recovery_validated is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R08",
+      "description": "Lessons learned and improvement actions recorded",
+      "type": "minor",
+      "penalty_points": -5,
+      "trigger": "recovery_validated is present but lessons_learned_recorded is absent or out of order",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "id": "DIR-R09",
+      "description": "Medium-or-higher alerts are not denied without documented approval",
+      "type": "major",
+      "penalty_points": -20,
+      "trigger": "alert_denied is present for severity medium or higher without a preceding dismissal_approved event",
+      "source": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    }
+  ],
+  "scoring": {
+    "base_score": 100,
+    "formula": "clamp(round((base_score + penalty_total) * ttc_factor + response_difficulty_bonus, 2), 0, 100)",
+    "ttc_factor": "1 when containment succeeds by ttc_expected; linear decay to 0 at ttc_max; 0 when containment is absent or later than ttc_max",
+    "response_difficulty_bonus": {
+      "formula": "min(4500 * difficulty_numeric / max(investigation_delay_sec, 1), 25)",
+      "condition": "awarded only when containment_succeeded is present",
+      "difficulty_numeric": {
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "very_high": 4
+      },
+      "maximum": 25,
+      "zero_delay_policy": "A zero-second investigation delay uses a one-second denominator and therefore receives the capped bonus."
+    },
+    "verdict_bands": {
+      "excellent": {
+        "min": 90,
+        "max": 100
+      },
+      "acceptable": {
+        "min": 70,
+        "max": 89.99
+      },
+      "needs_review": {
+        "min": 50,
+        "max": 69.99
+      },
+      "failed": {
+        "min": 0,
+        "max": 49.99
+      }
+    }
+  },
+  "wazuh": {
+    "custom_rule_id_range": "100000-120000",
+    "custom_rule_guidance": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html",
+    "stock_rules": [
+      {
+        "rule_id": "31104",
+        "level": 6,
+        "description": "Common web attack; its patterns include directory-traversal sequences",
+        "source": "https://github.com/wazuh/wazuh/blob/master/ruleset/rules/0245-web_rules.xml"
+      },
+      {
+        "rule_id": "31153",
+        "level": 10,
+        "description": "Multiple common web attacks from the same source IP",
+        "source": "https://github.com/wazuh/wazuh/blob/master/ruleset/rules/0245-web_rules.xml"
+      }
+    ],
+    "custom_rules": [
+      {
+        "rule_id": "100303",
+        "level": 8,
+        "description": "Application path-resolution telemetry shows the canonical path outside the allowed root",
+        "depends_on": [
+          "application structured log",
+          "file access audit log"
+        ],
+        "implementation_source": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+      }
+    ],
+    "note": "Custom entries are dataset detection specifications and must be implemented and tested in the deployed Wazuh manager before use. Stock rule descriptions and levels match the linked upstream ruleset."
+  },
+  "scenarios": [
+    {
+      "scenario_id": "DIR-S1",
+      "label": "Unauthenticated Plaintext Path Traversal — High Confidentiality Impact",
+      "description": "Attacker submits a GET request with an unencoded '../' sequence to a file-download endpoint, reading /etc/passwd and application config files. No authentication required. Integrity and availability unaffected.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Authentication requirement follows the endpoint access described by the scenario."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "base_score": 7.5,
+        "component_rationale": {
+          "AV_N": "Exploitable remotely over the network",
+          "AC_L": "No special conditions; '../' sequences are not filtered",
+          "PR_N": "No authentication required",
+          "UI_N": "No victim interaction needed",
+          "S_U": "Impact confined to web-server process",
+          "C_H": "Arbitrary file read; secrets and credentials exposed",
+          "I_N": "Read-only attack; no write capability",
+          "A_N": "No availability impact",
+          "formula_trace": "ISCBase=1−(0.44×1×1)=0.56; ISC=6.42×0.56=3.595; Expl=8.22×0.85×0.77×0.85×0.85=3.887; Score=Roundup(min(3.595+3.887,10))=Roundup(7.482)=7.5"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 600,
+        "ttc_expected_sec": 9000,
+        "ttc_max_sec": 13500
+      },
+      "detection": {
+        "difficulty": "low",
+        "rationale": "Plaintext '../' traversal sequences appear directly in web access logs and require no decoding. Detection uses stock Wazuh rule 31104 (Plain path-traversal sequence in a web request); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "31104",
+        "level": 6,
+        "rule_source": "stock",
+        "description": "Plain path-traversal sequence in a web request"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh stock rule 31104 level 6 fired: Plain path-traversal sequence in a web request."
+        },
+        {
+          "t_offset_sec": 300,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 300s, within 600s low threshold. Access log confirmed multiple traversal attempts; /etc/passwd, /etc/shadow, and .env file successfully read by attacker."
+        },
+        {
+          "t_offset_sec": 600,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed live exploitation: replayed request returned /etc/passwd contents. Application credentials in .env file exposed to attacker."
+        },
+        {
+          "t_offset_sec": 6940,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 7000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 applied path canonicalisation patch: chroot jail enforced on file-download handler; allowed file extensions restricted to .pdf and .csv."
+        },
+        {
+          "t_offset_sec": 7800,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "Re-test returns 403 for traversal payloads. Exposed credentials rotated. .env file relocated outside web root. TTC_actual=7800s < TTC_expected=9000s."
+        },
+        {
+          "t_offset_sec": 8100,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 8400,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 8700,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [],
+        "penalty_total": 0,
+        "ttc_actual_sec": 7800,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 15.0,
+        "final_score": 100,
+        "verdict": "excellent"
+      }
+    },
+    {
+      "scenario_id": "DIR-S2",
+      "label": "URL-Encoded Path Traversal — Alert Incorrectly Dismissed",
+      "description": "Attacker uses URL-encoded traversal sequences (%2e%2e%2f) to bypass a naive blacklist filter. The Wazuh alert is dismissed as a false positive, and the attacker continues to exfiltrate sensitive files unimpeded.",
+      "attack_context": {
+        "requires_authentication": false,
+        "authentication_level": "none",
+        "rationale": "Authentication requirement follows the endpoint access described by the scenario."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "base_score": 5.9,
+        "component_rationale": {
+          "AV_N": "Exploitable remotely over the network",
+          "AC_H": "URL-encoding bypass requires specific evasion knowledge; WAF may partially block",
+          "PR_N": "No authentication required",
+          "UI_N": "No victim interaction needed",
+          "S_U": "Impact confined to web-server process",
+          "C_H": "Sensitive files readable once encoding bypass succeeds",
+          "I_N": "Read-only attack",
+          "A_N": "No availability impact",
+          "formula_trace": "ISCBase=1−(0.44×1×1)=0.56; ISC=6.42×0.56=3.595; Expl=8.22×0.85×0.44×0.85×0.85=2.221; Score=Roundup(min(3.595+2.221,10))=Roundup(5.816)=5.9"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "medium",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 14760,
+        "ttc_max_sec": 22140
+      },
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "URL-encoded sequences require URL-decoding before pattern matching; standard WAF rules may not decode before alerting, leading to higher false-positive rates and analyst uncertainty. Detection uses stock Wazuh rule 31104 (URL-decoded path-traversal sequence); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "31104",
+        "level": 6,
+        "rule_source": "stock",
+        "description": "URL-decoded path-traversal sequence"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh stock rule 31104 level 6 fired: URL-decoded path-traversal sequence."
+        },
+        {
+          "t_offset_sec": 500,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 500s, within 750s medium threshold. Analyst inspected raw request but did not URL-decode the parameter before analysis."
+        },
+        {
+          "t_offset_sec": 700,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_denied",
+          "outcome": "failure",
+          "detail": "The analyst denied the alert without documented approval. This triggers DIR-R09; all other missing response actions are evaluated independently."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [
+          "DIR-R02",
+          "DIR-R04",
+          "DIR-R05",
+          "DIR-R09"
+        ],
+        "penalty_total": -90,
+        "ttc_actual_sec": null,
+        "ttc_factor": 0.0,
+        "response_difficulty_bonus": 0,
+        "final_score": 0,
+        "verdict": "failed"
+      }
+    },
+    {
+      "scenario_id": "DIR-S3",
+      "label": "Authenticated Low-Privilege Traversal with Integrity Side-Effect",
+      "description": "Authenticated low-privilege user exploits a document-preview endpoint to traverse outside the upload directory, reading sensitive config files and a limited set of writable temp files. Scope unchanged.",
+      "attack_context": {
+        "requires_authentication": true,
+        "authentication_level": "low_privilege",
+        "rationale": "Attacker requires a valid low-privilege user account to access the document-preview feature."
+      },
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N",
+        "base_score": 7.1,
+        "component_rationale": {
+          "AV_N": "Exploitable remotely over the network",
+          "AC_L": "No special conditions; path parameter is concatenated without validation",
+          "PR_L": "Low-privilege user session required to access preview endpoint",
+          "UI_N": "No victim interaction needed",
+          "S_U": "Impact confined to web process and accessible filesystem paths",
+          "C_H": "Arbitrary file read within web-process filesystem scope",
+          "I_L": "Limited write: attacker can overwrite temp files accessible to web process",
+          "A_N": "No availability impact",
+          "formula_trace": "ISCBase=1−(0.44×0.78×1)=0.6568; ISC=6.42×0.6568=4.217; Expl=8.22×0.85×0.77×0.62×0.85=2.835; Score=Roundup(min(4.217+2.835,10))=Roundup(7.052)=7.1"
+        },
+        "version": "3.1"
+      },
+      "alert_severity": "high",
+      "computed_thresholds": {
+        "mtta_threshold_sec": 750,
+        "ttc_expected_sec": 10440,
+        "ttc_max_sec": 15660
+      },
+      "detection": {
+        "difficulty": "medium",
+        "rationale": "Authenticated endpoint traversal requires correlating file-access events in auditd with the authenticated user's session ID; lower traffic volume aids correlation but WAF rules are less sensitive for auth users. Detection uses custom Wazuh rule 100303 (Resolved path escaped the configured document root); the rule definition and required telemetry are documented in this attack record."
+      },
+      "wazuh_alert": {
+        "rule_id": "100303",
+        "level": 8,
+        "rule_source": "custom",
+        "description": "Resolved path escaped the configured document root"
+      },
+      "event_log": [
+        {
+          "t_offset_sec": 0,
+          "actor_type": "system",
+          "actor_id": "wazuh",
+          "event_type": "alert_raised",
+          "outcome": "success",
+          "detail": "Wazuh custom rule 100303 level 8 fired: Resolved path escaped the configured document root."
+        },
+        {
+          "t_offset_sec": 700,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-1",
+          "event_type": "alert_investigation_started",
+          "outcome": "success",
+          "detail": "Analyst-1 opened alert — MTTA 700s, within 750s medium threshold. Session log correlated: doc_user accessed /etc/nginx/nginx.conf, /home/appuser/.ssh/id_rsa, and /tmp/app_cache/session.json."
+        },
+        {
+          "t_offset_sec": 1800,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-2",
+          "event_type": "incident_confirmed",
+          "outcome": "success",
+          "detail": "Analyst-2 confirmed traversal: replay showed nginx.conf and SSH private key accessible. Temp file overwrite confirmed via inotify log showing doc_user wrote to /tmp/app_cache/."
+        },
+        {
+          "t_offset_sec": 9940,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "evidence_preserved",
+          "outcome": "success",
+          "detail": "Relevant logs, request data, volatile evidence, and indicators were preserved with chain-of-custody metadata."
+        },
+        {
+          "t_offset_sec": 10000,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_initiated",
+          "outcome": "success",
+          "detail": "Analyst-3 applied chroot restriction to preview endpoint — document root restricted to /uploads/; doc_user account suspended; SSH key pair regenerated."
+        },
+        {
+          "t_offset_sec": 10200,
+          "actor_type": "blue_team",
+          "actor_id": "analyst-3",
+          "event_type": "containment_succeeded",
+          "outcome": "success",
+          "detail": "Re-test returns 403 for all traversal payloads. Preview endpoint now serves only from /uploads/. TTC_actual=10200s < TTC_expected=10440s."
+        },
+        {
+          "t_offset_sec": 10500,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "eradication_completed",
+          "outcome": "success",
+          "detail": "Malicious artifacts and the vulnerable execution path were removed or disabled; root cause remediation was recorded."
+        },
+        {
+          "t_offset_sec": 10800,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "recovery_validated",
+          "outcome": "success",
+          "detail": "Service health, security controls, and monitoring were validated before normal operation resumed."
+        },
+        {
+          "t_offset_sec": 11100,
+          "actor_type": "blue_team",
+          "actor_id": "incident-commander",
+          "event_type": "lessons_learned_recorded",
+          "outcome": "success",
+          "detail": "Post-incident review captured root cause, response gaps, owners, and tracked improvement actions."
+        }
+      ],
+      "expected_evaluation": {
+        "violated_rule_ids": [],
+        "penalty_total": 0,
+        "ttc_actual_sec": 10200,
+        "ttc_factor": 1.0,
+        "response_difficulty_bonus": 12.86,
+        "final_score": 100,
+        "verdict": "excellent"
+      }
+    }
+  ],
+  "references": [
+    {
+      "title": "NIST SP 800-61 Rev. 3",
+      "url": "https://csrc.nist.gov/pubs/sp/800/61/r3/final"
+    },
+    {
+      "title": "FIRST CVSS v3.1 Specification",
+      "url": "https://www.first.org/cvss/v3-1/specification-document"
+    },
+    {
+      "title": "FIRST CVSS v4.0 Specification (current migration target)",
+      "url": "https://www.first.org/cvss/v4-0/specification-document"
+    },
+    {
+      "title": "Wazuh custom rules",
+      "url": "https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html"
+    },
+    {
+      "title": "OWASP Top 10:2025 — Broken Access Control",
+      "url": "https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/"
+    }
+  ],
+  "dataset_metadata": {
+    "last_authoritative_source_review": "2026-06-20",
+    "source_policy": "Use upstream standards and vendor rulesets; label project-specific detection logic as custom.",
+    "cvss_profile": "Validated CVSS v3.1 compatibility profile; migrate through a separate expert review rather than automatic vector conversion."
+  }
+}

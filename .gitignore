@@ -29,13 +29,32 @@ npm-debug.log
 # Docker (runtime)
 red_team_logs/
 
+# Generated runtime reports
+apps/zeroday-agent/reports/
+
 # Environment secrets
 .env
 .env.local
 .env.*.local
+
+# Local secrets folder — ignore its contents, but keep the cred-free *.example
+# templates tracked so the operator-mode seed mechanism stays documented and
+# reproducible. (Ignore contents with secrets/* rather than the dir secrets/;
+# git cannot re-include a file whose parent directory is excluded.)
+secrets/*
+!secrets/*.example
 
 # Archives
 **/*.zip
 
 # Gemini
 .gemini/
+
+# Local session/chat notes — not for commit
+SESSION_CONTEXT.md
+PUBLIC_EXPOSURE_CHANGES.md
+SECRET_ROTATION_CHANGES.md
+REDTEAM_EVENT_INGESTION_CHANGES.md
+
+# Cortex API key dropped at runtime by scripts/setup_cortex.py (never commit)
+integrations/thehive/runtime/cortex-key.conf

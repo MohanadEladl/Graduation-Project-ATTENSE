@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://attense.local/schemas/attack-dataset.schema.json",
+  "title": "ATTENSE AI attack exercise dataset",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dataset_metadata",
+    "attack_id",
+    "attack_name",
+    "description",
+    "owasp",
+    "mitre_attack",
+    "cvss_methodology",
+    "response_framework",
+    "timing_model",
+    "incident_response_rules",
+    "scoring",
+    "wazuh",
+    "scenarios",
+    "references"
+  ],
+  "properties": {
+    "schema_version": { "const": "2.0.0" },
+    "dataset_metadata": {
+      "type": "object",
+      "required": ["last_authoritative_source_review", "source_policy", "cvss_profile"],
+      "properties": {
+        "last_authoritative_source_review": { "type": "string", "format": "date" },
+        "source_policy": { "type": "string", "minLength": 1 },
+        "cvss_profile": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "attack_id": { "type": "string", "pattern": "^APP-[0-9]{2}$" },
+    "attack_name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "owasp": {
+      "type": "object",
+      "required": ["category", "name", "source"],
+      "properties": {
+        "category": { "type": "string" },
+        "name": { "type": "string" },
+        "source": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": false
+    },
+    "mitre_attack": {
+      "type": "object",
+      "required": ["primary", "related", "mapping_note"],
+      "properties": {
+        "primary": { "type": "array", "items": { "$ref": "#/$defs/technique" } },
+        "related": { "type": "array", "items": { "$ref": "#/$defs/technique" } },
+        "mapping_note": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "incident_response_rules": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": { "$ref": "#/$defs/responseRule" }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "technique": {
+      "type": "object",
+      "required": ["technique_id", "technique_name", "tactic", "source"],
+      "properties": {
+        "technique_id": { "type": "string", "pattern": "^T[0-9]{4}(\\.[0-9]{3})?$" },
+        "technique_name": { "type": "string", "minLength": 1 },
+        "tactic": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": false
+    },
+    "responseRule": {
+      "type": "object",
+      "required": ["id", "description", "type", "penalty_points", "trigger", "source"],
+      "properties": {
+        "id": { "type": "string" },
+        "description": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["minor", "major", "critical"] },
+        "penalty_points": { "type": "number", "maximum": 0 },
+        "trigger": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": false
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "scenario_id",
+        "label",
+        "description",
+        "attack_context",
+        "cvss",
+        "alert_severity",
+        "computed_thresholds",
+        "detection",
+        "wazuh_alert",
+        "event_log",
+        "expected_evaluation"
+      ],
+      "properties": {
+        "scenario_id": { "type": "string", "pattern": "^[A-Z]+-S[0-9]+$" },
+        "label": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "alert_severity": { "enum": ["low", "medium", "high", "critical"] },
+        "cvss": {
+          "type": "object",
+          "required": ["version", "vector", "base_score", "component_rationale"],
+          "properties": {
+            "version": { "const": "3.1" },
+            "vector": { "type": "string", "pattern": "^CVSS:3\\.1/AV:[NALP]/AC:[LH]/PR:[NLH]/UI:[NR]/S:[UC]/C:[NLH]/I:[NLH]/A:[NLH]$" },
+            "base_score": { "type": "number", "minimum": 0, "maximum": 10 },
+            "component_rationale": { "type": "object" }
+          }
+        },
+        "event_log": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["t_offset_sec", "actor_type", "actor_id", "event_type", "outcome", "detail"],
+            "properties": {
+              "t_offset_sec": { "type": "integer", "minimum": 0 },
+              "actor_type": { "type": "string" },
+              "actor_id": { "type": "string" },
+              "event_type": { "type": "string" },
+              "outcome": { "enum": ["success", "failure"] },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  }
+}

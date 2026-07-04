@@ -1,0 +1,43 @@
+{
+  "name": "WazuhDisableAccount",
+  "version": "1.1",
+  "author": "ATTENSE",
+  "url": "https://github.com/ATTENSE",
+  "license": "MIT",
+  "description": "Disable a compromised user account on the monitored host using Wazuh's built-in disable-account active response.",
+  "dataTypeList": ["thehive:case_artifact"],
+  "command": "WazuhDisableAccount/wazuh_disable_account.py",
+  "baseConfig": "Wazuh",
+  "configurationItems": [
+    {
+      "name": "wazuh_url",
+      "description": "Base URL of the Wazuh manager API",
+      "type": "string",
+      "multi": false,
+      "required": true,
+      "defaultValue": "https://wazuh-manager:55000"
+    },
+    {
+      "name": "wazuh_username",
+      "description": "Wazuh API username",
+      "type": "string",
+      "multi": false,
+      "required": true
+    },
+    {
+      "name": "wazuh_password",
+      "description": "Wazuh API password",
+      "type": "string",
+      "multi": false,
+      "required": true
+    },
+    {
+      "name": "agent_name",
+      "description": "Wazuh-registered agent name the account lives on (a username observable has no host/IP to resolve from, so this is the primary lookup)",
+      "type": "string",
+      "multi": false,
+      "required": false,
+      "defaultValue": "target-agent"
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+# Standalone compose file for the Blue Team service + TheHive stack.
+# Run from the project root:
+#   docker compose -f blueteam/docker-compose.yml -p attense-blueteam up -d --build
+#
+# When healthy:
+#   - Blue Team API   → http://localhost:8010/docs
+#   - TheHive web UI  → http://localhost:9000
+#       default login → admin@thehive.local / secret
+
+services:
+  blueteam:
+    build:
+      context: ..
+      dockerfile: blueteam/Dockerfile
+    container_name: attense_blueteam
+    hostname: blueteam
+    restart: unless-stopped
+    environment:
+      ATTENSE_APP_PATH: /attense_app
+      HIVE_URL: "http://thehive:9000"
+      HIVE_API_KEY: "changeme"
+      SANDBOX_URL: "http://localhost:8020"
+      LOG_LEVEL: "INFO"
+      ENVIRONMENT: "development"
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/health',timeout=3).status==200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - blueteam_net
+
+  cassandra:
+    image: cassandra:4.1
+    container_name: attense_cassandra
+    hostname: cassandra
+    restart: unless-stopped
+    environment:
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=1G
+      - CASSANDRA_CLUSTER_NAME=thp
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep -E '^UN'"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+    networks:
+      - blueteam_net
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.13
+    container_name: attense_elasticsearch
+    hostname: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - cluster.name=hive
+      - xpack.security.enabled=false
+      - script.allowed_types=inline,stored
+      - thread_pool.search.queue_size=100000
+      - thread_pool.write.queue_size=10000
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - blueteam_net
+
+  thehive:
+    image: strangebee/thehive:5.2
+    container_name: attense_thehive
+    hostname: thehive
+    restart: unless-stopped
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - JVM_OPTS=-Xms1024M -Xmx1024M
+    command:
+      - --secret
+      - "ATTENSE_LAB_SECRET_CHANGE_ME_AT_LEAST_64_CHARS_FOR_PROD_USE_PLEASE"
+      - "--cql-hostnames"
+      - "cassandra"
+      - "--index-backend"
+      - "elasticsearch"
+      - "--es-hostnames"
+      - "elasticsearch"
+    volumes:
+      - thehive_data:/etc/thehive/application.conf.d
+      - thehive_files:/opt/thp/thehive/files
+    ports:
+      - "9000:9000"
+    networks:
+      - blueteam_net
+
+networks:
+  blueteam_net:
+    driver: bridge
+
+volumes:
+  cassandra_data:
+  elasticsearch_data:
+  thehive_data:
+  thehive_files:

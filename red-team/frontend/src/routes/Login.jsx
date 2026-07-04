@@ -46,9 +46,7 @@ export default function Login() {
         transition={{ duration: 0.6 }}
       >
         <div className="flex items-center gap-2 mb-2">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#ff1535"/>
-          </svg>
+          <img src="/logo.png" alt="ATTENSE" style={{ height: 24, width: 'auto', filter: 'drop-shadow(0 0 10px rgba(255,21,53,0.55))' }} />
           <span className="font-display font-bold text-[22px] tracking-widest text-attense-text">
             ATTENSE
           </span>

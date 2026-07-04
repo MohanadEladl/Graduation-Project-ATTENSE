@@ -15,8 +15,7 @@ export default function Dashboard() {
       titleA="Break. Learn."
       titleB="Master."
       subtitle={<>Your offensive security playground.<br />Exploit live targets and sharpen real attack skills.</>}
-      primaryCta={{ label: '⚡ LAUNCH MISSION', to: '/missions' }}
-      secondaryCta={{ label: 'VIEW MODULES', to: '/modules' }}
+      primaryCta={{ label: '⚡ LAUNCH ATTACK', to: '/modules' }}
     />
   )
 }

@@ -1,0 +1,249 @@
+{ 
+
+  "application_based_attack_scenarios": [ 
+
+    { 
+
+      "attack_id": "APP-01", 
+
+      "attack_type": "Cross-Site Scripting (XSS)", 
+
+      "description": "Injection of malicious client-side scripts into vulnerable web application inputs.", 
+
+      "attack_steps": [ 
+
+        "Inject malicious JavaScript payload into a user input field", 
+
+        "Application reflects or stores the payload without proper sanitization", 
+
+        "Script executes in the victim's browser when the page is loaded" 
+
+      ], 
+
+      "impact": [ 
+
+        "Session hijacking", 
+
+        "Credential theft", 
+
+        "Unauthorized user actions" 
+
+      ], 
+
+      "blue_team_evaluation_metrics": [ 
+
+        "Abnormal script execution detection", 
+
+        "WAF alert generation", 
+
+        "Time to detect (TTD)", 
+
+        "Time to contain (TTC)" 
+
+      ] 
+
+    }, 
+
+    { 
+
+      "attack_id": "APP-02", 
+
+      "attack_type": "Command Injection", 
+
+      "description": "Execution of arbitrary operating system commands due to improper input validation.", 
+
+      "attack_steps": [ 
+
+        "Submit crafted input containing OS command separators", 
+
+        "Application concatenates input into a system-level command", 
+
+        "Injected command executes on the server" 
+
+      ], 
+
+      "impact": [ 
+
+        "Remote command execution", 
+
+        "System reconnaissance", 
+
+        "Full server compromise" 
+
+      ], 
+
+      "blue_team_evaluation_metrics": [ 
+
+        "EDR alerting", 
+
+        "Abnormal process execution detection", 
+
+        "Host isolation response time" 
+
+      ] 
+
+    }, 
+
+    { 
+
+      "attack_id": "APP-03", 
+
+      "attack_type": "Directory Traversal", 
+
+      "description": "Unauthorized access to restricted files by manipulating file path parameters.", 
+
+      "attack_steps": [ 
+
+        "Manipulate file path using traversal sequences", 
+
+        "Bypass path normalization checks", 
+
+        "Access sensitive system or application files" 
+
+      ], 
+
+      "impact": [ 
+
+        "Sensitive file disclosure", 
+
+        "Exposure of credentials and secrets", 
+
+        "Increased attack surface" 
+
+      ], 
+
+      "blue_team_evaluation_metrics": [ 
+
+        "Web server log anomaly detection", 
+
+        "Unauthorized file access monitoring", 
+
+        "Incident response speed" 
+
+      ] 
+
+    }, 
+
+    { 
+
+      "attack_id": "APP-04", 
+
+      "attack_type": "File Upload Exploit", 
+
+      "description": "Upload and execution of malicious files due to weak validation controls.", 
+
+      "attack_steps": [ 
+
+        "Upload a malicious file disguised as a legitimate file type", 
+
+        "Server stores the file without enforcing validation rules", 
+
+        "Attacker executes the uploaded payload" 
+
+      ], 
+
+      "impact": [ 
+
+        "Persistent backdoor installation", 
+
+        "Privilege escalation", 
+
+        "Complete application compromise" 
+
+      ], 
+
+      "blue_team_evaluation_metrics": [ 
+
+        "Malicious file upload detection", 
+
+        "Unauthorized file execution monitoring", 
+
+        "Backdoor containment time" 
+
+      ] 
+
+    }, 
+
+    { 
+
+      "attack_id": "APP-05", 
+
+      "attack_type": "Cross-Site Request Forgery (CSRF)", 
+
+      "description": "Forcing authenticated users to perform unintended actions without their consent.", 
+
+      "attack_steps": [ 
+
+        "Victim authenticates to the application", 
+
+        "Victim visits attacker-controlled page", 
+
+        "Browser submits forged request using valid session" 
+
+      ], 
+
+      "impact": [ 
+
+        "Unauthorized account changes", 
+
+        "Privilege abuse", 
+
+        "Data manipulation" 
+
+      ], 
+
+      "blue_team_evaluation_metrics": [ 
+
+        "Detection of anomalous authenticated requests", 
+
+        "CSRF token validation effectiveness", 
+
+        "Incident acknowledgment time" 
+
+      ] 
+
+    }, 
+
+    { 
+
+      "attack_id": "APP-06", 
+
+      "attack_type": "Broken Authentication", 
+
+      "description": "Exploitation of weak authentication and session management mechanisms.", 
+
+      "attack_steps": [ 
+
+        "Perform credential stuffing or brute-force attacks", 
+
+        "Exploit weak session token handling", 
+
+        "Gain unauthorized access to user accounts" 
+
+      ], 
+
+      "impact": [ 
+
+        "Account takeover", 
+
+        "Sensitive data exposure", 
+
+        "Lateral movement within the application" 
+
+      ], 
+
+      "blue_team_evaluation_metrics": [ 
+
+        "Login anomaly detection", 
+
+        "Authentication failure rate analysis", 
+
+        "Session invalidation and access revocation time" 
+
+      ] 
+
+    } 
+
+  ] 
+
+} 

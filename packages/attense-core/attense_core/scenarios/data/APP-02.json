@@ -1,0 +1,30 @@
+{
+  "spec_version": "1.0",
+  "attack_id": "APP-02",
+  "module_id": "cmd_injection",
+  "name": "Command Injection",
+  "description": "Execution of arbitrary operating system commands due to improper input validation.",
+  "target_path": "/system/ping?host=127.0.0.1",
+  "owasp": "A03:2021",
+  "severity": "critical",
+  "attack_steps": [
+    "Submit crafted input containing OS command separators",
+    "Application concatenates input into a system-level command",
+    "Injected command executes on the server"
+  ],
+  "impact": [
+    "Remote command execution",
+    "System reconnaissance",
+    "Full server compromise"
+  ],
+  "defense_checkpoints": [
+    "EDR alerting",
+    "Abnormal process execution detection",
+    "Host isolation response time"
+  ],
+  "required_tools": [
+    "Terminal",
+    "ZAP",
+    "curl"
+  ]
+}

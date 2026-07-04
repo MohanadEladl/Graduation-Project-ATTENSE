@@ -1,0 +1,14 @@
+# target-agent/target-agent/ is a stale nested duplicate of this same
+# build context — excluded so it doesn't bloat the context upload.
+target-agent/
+
+.git
+.gitignore
+*.md
+
+__pycache__/
+*.pyc
+*.pyo
+
+.vscode/
+.idea/
