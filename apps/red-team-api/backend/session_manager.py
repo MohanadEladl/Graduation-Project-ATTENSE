@@ -81,9 +81,9 @@ class SessionRecord:
     # Resolved operator identity (attense-app username), if the create-session
     # caller forwarded a valid session token. See backend/identity.py.
     actor_id: Optional[str] = None
-    # Room-scoped incident, resolved once at creation from the operator's
-    # joined room (attense-app's GET /api/auth/me). None if no room joined --
-    # engine.run_module() falls back to the env var INCIDENT_ID in that case.
+    # Room-scoped incident if the operator joined one (attense-app's GET
+    # /api/auth/me), otherwise a fresh `redteam-<session_id>` minted by
+    # SessionManager.create() - always set by the time a session exists.
     incident_id: Optional[str] = None
     room_id: Optional[str] = None
 
@@ -248,18 +248,18 @@ class SessionManager:
         except Exception:
             pass # persistence is best-effort; never crash the server
 
-            def _dual_write_snapshot(self, snap: dict) -> None:
-                if not _EVENTS_SECRET:
-                    return
-                    try:
-                        requests.post(
-                            f"{_CONTROL_API_URL}/api/missions/snapshot",
-                            json=snap,
-                            headers={"Authorization": f"Bearer {_EVENTS_SECRET}"},
-                            timeout=2,
-                        )
-                    except requests.RequestException:
-                        pass
+    def _dual_write_snapshot(self, snap: dict) -> None:
+        if not _EVENTS_SECRET:
+            return
+        try:
+            requests.post(
+                f"{_CONTROL_API_URL}/api/missions/snapshot",
+                json=snap,
+                headers={"Authorization": f"Bearer {_EVENTS_SECRET}"},
+                timeout=2,
+            )
+        except requests.RequestException:
+            pass
 
     def _load_persisted(self) -> None:
         """Restore sessions from the temp JSON file on startup."""
@@ -353,6 +353,14 @@ class SessionManager:
             mode = "tutorial"
 
         session_id = uuid.uuid4().hex[:12]
+        # An operator who hasn't joined a room has no incident_id yet (see
+        # backend/main.py's require_operator_session). Mint one unique to this
+        # session rather than falling back to the deployment's static
+        # INCIDENT_ID env var - that static fallback made every unassociated
+        # session's attack collapse onto the same shared incident, so
+        # control-api's ensure_room_for_incident kept creating separate rooms
+        # that all pointed at identical, cross-contaminated alert data.
+        incident_id = incident_id or f"redteam-{session_id}"
         target = TargetConfig(host=self._default_host, port=self._default_port)
 
         # Forward-declare the record so the emit callback can capture it.

@@ -1,5 +1,14 @@
 # Implementation Prompt — Red Team Portal (Option B: Deferred Room Creation)
 
+> **Superseded.** This prompt's "Finalize → Create Room" flow was not the
+> direction taken. Rooms are now created automatically by
+> `ensure_room_for_incident()` the moment a red-team attack event lands - no
+> operator finalize step, no `POST /api/rooms/create` or `/{id}/start` calls.
+> `create_room()`, `spin_up_blueteam()`, `join_room_as_red_team()`, and the
+> `/api/rooms/create`, `/{id}/join`, `/{id}/prefire` routes referenced below
+> have all been deleted from `room_manager.py` / `rooms_router.py`. Kept for
+> historical context only.
+
 ## Context: What Already Exists
 
 This is the ATTENSE cyber-range platform. Do NOT rewrite existing services — extend them minimally.

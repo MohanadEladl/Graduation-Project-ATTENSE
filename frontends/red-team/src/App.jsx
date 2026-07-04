@@ -9,20 +9,17 @@ import Missions          from './routes/Missions.jsx'
 import Modules           from './routes/Modules.jsx'
 import Mission           from './routes/Mission.jsx'
 import Workspace         from './routes/Workspace.jsx'
-import RoomSelect        from './routes/RoomSelect.jsx'
-import Shell             from './routes/Shell.jsx'
-import Detections        from './routes/Detections.jsx'
 import Reports           from './routes/Reports.jsx'
 import Settings          from './routes/Settings.jsx'
 import MissionReport     from './routes/MissionReport.jsx'
 import AttackReport      from './routes/AttackReport.jsx'
 import Gauntlet          from './routes/Gauntlet.jsx'
-import ShapeshiftTest    from './routes/ShapeshiftTest.jsx'
+import ZapWorkspace      from './routes/ZapWorkspace.jsx'
 
 // Captures ?token=<attense-app session token> from the URL (handed off by
-// the portal after login — see red-team/backend/identity.py for how the
-// backend validates it), persists it, then strips it from the address bar
-// so it doesn't linger in browser history / get leaked via Referer.
+// the portal after login — see apps/red-team-api/backend/identity.py for how
+// the backend validates it), persists it, then strips it from the address
+// bar so it doesn't linger in browser history / get leaked via Referer.
 function useSessionTokenFromUrl() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -51,21 +48,20 @@ export default function App() {
         <Route path="/login"     element={<Login />} />
         <Route path="/select"    element={<WhoAreYou />} />
 
+        {/* ── Standalone ZAP desktop workspace (opened in its own window) ── */}
+        <Route path="/zap-workspace" element={<ZapWorkspace />} />
+
         {/* ── Authenticated app (new-UI top nav, no sidebar) ── */}
         <Route element={<RangeLayout />}>
-          <Route path="/rooms"                  element={<RoomSelect />}     />
           <Route path="/missions"              element={<Missions />}       />
           <Route path="/modules"               element={<Modules />}        />
           <Route path="/mission/:moduleId"     element={<Mission />}        />
           <Route path="/workspace/:sid"        element={<Workspace />}      />
-          <Route path="/shell"                 element={<Shell />}          />
-          <Route path="/detections"            element={<Detections />}     />
           <Route path="/reports"               element={<Reports />}        />
           <Route path="/settings"              element={<Settings />}       />
           <Route path="/report/:sid"           element={<MissionReport />}  />
           <Route path="/attack-report/:sid"    element={<AttackReport />}   />
           <Route path="/gauntlet"              element={<Gauntlet />}       />
-          <Route path="/shapeshift-test"       element={<ShapeshiftTest />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

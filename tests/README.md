@@ -19,6 +19,7 @@ tests/
 |   ||| blue-team-api/
 |   ||| signal-mapper/
 |   ||| red-team-api/
+|   ||| target-lab/
 ||| e2e/              empty for now | see tests/e2e/README.md
 ```
 
@@ -35,7 +36,13 @@ py -m unittest discover -s tests/integration/control-api -p "test_*.py"
 py -m unittest discover -s tests/integration/blue-team-api -p "test_*.py"
 py -m unittest discover -s tests/integration/signal-mapper -p "test_correlation.py"
 py -m unittest discover -s tests/integration/red-team-api -p "test_*.py"
+py -m unittest discover -s tests/integration/target-lab -p "test_*.py"
 ```
+
+`test_mission_store.py` (control-api) needs `psycopg` importable (it's in the
+project's `.venv`, not necessarily the bare system Python) since it imports
+`core.db` even though it fakes the actual connection/cursor:
+`.venv/Scripts/python.exe -m unittest discover -s tests/integration/control-api -p test_mission_store.py`.
 
 Service directory names under `integration/` are hyphenated (`control-api`,
 `blue-team-api`, ...) to match `apps/`, so they're addressed by **path**
@@ -170,12 +177,22 @@ other's incidents | enforced in the **data layer**:
 
 **Deferred (infra cutover, needs the running stack):** collapsing the three
 deployment models into one shared standalone API | removing the embedded
-uvicorn from `controller.run()`, the dynamic per-room `spin_up_blueteam`
-containers, and the build-only `blueteam-image` compose service, and repointing
-`EVENT_STORE_URL` + the attense-app health check (`:8010/health`) at the
-standalone service. The data-layer isolation added here is the prerequisite that
-makes a single shared instance safe; the compose/health/networking rewiring is a
+uvicorn from `controller.run()` and repointing `EVENT_STORE_URL` + the
+attense-app health check (`:8010/health`) at the standalone service. The
+data-layer isolation added here is the prerequisite that makes a single
+shared instance safe; the compose/health/networking rewiring is a
 coordinated change to do against a live stack.
+
+**Update:** the dynamic per-room `spin_up_blueteam` container path (and
+`create_room`/`join_room_as_red_team`/`prefire_room`, and the
+`/api/rooms/create`, `/{id}/join`, `/{id}/prefire`, `/{id}/start` routes that
+drove it) has since been deleted from `room_manager.py`/`rooms_router.py`
+outright rather than cut over - rooms now auto-create via
+`ensure_room_for_incident()` on the first attack event, and each room gets
+its own pooled TheHive org instead of a per-room Docker container. The
+build-only `blueteam-image` compose service still exists in
+`infra/compose.base.yml` but nothing spins up per-room containers from it
+anymore.
 
 ## Phase 6 | consolidate scenarios (one versioned source)
 
@@ -258,6 +275,39 @@ compose config`, secret hygiene.
 
 **Not wired (need image builds / a live stack):** container vulnerability scan
 and the boot-the-stack end-to-end smoke test | see `tests/e2e/README.md`.
+
+## Phase 10 | mission progress/report correctness pass
+
+Fixes the bug where a genuinely successful attack didn't move the progress bar
+or report: `lab_progress.compute()`'s task ladder was still gated to
+`via="attackbox"` evidence in lab mode after `success` was already fixed to be
+channel-independent, so a real exploit through the browser iframe could flip
+`success` while the visible bar stayed frozen. Also fixes a completely
+separate, pre-existing bug found during the investigation: the cross-service
+mission-history dual-write (`session_manager._dual_write_snapshot` |
+`control-api`'s `mission_store.record_mission_snapshot`) was dead code on both
+ends (nested inside an unreachable `except`/early-`return` branch) since the
+commit that introduced it.
+
+- `test_lab_progress.py` (red-team-api) | proves lab-mode `via="browser"`
+  evidence now completes both the task ladder (`progress_percent`) and
+  `success`, not just the latter; proves `chain_engine.check_step_complete()`/
+  `advance_chain()` require the module's `success` criteria, not just
+  threshold-percent, to advance a phase.
+- `test_evidence_session_scoping.py` (target-lab) | proves two sessions'
+  evidence on the shared target-agent container no longer cross-contaminate:
+  `session_id`-scoped `list_events()`/`reset()`, and derived events
+  (`brute_force_pattern`, `recon_sequence_observed`) inherit the triggering
+  event's `session_id`.
+- `test_report_cache.py` (red-team-api) | proves `_do_reset_evidence()` clears
+  a stale `report_cache`, and that a false->true `success` transition in
+  `check-progress` does too (without clearing it on every subsequent call once
+  already `True`).
+- `test_mission_store.py` (control-api) | proves `record_mission_snapshot()`
+  and `list_missions_for_user(completed=None)` actually reach their SQL
+  (previously unreachable dead code), plus the pure helpers
+  (`_epoch_to_timestamptz`, `_mission_from_row`) return correct values instead
+  of silently falling through to `None`.
 
 ## Folder restructure (`apps/`, `packages/attense-core/`, `frontends/`, ...)
 

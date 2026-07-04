@@ -108,7 +108,7 @@ def index():
     logger.info(json.dumps({
         "event": "portal_visited",
         "endpoint": "/",
-        "source_ip": request.remote_addr,
+        "source_ip": current_app.fake_attacker_ip(),
         "user_agent": request.headers.get("User-Agent", ""),
     }))
     import evidence
@@ -116,8 +116,9 @@ def index():
         "portal_visited",
         module_id="recon",
         path="/", method="GET",
-        source_ip=request.remote_addr,
+        source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
     )
     return render_template_string(_INDEX)
 
@@ -156,15 +157,16 @@ def robots_txt():
         "hidden_clue_accessed",
         module_id="recon",
         path="/robots.txt", method="GET",
-        source_ip=request.remote_addr,
+        source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
         severity="low",
         learner_message="Discovered robots.txt - contains disallowed admin paths.",
     )
     logger.info(json.dumps({
         "event": "hidden_clue_accessed",
         "endpoint": "/robots.txt",
-        "source_ip": request.remote_addr,
+        "source_ip": current_app.fake_attacker_ip(),
     }))
     from flask import Response
     return Response(
@@ -186,15 +188,16 @@ def security_txt():
         "hidden_clue_accessed",
         module_id="recon",
         path="/.well-known/security.txt", method="GET",
-        source_ip=request.remote_addr,
+        source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
         severity="low",
         learner_message="Discovered security.txt - reveals internal contact info and policy.",
     )
     logger.info(json.dumps({
         "event": "hidden_clue_accessed",
         "endpoint": "/.well-known/security.txt",
-        "source_ip": request.remote_addr,
+        "source_ip": current_app.fake_attacker_ip(),
     }))
     from flask import Response
     return Response(
@@ -267,7 +270,7 @@ def csrf_lure():
     logger.info(json.dumps({
         "event": "csrf_lure_visited",
         "endpoint": "/evil/csrf-demo",
-        "source_ip": request.remote_addr,
+        "source_ip": current_app.fake_attacker_ip(),
         "module_id": "csrf",
     }))
     import evidence
@@ -275,8 +278,9 @@ def csrf_lure():
         "csrf_lure_visited",
         module_id="csrf",
         path="/evil/csrf-demo", method="GET",
-        source_ip=request.remote_addr,
+        source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
         severity="medium",
     )
     return render_template_string(_LURE_PAGE)

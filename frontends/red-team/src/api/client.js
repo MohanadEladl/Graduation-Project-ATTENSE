@@ -41,16 +41,14 @@ async function del(path) {
 
 export const api = {
   health:     () => get('/health'),
+  // No backend route yet (apps/red-team-api has no /api/config) - callers
+  // catch and fall back (see Workspace.jsx's autoAttacksEnabled init).
+  config:     () => get('/api/config'),
   modules:    () => get('/api/modules'),
   target:     () => get('/api/target'),
 
   auth: {
     me: () => get('/api/auth/me'),
-  },
-
-  rooms: {
-    list: ()         => get('/api/rooms'),
-    join: (room_id)  => post(`/api/rooms/${encodeURIComponent(room_id)}/join`),
   },
 
   // Tutorial/Lab mission sessions
@@ -63,7 +61,8 @@ export const api = {
     setTarget: (sid, host, port) => post(`/api/sessions/${sid}/target`, { host, port }),
     start:     (sid)          => post(`/api/sessions/${sid}/start`),
     execute:   (sid)          => post(`/api/sessions/${sid}/execute`),
-    checkProgress:  (sid, mode = 'tutorial') => post(`/api/sessions/${sid}/check-progress?mode=${encodeURIComponent(mode)}`),
+    checkProgress:  (sid, mode = 'tutorial', final = false) =>
+      post(`/api/sessions/${sid}/check-progress?mode=${encodeURIComponent(mode)}${final ? '&final=1' : ''}`),
     resetEvidence:  (sid)     => post(`/api/sessions/${sid}/reset-evidence`),
     restart:        (sid)     => post(`/api/sessions/${sid}/restart`),
     logs:         (sid)       => get(`/api/sessions/${sid}/logs`),
@@ -95,10 +94,9 @@ export const api = {
   // Variants per module (called from the variant picker before create)
   variants: (module_id) => get(`/api/modules/${encodeURIComponent(module_id)}/variants`),
 
-  // Guided walkthrough content for a module/variant. No backend route yet, so
-  // this 404s and Workspace falls back to buildFallbackWalkthrough via .catch.
+  // Full guided-room walkthrough (overview + MITRE-mapped sections + references)
   walkthrough: (module_id, variant_id) =>
-    get(`/api/modules/${encodeURIComponent(module_id)}/walkthrough${variant_id ? `?variant=${encodeURIComponent(variant_id)}` : ''}`),
+    get(`/api/modules/${encodeURIComponent(module_id)}/walkthrough${variant_id ? `?variant_id=${encodeURIComponent(variant_id)}` : ''}`),
 
   // Lab action telemetry (Phase 2)
   actions: {
@@ -108,16 +106,26 @@ export const api = {
   // Lab Mode: AttackBox
   attackbox: {
     status:   ()              => get('/api/operator/attackbox/status'),
-    exec:     (command, module_id) => post('/api/operator/attackbox/exec', { command, module_id }),
-    evidence: (since = 0)     => get(`/api/operator/attackbox/evidence?since=${since}`),
+    exec:     (command, module_id, sid) => post('/api/operator/attackbox/exec', { command, module_id, sid }),
+    evidence: (since = 0, sid) => get(`/api/operator/attackbox/evidence?since=${since}${sid ? `&sid=${encodeURIComponent(sid)}` : ''}`),
   },
 
   // Lab Mode: ZAP
   zap: {
     status:   ()              => get('/api/operator/zap/status'),
     history:  (limit = 50)    => get(`/api/operator/zap/history?limit=${limit}`),
-    repeater: (method, path, headers, body) =>
-      post('/api/operator/zap/repeater/send', { method, path, headers, body }),
+    repeater: (method, path, headers, body, context = {}) =>
+      post('/api/operator/zap/repeater/send', {
+        method, path, headers, body,
+        module_id: context.module_id,
+        sid: context.session_id,
+      }),
+    fuzzer: (method, path, body_template, payloads, marker = '§', grep = null, context = {}, headers = null) =>
+      post('/api/operator/zap/fuzzer/send', {
+        method, path, body_template, payloads, marker, grep, headers,
+        module_id: context.module_id,
+        sid: context.session_id,
+      }),
   },
 
   skills: {

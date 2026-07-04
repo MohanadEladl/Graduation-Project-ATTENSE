@@ -62,11 +62,6 @@ export const api = {
  rooms: {
  list: () => fetch(`${controlBase}/api/rooms`, { headers: controlHeaders() }).then(parse),
  get: (roomId) => fetch(`${controlBase}/api/rooms/${encodeURIComponent(roomId)}`, { headers: controlHeaders() }).then(parse),
- create: (payload) => fetch(`${controlBase}/api/rooms/create`, {
- method: 'POST',
- headers: controlHeaders(),
- body: JSON.stringify(payload),
- }).then(parse),
  blueStart: (roomId) => fetch(`${controlBase}/api/rooms/${encodeURIComponent(roomId)}/blue-start`, {
  method: 'POST',
  headers: controlHeaders(),

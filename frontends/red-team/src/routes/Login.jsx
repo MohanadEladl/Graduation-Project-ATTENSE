@@ -1,36 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { SESSION_TOKEN_KEY } from '../api/client.js'
 
 export default function Login() {
   const navigate = useNavigate()
   const [user, setUser] = useState('')
   const [pass, setPass] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
 
-  const handleSubmit = async () => {
-    if (!user || !pass) {
-      setError('Username and password are required.')
-      return
-    }
-    setError('')
+  const handleSubmit = () => {
     setLoading(true)
-    try {
-      const r = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user, password: pass }),
-      })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.detail || 'Invalid credentials')
-      localStorage.setItem(SESSION_TOKEN_KEY, data.token)
-      navigate('/select')
-    } catch (err) {
-      setError(err.message || 'Login failed')
-      setLoading(false)
-    }
+    setTimeout(() => navigate('/select'), 900)
   }
 
   return (
@@ -66,11 +46,9 @@ export default function Login() {
         transition={{ duration: 0.6 }}
       >
         <div className="flex items-center gap-2 mb-2">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#ff1535"/>
-          </svg>
+          <img src="/logo.png" alt="ATTENSE" style={{ height: 24, width: 'auto', filter: 'drop-shadow(0 0 10px rgba(255,21,53,0.55))' }} />
           <span className="font-display font-bold text-[22px] tracking-widest text-attense-text">
-            ATT<span className="text-attense-red">3</span>NSE
+            ATTENSE
           </span>
         </div>
         <span className="font-mono text-[10px] tracking-[0.3em] text-attense-dim uppercase">Cyber Lab · Secure Access</span>
@@ -120,10 +98,6 @@ export default function Login() {
               />
             </div>
           </div>
-
-          {error && (
-            <p className="text-attense-red font-mono text-[11px] mb-4 text-center">{error}</p>
-          )}
 
           <motion.button
             onClick={handleSubmit}

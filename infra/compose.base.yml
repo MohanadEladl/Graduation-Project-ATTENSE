@@ -29,6 +29,10 @@ services:
     logging: *default-logging
     environment:
       - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
+      # Operator (harder-mode) login credentials for routes_op/auth.py - kept
+      # out of source so they're not sitting in git history; default here
+      # matches the value this lab has always used, override via .env.
+      - OPERATOR_AUTH_USERS_JSON=${OPERATOR_AUTH_USERS_JSON:-{"admin":"Br3akMe!2025","operator":"Tr0ub4dor&3","service":"S3rvice@cct"}}
     depends_on:
       wazuh-manager:
         condition: service_healthy

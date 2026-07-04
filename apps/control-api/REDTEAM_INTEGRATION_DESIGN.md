@@ -1,7 +1,14 @@
 # Red Team Integration - Design (Phase 0, no code yet)
 
-> Status: **design only**. Three open questions (bottom) must be answered before
-> Phase 1 code begins.
+> Status: **superseded**. The Phase 1 proposal below (a native
+> `POST /api/rooms/{id}/redteam/join` membership endpoint) was not what got
+> built. The implementation instead made room creation fully automatic:
+> `ensure_room_for_incident()` in `room_manager.py` creates a room the moment
+> a red-team attack event lands, keyed by `incident_id` - there is no
+> auth/join step and no manual `create_room()`/`join_room_as_red_team()`
+> endpoints (both were removed from the router). `red_team_members[]` is
+> still never populated as a result; kept below for historical context on
+> the options that were considered.
 
 ## Current state
 

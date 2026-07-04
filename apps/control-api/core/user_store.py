@@ -295,44 +295,6 @@ def set_hive_key(user_id: str, hive_key: str) -> dict:
     return user
 
 
-def set_active_room(user_id: str, room_id: str) -> dict:
-    """Record the most recently joined room for a red_team user."""
-    key_secret = encryption_key()
-    db_user_id = int_id(user_id, "user_id")
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute('UPDATE "User" SET active_room_id = %s WHERE user_id = %s', (room_id, db_user_id))
-        cur.execute(USER_SELECT + ' WHERE u.user_id = %s', (key_secret, db_user_id))
-        user = _user_from_row(cur.fetchone())
-    if user is None:
-        raise ValueError(f"User not found: {user_id}")
-    return user
-
-
-def get_blue_team_runtime_keys(user_id: str) -> dict:
-    key_secret = encryption_key()
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            '''
-            SELECT
-                CASE
-                    WHEN thehive_api_key IS NULL THEN NULL
-                    ELSE pgp_sym_decrypt(thehive_api_key, %s)
-                END AS hive_api_key,
-                CASE
-                    WHEN cortex_api_key IS NULL THEN NULL
-                    ELSE pgp_sym_decrypt(cortex_api_key, %s)
-                END AS cortex_api_key
-            FROM "BlueTeam"
-            WHERE user_id = %s
-            ''',
-            (key_secret, key_secret, int_id(user_id, "user_id")),
-        )
-        row = cur.fetchone()
-    if row is None:
-        return {"hive_api_key": None, "cortex_api_key": None}
-    return {"hive_api_key": row["hive_api_key"], "cortex_api_key": row["cortex_api_key"]}
-
-
 def get_red_team_runtime_keys(user_id: str) -> dict:
     key_secret = encryption_key()
     with connection() as conn, conn.cursor() as cur:

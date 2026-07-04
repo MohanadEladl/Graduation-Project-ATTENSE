@@ -40,6 +40,12 @@ class EventType(str, Enum):
     RECOVERY_VALIDATED = "recovery_validated"
     DISMISSAL_APPROVED = "dismissal_approved"
     LESSONS_LEARNED_RECORDED = "lessons_learned_recorded"
+    # Posted by red-team-api when a learner explicitly finishes their mission
+    # (see Workspace.jsx's handleFinishMission). This - not the first attack
+    # event - is what makes a room visible to the Blue Team (room_manager's
+    # ensure_room_for_incident). Not an incident state-machine transition
+    # (apply_event ignores it), same as the v2.0.0 types above.
+    MISSION_FINISHED = "mission_finished"
 
 
 class ActorType(str, Enum):

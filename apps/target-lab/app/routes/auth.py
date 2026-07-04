@@ -89,7 +89,7 @@ def login():
             "event": "login_success",
             "endpoint": "/auth/login",
             "username": username,
-            "source_ip": request.remote_addr,
+            "source_ip": current_app.fake_attacker_ip(),
         }))
         # Lab evidence
         import evidence
@@ -97,8 +97,9 @@ def login():
             "login_success",
             module_id="brute_force",
             path="/auth/login", method="POST",
-            source_ip=request.remote_addr,
+            source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
             extra={"username": username},
         )
         # Mark a credential pair as found (the success criterion)
@@ -106,8 +107,9 @@ def login():
             "credential_found",
             module_id="brute_force",
             path="/auth/login", method="POST",
-            source_ip=request.remote_addr,
+            source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
             severity="high",
             learner_message=f"Valid credential confirmed: {username} / (correct password).",
             extra={"username": username},
@@ -125,7 +127,7 @@ def login():
             "event": "login_failure",
             "endpoint": "/auth/login",
             "username": username,
-            "source_ip": request.remote_addr,
+            "source_ip": current_app.fake_attacker_ip(),
         }))
         # Lab evidence (drives brute_force_pattern detection)
         import evidence
@@ -133,8 +135,9 @@ def login():
             "login_failed",
             module_id="brute_force",
             path="/auth/login", method="POST",
-            source_ip=request.remote_addr,
+            source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
             extra={"username": username, "known_user": username in _USERS},
         )
         return render_template_string(

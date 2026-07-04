@@ -3,6 +3,14 @@ routes/profile.py - User profile + update endpoint.
 
 [VULN APP-05] CSRF - /profile/update accepts POSTs with no CSRF token,
 no Origin/Referer enforcement.
+
+[VULN APP-01 variant] Stored XSS via the email field - session-scoped. An
+XSS-shaped email is stashed per mission session_id (see `_stored_xss_by_session`)
+rather than written into the shared `_PROFILES` dict, so it's visible only to
+the learner who planted it (persists across their own page refreshes) and
+never leaks to other concurrent learners. `clear_session()` reverts it back
+to normal; called from target-agent's `/lab/events/reset` handler so ending
+or restarting the mission resets the module to a clean, replayable state.
 """
 import json
 import logging
@@ -12,6 +20,7 @@ import secrets
 from flask import Blueprint, request, render_template_string, session, current_app, abort
 
 import containment
+import route_security
 
 logger = logging.getLogger("target.profile")
 profile_bp = Blueprint("profile", __name__)
@@ -22,6 +31,16 @@ _PROFILES: dict[str, dict] = {
     "guest": {"email": "guest@lab.local", "role": "guest"},
     "alice": {"email": "alice@lab.local", "role": "user"},
 }
+
+# session_id -> stashed XSS-shaped email, kept separate from _PROFILES so a
+# stored-XSS attempt never mutates the shared account data other modules
+# (e.g. csrf) rely on. Cleared by clear_session() on mission reset/finish.
+_stored_xss_by_session: dict[str, str] = {}
+
+
+def clear_session(session_id: str) -> None:
+    """Revert a session's stashed stored-XSS payload back to normal."""
+    _stored_xss_by_session.pop(session_id, None)
 
 _PROFILE_PAGE = """
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
@@ -85,7 +104,7 @@ h2{font-size:20px;font-weight:600;color:#e2e8f0;margin-bottom:24px;}
       <div class="avatar">{{ user_initial }}</div>
       <div class="avatar-info">
         <h3>{{ user }}</h3>
-        <p>{{ email }}</p>
+        <p>{{ email|safe }}</p>
         <span class="role-badge">{{ role }}</span>
       </div>
     </div>
@@ -125,17 +144,38 @@ def profile():
     if containment.is_enabled("csrf_protection"):
         csrf_token = session.setdefault("csrf_token", secrets.token_urlsafe(32))
     import evidence
+    sid = current_app.current_session_id()
     evidence.record(
         "route_discovered",
         module_id="csrf",
         path="/profile/", method="GET",
-        source_ip=request.remote_addr,
+        source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=sid,
         extra={"user": user},
     )
+
+    # Session-scoped stored XSS: if this session planted a payload earlier,
+    # show them (and only them) that persisted, unescaped value - this is
+    # the "second request" the stored_attempt variant's task ladder expects.
+    display_email = data["email"]
+    stashed = _stored_xss_by_session.get(sid) if sid else None
+    if stashed is not None:
+        display_email = stashed
+        evidence.record(
+            "reflected_input_detected",
+            module_id="xss",
+            path="/profile/", method="GET",
+            source_ip=current_app.fake_attacker_ip(),
+            via=current_app.detect_via(),
+            session_id=sid,
+            severity="high",
+            extra={"user": user, "field": "email"},
+        )
+
     return render_template_string(
         _PROFILE_PAGE,
-        user=user, email=data["email"], role=data["role"], message="",
+        user=user, email=display_email, role=data["role"], message="",
         user_initial=(user[0].upper() if user else "G"),
         csrf_token=csrf_token,
     )
@@ -154,7 +194,7 @@ def update():
         "endpoint": "/profile/update",
         "user": user,
         "new_email": email,
-        "source_ip": request.remote_addr,
+        "source_ip": current_app.fake_attacker_ip(),
         "referer": referer,
         "origin": origin,
     }))
@@ -165,8 +205,9 @@ def update():
         "profile_update_used",
         module_id="csrf",
         path="/profile/update", method="POST",
-        source_ip=request.remote_addr,
+        source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
         extra={"user": user, "new_email": email, "referer": referer},
     )
     # No anti-CSRF token field is ever sent - every request is by definition missing one
@@ -182,7 +223,7 @@ def update():
             "event": "csrf_request_blocked",
             "endpoint": "/profile/update",
             "user": user,
-            "source_ip": request.remote_addr,
+            "source_ip": current_app.fake_attacker_ip(),
         }))
         abort(403)
     if not has_token:
@@ -190,8 +231,9 @@ def update():
             "csrf_token_missing",
             module_id="csrf",
             path="/profile/update", method="POST",
-            source_ip=request.remote_addr,
+            source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
             severity="high",
             extra={"user": user, "referer": referer},
         )
@@ -201,13 +243,32 @@ def update():
             "csrf_lure_submitted",
             module_id="csrf",
             path="/profile/update", method="POST",
-            source_ip=request.remote_addr,
+            source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=current_app.current_session_id(),
             severity="high",
             extra={"user": user, "referer": referer},
         )
 
-    if user in _PROFILES:
+    sid = current_app.current_session_id()
+
+    # Session-scoped stored XSS: an XSS-shaped email is stashed per session
+    # instead of written into the shared _PROFILES dict, so it's visible only
+    # to the learner who planted it and never mutates the account data the
+    # csrf module relies on.
+    if sid and route_security.has_xss_payload(email):
+        _stored_xss_by_session[sid] = email
+        evidence.record(
+            "xss_payload_observed",
+            module_id="xss",
+            path="/profile/update", method="POST",
+            source_ip=current_app.fake_attacker_ip(),
+            via=current_app.detect_via(),
+            session_id=sid,
+            extra={"user": user, "field": "email"},
+        )
+        display_email = email
+    elif user in _PROFILES:
         old_email = _PROFILES[user]["email"]
         _PROFILES[user]["email"] = email
         if not has_token and old_email != email:
@@ -215,17 +276,20 @@ def update():
                 "profile_changed_without_csrf",
                 module_id="csrf",
                 path="/profile/update", method="POST",
-                source_ip=request.remote_addr,
+                source_ip=current_app.fake_attacker_ip(),
         via=current_app.detect_via(),
+        session_id=sid,
                 severity="critical",
                 extra={"user": user, "old_email": old_email, "new_email": email},
             )
+        display_email = _PROFILES.get(user, _PROFILES["guest"])["email"]
+    else:
+        display_email = _PROFILES["guest"]["email"]
 
-    data = _PROFILES.get(user, _PROFILES["guest"])
     msg = '<div class="success-msg">&#9989; Email updated successfully.</div>'
     return render_template_string(
         _PROFILE_PAGE,
-        user=user, email=data["email"], role=data["role"], message=msg,
+        user=user, email=display_email, role=_PROFILES.get(user, _PROFILES["guest"])["role"], message=msg,
         user_initial=(user[0].upper() if user else "G"),
         csrf_token=(session.get("csrf_token", "") if containment.is_enabled("csrf_protection") else ""),
     )

@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse, Response
 
 from attense_core.models.standard_event import StandardEvent
-from attense_core.evaluation.reports import generate_report
 from dependencies.auth import require_events_secret, require_session
+from core.report_helpers import scored_report as _scored_report
 
 
 logger = logging.getLogger("attense-controller")
@@ -15,7 +15,6 @@ logger = logging.getLogger("attense-controller")
 router = APIRouter(prefix="/api/incidents")
 
 ACTIONS_DIR = os.environ.get("ACTIONS_LOG_DIR", "/attense/actions")
-
 
 def _serialize_report(report: dict) -> dict:
     """Convert timedelta fields to seconds so FastAPI can serialize to JSON."""
@@ -43,29 +42,6 @@ def _check_room_closed(incident_id: str) -> None:
         )
 
 
-def _scored_report(incident_id: str, incident) -> tuple[dict, list]:
-    """Run the full evaluation pipeline and return (report_dict, events).
-
-    Falls back to the plain timestamp report only when the pipeline has nothing
-    to score (ValueError) AND we have an in-memory incident object. If both
-    the bridge and the controller have no data, raises ValueError so callers
-    can surface a clean 404.
-    """
-    from pipeline.bridge import run_bridge
-
-    try:
-        report, events = run_bridge(incident_id)
-        return report, events
-    except ValueError as exc:
-        if incident is None:
-            raise
-        logger.warning(
-            "Scored report unavailable for %s (%s); returning basic report.",
-            incident_id, exc,
-        )
-        return generate_report(incident), []
-
-
 @router.post("/events", status_code=202)
 def ingest_event(
     body: StandardEvent,
@@ -91,12 +67,25 @@ def ingest_event(
 
     controller.process_event(body.to_legacy_event_dict())
 
-    # Auto-surface a Blue Team room the moment an attack fires, so analysts have
-    # something to respond to even when no SOC Manager pre-created a room. Best
+    # Auto-surface a Blue Team room only once the red-team learner has
+    # explicitly finished their mission (event_type "mission_finished"),
+    # not on the first attack event - so Blue Team sees nothing about this
+    # exercise until it's actually over. Attack events still land durably and
+    # update the in-memory Incident projection the moment they happen (via
+    # process_event above); only room creation/visibility is deferred. Best
     # effort: a failure here must never reject the event ingestion itself.
-    if body.event_type == EventType.MALICIOUS_ACTION_EXECUTED:
+    if body.event_type == EventType.MISSION_FINISHED:
         try:
-            room_manager.ensure_room_for_incident(body.incident_id, body.scenario_id)
+            incident = controller.incidents.get(body.incident_id)
+            attack_started_at = None
+            if incident is not None and incident.start_time is not None:
+                start_time = incident.start_time
+                attack_started_at = (
+                    start_time.isoformat() if hasattr(start_time, "isoformat") else str(start_time)
+                )
+            room_manager.ensure_room_for_incident(
+                body.incident_id, body.scenario_id, attack_started_at=attack_started_at
+            )
         except Exception:
             logger.exception(
                 "Auto-create room failed for incident %s", body.incident_id

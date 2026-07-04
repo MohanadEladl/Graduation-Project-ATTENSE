@@ -189,6 +189,29 @@ class LegacyBridgeTests(unittest.TestCase):
         self.assertEqual(inc.status, "ACTIVE_UNDETECTED")
         self.assertEqual(inc.start_time, T0)
 
+    def test_mission_finished_validates_and_is_ignored_by_the_state_machine(self):
+        # mission_finished (room_manager.ensure_room_for_incident's trigger) is
+        # not an incident state-machine transition - apply_event must silently
+        # ignore it, same as the other v2.0.0 post-containment types, so it
+        # never disturbs status/timestamps already set by real attack events.
+        ev = StandardEvent.model_validate(
+            _legacy_payload(event_type="mission_finished")
+        )
+        self.assertEqual(ev.event_type, EventType.MISSION_FINISHED)
+
+        inc = Incident("INC-1", "APP-01")
+        inc.apply_event(ev.to_legacy_event())
+        self.assertEqual(inc.status, "NOT_STARTED")
+        self.assertIsNone(inc.start_time)
+
+        # A real attack event's start_time/status must survive a later
+        # mission_finished for the same incident.
+        attack_ev = StandardEvent.model_validate(CANONICAL)
+        inc.apply_event(attack_ev.to_legacy_event())
+        inc.apply_event(ev.to_legacy_event())
+        self.assertEqual(inc.status, "ACTIVE_UNDETECTED")
+        self.assertEqual(inc.start_time, T0)
+
 
 class AdapterTests(unittest.TestCase):
     def test_from_redteam_payload_defaults_source(self):

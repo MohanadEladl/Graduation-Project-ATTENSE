@@ -1,5 +1,14 @@
 # Implementation Prompt — Blue Team Frontend Portal
 
+> **Partially stale.** `POST /api/rooms/{room_id}/start` (referenced below as
+> the room-start / "spins up blue-team containers" call) has been removed -
+> rooms now auto-create via `ensure_room_for_incident()` on the first attack
+> event, and the manual per-room Docker container model it describes is gone
+> too. The closest surviving endpoint is `POST /api/rooms/{room_id}/blue-start`,
+> which starts the deferred Blue-team timer when a Blue user launches TheHive
+> (no container spin-up involved). Adjust the Lobby/"Start Room" sections
+> below accordingly before implementing.
+
 ## Context: What Already Exists
 
 This is the ATTENSE cyber-range platform. A fully working backend already exists. You are building the **missing frontend** for blue-team analysts and SOC managers.
@@ -19,7 +28,7 @@ This is the ATTENSE cyber-range platform. A fully working backend already exists
 | GET | `/api/auth/me` | authenticated | `{ username, role, hive_key?, room_id? }` |
 | GET | `/api/rooms` | authenticated | list of room objects for the user's company |
 | GET | `/api/rooms/{room_id}` | authenticated | room detail + `incidents_detail[]` with report |
-| POST | `/api/rooms/{room_id}/start` | `soc_manager` | starts the room (spins up blue-team containers) |
+| POST | `/api/rooms/{room_id}/blue-start` | `soc_manager`/blue roles | starts the deferred Blue-team timer (no container spin-up) — see superseded note above |
 | DELETE | `/api/rooms/{room_id}` | `soc_manager` | closes the room |
 
 ### Room object shape (from `room_manager.py`):
@@ -177,7 +186,7 @@ Grid of `RoomCard` components. Each card shows:
 - Number of analysts in the room (from `room.incidents` length as a proxy)
 - **"Enter Room"** button — only enabled when `status === "active"`
   - On click: navigate to `/report?room_id={room_id}` (the detail/working view)
-- If user is `soc_manager` and status is `"pending"`: show **"Start Room"** button → calls `POST /api/rooms/{room_id}/start`
+- If user is `soc_manager` and status is `"pending"`: show **"Start Room"** button → calls `POST /api/rooms/{room_id}/blue-start`
 - If user is `soc_manager`: show a **"Close Room"** icon button → calls `DELETE /api/rooms/{room_id}` with confirmation dialog
 
 Poll `GET /api/rooms` every 15 seconds to keep status live (use `setInterval` in `useEffect`, clean up on unmount).
@@ -303,7 +312,7 @@ Add to `apps/control-api/api/rooms_router.py`:
 - [ ] Login with a `soc_l1` user works and lands on Dashboard
 - [ ] Login with a `soc_manager` user shows the Team Overview section on Dashboard
 - [ ] Lobby page loads and shows all company rooms with correct status chips
-- [ ] SOC manager can click "Start Room" and the room status changes to active after refresh
+- [ ] SOC manager can click "Start Room" and the room status changes to `blue_active` after refresh
 - [ ] Report page shows `ScoreGauge` and skill bars for a resolved incident
 - [ ] Report page in team mode shows all analysts for SOC manager, only self for L1/L2
 - [ ] On expired/missing token, any protected page redirects to `/login`
