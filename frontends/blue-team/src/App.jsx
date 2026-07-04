@@ -51,9 +51,19 @@ function roomDate(room) {
 
 function roomStatus(room) {
  if (!room) return 'Pending'
- if (room.portal_demo || room.blue_started_at || String(room.status || '').toLowerCase() === 'active') return 'Active'
- if (room.packaged_at || room.attack_completed_at || room.prefired_at || String(room.status || '').toLowerCase() === 'pending') return 'Pending'
- if (String(room.status || '').toLowerCase() === 'closed') return 'Closed'
+ // The backend's own `status` is authoritative once it says the room is
+ // closed - checked first. Otherwise `blue_started_at` (set the first time
+ // anyone ever entered the room, and never cleared) would keep marking a
+ // closed room "Active" forever, showing an "Enter Room" button that always
+ // 409s against a room the backend correctly knows is closed.
+ const backendStatus = String(room.status || '').toLowerCase()
+ if (backendStatus === 'closed') return 'Closed'
+ // "blue_active" (room_manager.py's enter_room/start_blue_team) means someone
+ // already entered - re-entering is idempotent/allowed on the backend, so it
+ // must still render the "Active"/Enter Room button, not fall through to an
+ // unrecognized-status dead end with no action button at all.
+ if (room.portal_demo || room.blue_started_at || backendStatus === 'active' || backendStatus === 'blue_active') return 'Active'
+ if (room.packaged_at || room.attack_completed_at || room.prefired_at || backendStatus === 'pending') return 'Pending'
  return room.status || 'Pending'
 }
 
@@ -344,6 +354,12 @@ function RoomsView({ rooms, activeRoomId, enterRoom, endRoom, openRoomInHive, se
  const active = status === 'Active'
  const pending = status === 'Pending'
  const closed = status === 'Closed'
+ // Only an Active room may be (re-)entered - that's the call that mutates
+ // the room to blue_active on the backend (enter_room), so offering it on a
+ // Closed room would silently un-close it. A Closed room instead gets
+ // "Open in TheHive" (openRoomInHive), which only replays alerts/opens the
+ // existing Hive session without touching room status - safe for
+ // retrospective review. A Pending room has no Hive session yet at all.
  return <article className={'dc-room-card ' + status.toLowerCase()} key={room.room_id || room.id} data-selected={room.room_id === activeRoomId}><div className="dc-room-top"><span><i />{status}</span><small>{room.room_id || room.id}</small></div><h3>{roomName(room)}</h3><p>{roomDescription(room)}</p><div className="dc-room-actions">{active && <button type="button" onClick={() => enterRoom(room)}>Enter Room</button>}{closed && <button type="button" onClick={() => openRoomInHive(room)}>Open in TheHive</button>}{pending && <button type="button" disabled>Not Yet Active</button>}<button type="button" className="ghost" onClick={() => viewReport(room)}>View Report</button>{active && <button className="danger" type="button" onClick={() => endRoom(room)}>End Incident & Report</button>}</div></article>
  }) : <div className="dc-empty">No rooms are available yet.</div>}
  </section>
@@ -863,11 +879,24 @@ function HiveOverlay({ room, onFinish, onClose }) {
  const creds = room?.thehive || {}
  const [copied, setCopied] = useState('')
  const [opened, setOpened] = useState(false)
+ const [showPassword, setShowPassword] = useState(false)
  function copy(label, value) {
  try { navigator.clipboard?.writeText(value); setCopied(label); setTimeout(() => setCopied(''), 1500) } catch (_) { /* ignore */ }
  }
  function open() {
- window.open(url, 'attense_thehive', 'noopener,noreferrer')
+ // TheHive is one shared origin with a single cookie-based session - a
+ // browser that's still logged in from a PREVIOUS room's (or anyone else's)
+ // account would otherwise just continue that old session here, silently
+ // ignoring the fresh per-room credentials shown above (confirmed: this is
+ // why an analyst who logged in as their own room account could later find
+ // themselves viewing TheHive as a stale/shared identity instead, seeing
+ // that identity's alerts rather than just this room's). Force a logout
+ // before the FIRST open of each session so the analyst has to actually
+ // authenticate as the account just shown to them; once `opened` is true,
+ // later "Reopen" clicks skip this and go straight to `url` so continuing
+ // the same investigation doesn't re-prompt a login every click.
+ const target = opened ? url : `${url.replace(/\/?$/, '')}/attense-relogin?next=${encodeURIComponent(url)}`
+ window.open(target, 'attense_thehive', 'noopener,noreferrer')
  setOpened(true)
  }
  return (
@@ -877,11 +906,11 @@ function HiveOverlay({ room, onFinish, onClose }) {
  {creds.login && creds.password ? (
  <div className="dc-hive-cred-box">
  <label>Username<code>{creds.login}</code><button type="button" onClick={() => copy('login', creds.login)}>{copied === 'login' ? 'Copied' : 'Copy'}</button></label>
- <label>Password<code>{creds.password}</code><button type="button" onClick={() => copy('password', creds.password)}>{copied === 'password' ? 'Copied' : 'Copy'}</button></label>
+ <label>Password<code>{showPassword ? creds.password : '•'.repeat(creds.password.length)}</code><button type="button" onClick={() => setShowPassword((v) => !v)}>{showPassword ? 'Hide' : 'Show'}</button><button type="button" onClick={() => copy('password', creds.password)}>{copied === 'password' ? 'Copied' : 'Copy'}</button></label>
  </div>
  ) : null}
  <div className="dc-hive-launch-actions">
- <button type="button" onClick={open}>{opened ? 'Reopen TheHive â†—' : 'Open TheHive â†—'}</button>
+ <button type="button" onClick={open}>{opened ? 'Reopen TheHive ↗' : 'Open TheHive ↗'}</button>
  <button type="button" className="finish" onClick={onFinish}>Finish Incident &amp; View Report</button>
  <button type="button" className="ghost" onClick={onClose}>Close (keep investigating)</button>
  </div>

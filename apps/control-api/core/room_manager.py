@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -18,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 TEMP_PATH = os.getenv("ATTENSE_TEMP_PATH", "/attense/temp")
 ROOMS_DIR = Path(TEMP_PATH) / "rooms"
-BLUETEAM_IMAGE = "attense-app-blueteam"
-DOCKER_NETWORK = "attense_net"
 SIGNAL_STORE_URL = os.getenv("SIGNAL_STORE_URL", "http://signal-store:8000")
 SIGNAL_STORE_CONFIG_SECRET = os.getenv("SIGNAL_STORE_CONFIG_SECRET", "")
 
@@ -110,14 +109,32 @@ def _room_path(room_id: str) -> Path:
     return ROOMS_DIR / f"{room_id}.json"
 
 
+_room_schema_ready = False
+_room_schema_lock = threading.Lock()
+
+
 def _ensure_room_db_schema() -> None:
-    with connection() as conn, conn.cursor() as cur:
-        cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS room_key varchar(100)')
-        cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_room_room_key ON "Room" (room_key)')
-        cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS company_key varchar(100)')
-        cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS scenario_key varchar(100)')
-        cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS incident_key varchar(100)')
-        cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT \'{}\'::jsonb')
+    # These ALTER/CREATE...IF NOT EXISTS statements are idempotent, so once
+    # they've succeeded once in this process there's no need to re-open a
+    # fresh Postgres connection and re-run all six on every single room
+    # lookup - room_manager functions are called at least once per event
+    # during controller.py's replay of mapped_events.jsonl on startup, so
+    # this was adding a full extra connection+DDL round trip to every one of
+    # potentially hundreds of replayed events.
+    global _room_schema_ready
+    if _room_schema_ready:
+        return
+    with _room_schema_lock:
+        if _room_schema_ready:
+            return
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS room_key varchar(100)')
+            cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_room_room_key ON "Room" (room_key)')
+            cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS company_key varchar(100)')
+            cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS scenario_key varchar(100)')
+            cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS incident_key varchar(100)')
+            cur.execute('ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT \'{}\'::jsonb')
+        _room_schema_ready = True
 
 
 # -- TheHive org reuse pool ----------------------------------------------------
@@ -296,50 +313,24 @@ def _record_participant(room: dict, username: str, team_role: str, *, completed_
     except Exception:
         logger.exception("Failed to dual-write room participant %s for room %s", username, room.get("room_id"))
 
-def create_room(company_id: str, scenario_id: str, created_by: str, team_name: str | None = None, room_name: str | None = None) -> dict:
-    company = company_store.get_company(company_id)
-    if company is None:
-        raise ValueError(f"Company not found: {company_id}")
-    if company["status"] != "active":
-        raise RuntimeError("Company must be confirmed before creating rooms")
-    room_id = str(uuid.uuid4())
-    incident_id = str(uuid.uuid4())
-
-    room = {
-        "room_id": room_id,
-        "company_id": company_id,
-        "incident_id": incident_id,
-        "incidents": [incident_id],
-        "scenario_id": scenario_id,
-        "exercise_mode": "deferred",
-        "internal_url": f"http://blueteam_{room_id}:8010",
-        "status": "created",
-        "blue_team_members": [],
-        "red_team_members": [],
-        "created_by": created_by,
-        "created_at": _now_iso(),
-        "prefired_by": None,
-        "prefired_at": None,
-        "attack_started_at": None,
-        "attack_completed_at": None,
-        "packaged_at": None,
-        "blue_started_at": None,
-        "blue_started_by": None,
-    }
-
-    _save_room(room)
-    _record_participant(room, created_by, "creator")
-
-    return room
-
-
-def ensure_room_for_incident(incident_id: str, scenario_id: str) -> dict:
+def ensure_room_for_incident(
+    incident_id: str, scenario_id: str, attack_started_at: Optional[str] = None
+) -> dict:
     """Idempotently ensure a Blue Team room exists for an attack's incident.
 
-    Called when a red-team attack event is ingested without a pre-existing
-    SOC-Manager-created room. If a room already carries this incident_id, it is
-    returned unchanged. Otherwise a room is created under the shared exercise
-    company so the whole (globally-visible) Blue Team sees it immediately.
+    Called when the red-team learner finishes their mission (event_type
+    "mission_finished") - NOT on the first attack event, so the Blue Team
+    never sees a room until the exercise is actually over. If a room already
+    carries this incident_id, it is returned unchanged; otherwise one is
+    created under the shared exercise company so the whole (globally-visible)
+    Blue Team sees it immediately.
+
+    `attack_started_at`, when given, should be the REAL first-attack-event
+    timestamp (e.g. `controller.incidents[incident_id].start_time`) - since
+    room creation now happens at mission-finish time, `_now_iso()` here would
+    otherwise wrongly stamp the finish time as the attack start. Falls back
+    to `_now_iso()` only if the caller has no better timestamp (e.g. a room
+    somehow gets created with no prior malicious_action_executed event).
     """
     existing = find_room_for_incident(incident_id)
     if existing is not None:
@@ -366,7 +357,7 @@ def ensure_room_for_incident(incident_id: str, scenario_id: str) -> dict:
         "created_at": _now_iso(),
         "prefired_by": None,
         "prefired_at": None,
-        "attack_started_at": _now_iso(),
+        "attack_started_at": attack_started_at or _now_iso(),
         "attack_completed_at": None,
         "packaged_at": None,
         "blue_started_at": None,
@@ -380,34 +371,14 @@ def ensure_room_for_incident(incident_id: str, scenario_id: str) -> dict:
     return room
 
 
-def prefire_room(room_id: str, username: str) -> dict:
-    """Mark a room as pre-fired/deferred.
+def start_blue_team(room_id: str, username: str) -> dict:
+    """Start the deferred Blue-team timer when a Blue user launches TheHive.
 
-    The actual attack and alert events still arrive through the existing
-    red-team/signal/Blue Team event pipelines. This function records the room
-    lifecycle gate used by the control plane.
+    Rooms are open to anyone regardless of status (including closed, for
+    retrospective review) - access enforcement lives at the report layer, not
+    here.
     """
     room = _load_room(room_id)
-    if room.get("status") == "closed":
-        raise RuntimeError("Cannot prefire a closed room")
-    if room.get("blue_started_at"):
-        raise RuntimeError("Cannot prefire after the Blue team has started")
-
-    now = _now_iso()
-    room.setdefault("exercise_mode", "deferred")
-    room["status"] = "packaged"
-    room["prefired_by"] = room.get("prefired_by") or username
-    room["prefired_at"] = room.get("prefired_at") or now
-    room["packaged_at"] = room.get("packaged_at") or now
-    _save_room(room)
-    return room
-
-
-def start_blue_team(room_id: str, username: str) -> dict:
-    """Start the deferred Blue-team timer when a Blue user launches TheHive."""
-    room = _load_room(room_id)
-    if room.get("status") == "closed":
-        raise RuntimeError("Cannot start a closed room")
     if room.get("exercise_mode", "deferred") == "deferred" and not room.get("packaged_at"):
         raise RuntimeError("Room is not packaged yet")
 
@@ -517,10 +488,28 @@ def _ensure_room_hive(room: dict, username: str, *, as_manager: bool) -> Optiona
         )
         return None
 
-    # Only the room's SOC manager triggers pipeline-account provisioning, and
-    # only if the room doesn't already have one.
+    # Only the room's SOC manager triggers pipeline-account provisioning.
+    # Minted once, then reused indefinitely - EXCEPT that "once minted,
+    # forever valid" doesn't actually hold if TheHive's own state is ever
+    # reset independently of ATTENSE's room store (its DB/volumes
+    # recreated, the service account manually removed, etc.): confirmed
+    # live, a room's stored `hive_api_key` can end up pointing at a service
+    # account TheHive no longer has, and every alert/notification call for
+    # that room then 401s forever with no way to recover, since this check
+    # only ever re-minted for "no key yet", never for "key exists but is
+    # dead". Verifying the existing key before trusting it costs one cheap
+    # GET and closes that gap.
     key = None
-    if as_manager and not room.get("hive_api_key"):
+    existing_key = room.get("hive_api_key")
+    needs_new_key = as_manager and (
+        not existing_key or not hive_provisioner.api_key_is_valid(existing_key)
+    )
+    if needs_new_key:
+        if existing_key:
+            logger.warning(
+                "Room %s's stored TheHive pipeline key is no longer valid; "
+                "re-provisioning its service account.", room.get("room_id"),
+            )
         service_login = f"svc-{room['room_id']}@thehive.local"
         try:
             key = hive_provisioner.create_user_in_org(
@@ -531,22 +520,50 @@ def _ensure_room_hive(room: dict, username: str, *, as_manager: bool) -> Optiona
                 "Could not provision Hive pipeline account for room %s", room.get("room_id")
             )
 
-    # First time this room's org is minted BRAND NEW (not reused from the
-    # pool): authorise it on the webhook (static allow-list, needs a TheHive
-    # restart - see authorize_org_for_webhook) and register its CaseCreated
-    # notification rule (live, no restart), so this room's cases auto-attach
-    # attacker evidence like any other room's. A reused pooled org already has
-    # both from when it was first minted - skipping them here is the whole
-    # point of pooling (no restart on every room). Best-effort - a failure
-    # here degrades auto-attach for this room only, it must never block the
-    # room entry that already succeeded above.
-    if is_new_org and not reused_from_pool:
-        try:
-            hive_provisioner.authorize_org_for_webhook(org)
-        except Exception:
-            logger.exception("Could not authorise org '%s' on the TheHive webhook", org)
-        if key:
-            hive_provisioner.ensure_notification_rule(org, key)
+    # Authorise this room's org on the webhook (static allow-list, needs a
+    # TheHive restart - see authorize_org_for_webhook) and register its
+    # CaseCreated notification rule (live, no restart), so this room's cases
+    # auto-attach attacker evidence like any other room's.
+    #
+    # Retried on EVERY entry, not just when the org is first minted: both
+    # calls are idempotent/cheap once already done (authorize_org_for_webhook
+    # checks list membership first and only restarts TheHive if the org is
+    # genuinely missing; ensure_notification_rule is a PUT that just re-sets
+    # the same config). That idempotency is exactly what makes retrying safe
+    # - and necessary: the original one-shot-at-creation-time call was
+    # best-effort with no retry, so if that single attempt failed (a
+    # transient restart hiccup), the room's org.get("hive_org") was already
+    # set, permanently skipping every future attempt - that room's webhook
+    # events were silently dropped by TheHive's own plugin forever, with no
+    # visible symptom besides "auto-attach never happens for this room".
+    # A reused pooled org already has both from when it was first minted, so
+    # this is normally a no-op restart-free check for those - not "skip
+    # entirely", since a since-released, re-pooled org could theoretically
+    # still be missing authorization if ITS first attempt also failed.
+    #
+    # authorize_org_for_webhook now schedules the restart on a background
+    # thread and returns immediately (see its docstring) - it no longer
+    # guarantees TheHive is back up by the time we reach
+    # ensure_notification_rule below. That call is still safe to attempt
+    # unconditionally: it's already best-effort, already retried (its own
+    # tenacity budget), and already swallows its own failure - a fresh
+    # restart just makes this particular attempt more likely to fail, which
+    # is exactly the transient case the "retried on EVERY entry" design
+    # above already exists to self-heal on the next entry.
+    just_authorized = False
+    try:
+        just_authorized = hive_provisioner.authorize_org_for_webhook(org)
+    except Exception:
+        logger.exception("Could not authorise org '%s' on the TheHive webhook", org)
+    if just_authorized:
+        logger.info(
+            "Org '%s' newly authorised; TheHive restart running in the "
+            "background - this entry's notification-rule call may fail and "
+            "will self-heal on the next entry.", org,
+        )
+    retry_key = key or room.get("hive_api_key")
+    if retry_key:
+        hive_provisioner.ensure_notification_rule(org, retry_key)
 
     if as_manager:
         room["soc_manager_username"] = username
@@ -562,10 +579,11 @@ def hive_credentials(username: str) -> dict:
     `username` is the login, and the password is derived (report Phase 5 -
     deterministic from a server secret, so it's reproducible without ever
     persisting a plaintext password) from that same username. Every caller
-    that shows these credentials goes through ensure_member_hive_access first
+    that shows these credentials goes through ensure_member_hive_login first
     (see _thehive_envelope), which provisions this exact account into the
-    alert org - so the credentials returned here are guaranteed to already
-    work, even the first time this user touches a Hive-backed room.
+    room's own org - so the credentials returned here are guaranteed to
+    already work, even the first time this user touches this room, as long
+    as the room has an org yet (see that function's docstring).
     """
     from core import hive_provisioner
 
@@ -575,30 +593,43 @@ def hive_credentials(username: str) -> dict:
     }
 
 
-def ensure_member_hive_access(username: str) -> None:
-    """Provision `username` into the alert org with a known web-login password,
-    without minting/renewing an API key or touching room state.
+def ensure_member_hive_login(room_id: str, username: str) -> None:
+    """Provision `username`'s TheHive web-login password into THIS room's own
+    org - never a shared/global one - so their credentials are guaranteed to
+    work once the room actually has an org.
 
     Called wherever a user is about to be shown their TheHive credentials
-    (_thehive_envelope, room_lobby) so those credentials are guaranteed to
-    work even if this user has never formally entered/accepted this - or any -
-    room before (e.g. clicking "View Report" / "Open in TheHive" on a room they
-    only ever saw via Blue Team's global room visibility). Idempotent and
+    (_thehive_envelope, room_lobby) so those credentials work even if this
+    user has never formally entered/accepted this room before (e.g. clicking
+    "View Report" / "Open in TheHive" on a room they only ever saw via Blue
+    Team's global room visibility) - AS LONG AS someone else has already
+    entered/accepted the room at least once (i.e. `_ensure_room_hive` has run
+    and `room["hive_org"]` is set). If nobody has entered yet, there is no
+    room-specific org to log into: this no-ops rather than falling back to
+    any shared org, since that fallback is exactly the isolation leak this
+    function replaces (see the removed `ensure_member_hive_access`, which
+    enrolled every viewer into one platform-wide "blue-team" org regardless
+    of which room they were actually looking at). Idempotent and
     best-effort: a provisioning failure must never block showing the room.
     """
     from core import hive_provisioner
 
-    org = hive_provisioner.alert_org()
+    try:
+        room = _load_room(room_id)
+    except ValueError:
+        return
+    org = room.get("hive_org")
+    if not org:
+        return
     user = user_store.get_user_by_username(username)
     role = user.get("role") if user else None
     attense_role = role if role in {"soc_l1", "soc_l2", "soc_manager"} else "soc_l1"
     try:
-        hive_provisioner.create_org(org)
         hive_provisioner.create_user_in_org(
             org, username, attense_role=attense_role, renew_key=False
         )
     except Exception:
-        logger.exception("Failed to ensure Hive access for %s", username)
+        logger.exception("Failed to ensure Hive login for %s in room %s", username, room_id)
 
 
 def enter_room(
@@ -614,10 +645,12 @@ def enter_room(
     as pending members; they see an in-app invite (list_invites_for_email) and
     join through accept_invite. Once every invited member has joined, the room
     is ready and all members launch into the same TheHive incident.
+
+    Rooms are open to anyone regardless of status (including closed, for
+    retrospective review) - access enforcement lives at the report layer, not
+    here.
     """
     room = _load_room(room_id)
-    if room.get("status") == "closed":
-        raise RuntimeError("Cannot enter a closed room")
 
     emails: list[str] = []
     for raw in (teammates or []):
@@ -679,10 +712,12 @@ def enter_room(
 
 def accept_invite(room_id: str, username: str, email: Optional[str] = None) -> dict:
     """An invited Blue Team user joins a room they were invited to, landing in
-    the room's shared TheHive org so they see the same incident as the team."""
+    the room's shared TheHive org so they see the same incident as the team.
+
+    Rooms are open to anyone regardless of status (including closed) - access
+    enforcement lives at the report layer, not here.
+    """
     room = _load_room(room_id)
-    if room.get("status") == "closed":
-        raise RuntimeError("Cannot join a closed room")
 
     _ensure_room_hive(room, username, as_manager=False)
 
@@ -762,102 +797,6 @@ def record_incident_event(room_id: str, event_type: str, timestamp: str) -> dict
         if room.get("status") in {"created", "prefiring"}:
             room["status"] = "packaged"
     _save_room(room)
-    return room
-
-
-def spin_up_blueteam(room_id: str) -> dict:
-    room = _load_room(room_id)
-    if room["status"] in {"active", "blue_active"}:
-        return room
-
-    # Prefer the room's own shared Hive key (provisioned when the room's SOC
-    # manager - its creator - first entered). Every member of the room uses this
-    # same key, so they all see the same TheHive incident. Fall back to the
-    # company's SOC-manager key for classic CISO-provisioned rooms.
-    runtime_keys: dict = {}
-    hive_api_key = room.get("hive_api_key")
-    if not hive_api_key:
-        soc_manager = next(
-            (
-                user
-                for user in user_store.get_users_by_company(room["company_id"])
-                if user.get("role") == "soc_manager"
-            ),
-            None,
-        )
-        runtime_keys = user_store.get_blue_team_runtime_keys(soc_manager["id"]) if soc_manager else {}
-        hive_api_key = runtime_keys.get("hive_api_key") or (soc_manager or {}).get("hive_key")
-    if not hive_api_key:
-        raise RuntimeError(
-            f"No SOC manager with a Hive API key found for company {room['company_id']}"
-        )
-
-    environment = {
-        "INCIDENT_ID": (room.get("incidents") or [room["incident_id"]])[0],
-        "HIVE_URL": "http://thehive:9000",
-        "HIVE_API_KEY": hive_api_key,
-        "SANDBOX_URL": "http://target-agent:80",
-    }
-    if runtime_keys.get("cortex_api_key"):
-        environment["CORTEX_API_KEY"] = runtime_keys["cortex_api_key"]
-
-    client = None
-    container = None
-    container_name = f"blueteam_{room_id}"
-    try:
-        client = docker.from_env()
-        container = client.containers.run(
-            image=BLUETEAM_IMAGE,
-            name=container_name,
-            environment=environment,
-            network=DOCKER_NETWORK,
-            detach=True,
-        )
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            container.reload()
-            state = container.attrs.get("State", {})
-            health = state.get("Health", {}).get("Status")
-            if health == "healthy":
-                break
-            if state.get("Status") in {"exited", "dead"} or health == "unhealthy":
-                raise RuntimeError(
-                    f"Blue Team container became {health or state.get('Status')}"
-                )
-            time.sleep(2)
-        else:
-            raise RuntimeError("Blue Team container did not become healthy within 90 seconds")
-        _configure_signal_store_incident((room.get("incidents") or [room["incident_id"]])[0], room_id)
-        room["status"] = "active"
-        _save_room(room)
-    except Exception as exc:
-        # Best-effort teardown of whatever container this attempt created.
-        if container is not None:
-            try:
-                container.remove(force=True)
-            except Exception:
-                logger.exception(
-                    "Failed to force-remove Blue Team container %s during cleanup",
-                    container_name,
-                )
-        # Re-check the container is actually gone; a lingering container keeps
-        # room["port"] bound and would block any retry of this room.
-        if client is not None:
-            try:
-                leftover = client.containers.list(all=True, filters={"name": container_name})
-            except Exception:
-                logger.exception(
-                    "Could not verify removal of Blue Team container %s", container_name
-                )
-            else:
-                if leftover:
-                    logger.error(
-                        "Blue Team container %s still present after force-remove: %s",
-                        container_name,
-                        [c.id for c in leftover],
-                    )
-        raise RuntimeError(f"Failed to start Blue Team room {room_id}: {exc}") from exc
-
     return room
 
 
@@ -1010,44 +949,6 @@ def find_room_id_for_incident(incident_id: str) -> Optional[str]:
     incident_id, or None if no room matches."""
     room = find_room_for_incident(incident_id)
     return room.get("room_id") if room else None
-
-
-def join_room_as_red_team(room_id: str, username: str) -> dict:
-    """Add username to the room's red_team_members (idempotent). Membership
-    is permissive: a red_team user may belong to more than one room; see
-    user_store.set_active_room for the most-recently-joined tie-break."""
-    room = _load_room(room_id)
-    members = room.setdefault("red_team_members", [])
-    if username not in members:
-        members.append(username)
-        _save_room(room)
-        _record_participant(room, username, "red_team")
-    return room
-
-def get_room_if_member(room_id: str, username: str) -> Optional[dict]:
-    """Return the room if it still exists, isn't closed, and username is
-    actually a red_team_members entry - None otherwise. Used to validate a
-    user's active_room_id pointer hasn't gone stale (room closed/deleted)."""
-    try:
-        room = _load_room(room_id)
-    except ValueError:
-        return None
-    if room.get("status") == "closed":
-        return None
-    if username not in room.get("red_team_members", []):
-        return None
-    return room
-
-
-def find_room_for_red_team_member(username: str) -> Optional[dict]:
-    """Return the first non-closed room containing username as a red member."""
-    for room in _iter_rooms_from_db():
-        if room.get("status") != "closed" and username in room.get("red_team_members", []):
-            return room
-    for room in _iter_rooms_from_files():
-        if room.get("status") != "closed" and username in room.get("red_team_members", []):
-            return room
-    return None
 
 
 def list_rooms_for_company(company_id: Optional[str]) -> list[dict]:

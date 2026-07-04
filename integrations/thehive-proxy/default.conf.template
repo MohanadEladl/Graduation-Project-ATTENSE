@@ -39,6 +39,28 @@ server {
     sub_filter_once on;
     sub_filter_types text/html;
 
+    # Per-room TheHive orgs (see control-api's room_manager._ensure_room_hive)
+    # only actually isolate anything if the browser is logged into the RIGHT
+    # org's account. TheHive is one shared origin with a single cookie-based
+    # session, and nothing ever logged the browser out before showing a new
+    # room's credentials - so opening TheHive again just continued whatever
+    # session already existed (confirmed live: an analyst who entered as
+    # their own room account came back to find themselves still logged in as
+    # a leftover/shared identity, and could see every alert in that account's
+    # org instead of just their own room's). The app now routes the FIRST
+    # Hive-open of each session through this page instead of straight to `/`
+    # (see frontends/blue-team/src/App.jsx HiveOverlay.open()) so a stale
+    # session is always cleared before a fresh login, forcing the analyst to
+    # actually authenticate as the account just shown to them. Subsequent
+    # "Reopen" clicks within the same continuous investigation skip this and
+    # go straight to `next`, so the analyst isn't re-prompted to log in on
+    # every click.
+    location = /attense-relogin {
+        default_type text/html;
+        add_header    Cache-Control "no-store" always;
+        return 200 '<!doctype html><html><body><script>(function(){var params=new URLSearchParams(window.location.search);var next=params.get("next")||"/";fetch("/api/logout",{method:"POST",credentials:"include"}).catch(function(){}).then(function(){window.location.replace(next)})})()</script></body></html>';
+    }
+
     location / {
         set                $thehive_upstream "thehive:9000";
         proxy_pass         http://$thehive_upstream;
@@ -60,6 +82,18 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
 
+        # TheHive takes several minutes to boot after the stack starts (it
+        # waits on Cassandra + Elasticsearch before it even listens on
+        # :9000), and thehive's `depends_on: condition: service_healthy` in
+        # compose is only honored by `docker compose up` - a container-level
+        # restart (host reboot, Docker Desktop restart, `docker restart`)
+        # starts THIS proxy immediately regardless of whether thehive is
+        # actually up yet. Without the block below, that whole window serves
+        # nginx's bare "502 Bad Gateway" page instead of something that
+        # explains what's happening and retries on its own.
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @thehive_starting;
+
         # TheHive serves index.html with `Cache-Control: public, max-age=3600`
         # and an ETag. That's fine for TheHive's own unmodified page, but this
         # proxy injects the return button into that SAME body - a browser that
@@ -73,5 +107,15 @@ server {
         proxy_hide_header  Last-Modified;
         add_header         Cache-Control "no-store, no-cache, must-revalidate" always;
         expires            -1;
+    }
+
+    # Friendly stand-in for TheHive's startup window (see error_page above).
+    # Auto-refreshes every 3s so the tab resolves itself once TheHive answers
+    # - no manual reload needed.
+    location @thehive_starting {
+        default_type text/html;
+        add_header    Cache-Control "no-store" always;
+        add_header    Retry-After  "3" always;
+        return 503 '<!doctype html><html><head><meta charset="utf-8"><title>TheHive is starting&#8230;</title><meta http-equiv="refresh" content="3"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f1115;color:#e6e6e6;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}main{text-align:center;max-width:420px;padding:24px}h1{font-size:20px;margin:0 0 8px}p{color:#9aa0a6;font-size:14px;line-height:1.5}.spinner{width:32px;height:32px;margin:0 auto 20px;border:3px solid rgba(255,255,255,.15);border-top-color:#4a86e8;border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><main><div class="spinner"></div><h1>TheHive is starting up</h1><p>This can take a few minutes right after the stack starts (Cassandra and Elasticsearch have to come up first). This page refreshes itself automatically.</p></main></body></html>';
     }
 }
