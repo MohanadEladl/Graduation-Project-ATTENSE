@@ -172,9 +172,12 @@ def detect_via() -> str:
             _refresh_attackbox_ips()
         if ip in _ATTACKBOX_IPS:
             return "attackbox"
-        # Lab browser proxies always set X-Forwarded-Prefix=/target (guided)
-        # or /target-op (operator-mode harder backend). Both are browser-driven.
-        if prefix in ("/target", "/target-op"):
+        # Lab browser proxies always set X-Forwarded-Prefix=/target (guided),
+        # /target-op (operator-mode harder backend), or /target-zap (operator
+        # browser traffic reverse-proxied through ZAP). All are browser-driven,
+        # so casual clicking never satisfies operator-mode missions — those
+        # still require Repeater/Fuzzer/AttackBox (via in OPERATOR_TOOL_VIA).
+        if prefix in ("/target", "/target-op", "/target-zap"):
             return "browser"
     except RuntimeError:
         pass  # outside request context

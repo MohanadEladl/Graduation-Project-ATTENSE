@@ -27,11 +27,14 @@ export function targetPathFor(moduleId) {
 
 export function targetUrlFor(moduleId, mode = 'tutorial') {
   // Same-origin proxy via the frontend nginx.
-  //   tutorial → /target/...     (easy backend; admin:password123 works)
-  //   lab      → /target-op/...  (HARDER backend; different cred set, no
-  //                               username enumeration, slower attempts).
-  // Both prefixes serve the same Jinja templates so the UI is identical.
-  const prefix = mode === 'lab' ? '/target-op' : '/target'
+  //   tutorial → /target/...      (easy backend; admin:password123 works)
+  //   lab      → /target-zap/...  (HARDER backend, reached THROUGH OWASP ZAP so
+  //                                every browser request lands in ZAP history —
+  //                                like Burp Proxy History. Forwards to
+  //                                target-agent/op/... which is the same harder
+  //                                backend the old /target-op route served.)
+  // Both serve the same Jinja templates so the UI is identical.
+  const prefix = mode === 'lab' ? '/target-zap' : '/target'
   return `${prefix}${targetPathFor(moduleId)}`
 }
 

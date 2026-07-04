@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional
 
 import json
 import docker as docker_sdk
+import requests
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -37,6 +38,32 @@ ZAP_API_URL = os.getenv("ZAP_API_URL", "http://zap:8080")
 ZAP_API_KEY = os.getenv("ZAP_API_KEY", "attense-lab-key")
 ZAP_ALLOWED_HOSTS = {"target-agent"}
 ZAP_ALLOWED_SCHEMES = {"http", "https"}
+
+# ── Browser-through-ZAP proxy (Operator Mode) ────────────────────────────────
+# The Operator lab browser loads the target via /target-zap/... which the
+# backend reverse-proxies to http://target-agent/op/... USING ZAP as the HTTP
+# forward proxy, so every click/form/navigation is recorded in ZAP history
+# (Burp-Proxy-History style) while staying strictly local (target-agent only).
+ZAP_PROXY_URL = os.getenv("ZAP_PROXY_URL", ZAP_API_URL)  # ZAP's single port is proxy+API
+# Deliberately NOT a completing-tool User-Agent: detect_via must classify this
+# as "browser", so casual clicking never satisfies operator-mode missions —
+# those still require Repeater/Fuzzer/AttackBox (see lab_progress OPERATOR_TOOL_VIA).
+BROWSER_PROXY_UA = "Mozilla/5.0 (X11; AttenseLabBrowser) AppleWebKit/537.36 (KHTML, like Gecko) OperatorMode Safari/537.36"
+# Request headers we never forward upstream (hop-by-hop, or we set our own).
+_PROXY_DROP_REQ_HEADERS = {
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailers", "transfer-encoding", "upgrade", "host", "content-length",
+    "accept-encoding", "x-forwarded-prefix", "user-agent",
+}
+# Response headers we strip before returning to the iframe.
+_PROXY_DROP_RESP_HEADERS = {
+    "transfer-encoding", "content-encoding", "content-length", "connection",
+    "keep-alive", "x-frame-options", "content-security-policy",
+    "strict-transport-security",
+}
+# App-level (non-operator) route prefixes on the target that must NOT be
+# rewritten under /op/ (telemetry script, static assets, containment webhook).
+_APP_LEVEL_PREFIXES = ("lab/", "static/", "containment")
 
 # Approved local lab target
 BLOCKED_EXTERNAL_MSG = "Blocked: external targets are not allowed. Approved target: target-agent."
@@ -829,4 +856,95 @@ def zap_fuzzer_send(method: str, path: str, body_template: str,
 
     return {"status": "ok", "path": safe_path, "modal_status": modal_status,
             "modal_length": modal_length, "grep": grep, "results": results}
+
+
+def _zap_browse_target_path(path: str) -> Optional[str]:
+    """Map an incoming /target-zap/<path> tail to a target-agent path.
+
+    Operator surfaces live under /op/*; the injected telemetry script, static
+    assets and the containment webhook are app-level and stay un-prefixed.
+    Returns None if the path tries to smuggle a scheme/host (defense in depth).
+    """
+    safe = (path or "").lstrip("/")
+    # Reject any smuggled scheme/host. nginx collapses "http://" to "http:/",
+    # so guard on the ":/" shape too — no legitimate /op path contains it.
+    if "://" in safe or ":/" in safe or safe.startswith("//"):
+        return None
+    if not safe:
+        return "/op/"
+    if safe.startswith(_APP_LEVEL_PREFIXES):
+        return "/" + safe
+    return "/op/" + safe
+
+
+def browse_through_zap(method: str, path: str, query_string: str = "", *,
+                       req_headers: Optional[Dict[str, str]] = None,
+                       body: bytes = b"",
+                       host: str = "target-agent") -> Dict[str, Any]:
+    """Reverse-proxy one Operator-mode browser request through ZAP to the local
+    target, so it lands in ZAP history like Burp Proxy History.
+
+    Local-only by construction: the upstream host is always target-agent and the
+    path is validated by _zap_browse_target_path — an external target can never
+    be reached through this endpoint.
+
+    Returns {status_code, headers: [(k, v), ...], content: bytes}. Multiple
+    Set-Cookie headers are preserved; Location is rewritten host-relative so
+    redirects stay inside the /target-zap iframe.
+    """
+    target_path = _zap_browse_target_path(path)
+    if target_path is None:
+        return {"status_code": 400,
+                "headers": [("Content-Type", "text/plain; charset=utf-8")],
+                "content": b"Blocked: only local target-agent paths are allowed."}
+
+    url = f"http://target-agent{target_path}"
+    if query_string:
+        url += "?" + query_string
+
+    fwd: Dict[str, str] = {}
+    for k, v in (req_headers or {}).items():
+        if k.lower() in _PROXY_DROP_REQ_HEADERS:
+            continue
+        fwd[k] = v
+    # We own these three headers.
+    fwd["Host"] = host or "target-agent"          # so target emits frontend-origin URLs
+    fwd["User-Agent"] = BROWSER_PROXY_UA          # browser channel (non-completing)
+    fwd["X-Forwarded-Prefix"] = "/target-zap"     # keeps links/forms inside the iframe
+    fwd["Accept-Encoding"] = "identity"           # avoid gzip so we can pass bytes verbatim
+
+    try:
+        r = requests.request(
+            method, url, headers=fwd, data=body or None,
+            proxies={"http": ZAP_PROXY_URL}, allow_redirects=False, timeout=25,
+        )
+    except requests.RequestException as exc:
+        return {"status_code": 502,
+                "headers": [("Content-Type", "text/plain; charset=utf-8")],
+                "content": f"ZAP proxy error: {exc}".encode("utf-8")}
+
+    # Record into ZAP tool history so the panel shows browser traffic.
+    try:
+        _record_zap_history(method, target_path, str(r.status_code),
+                            len(r.content), source="browser")
+    except Exception:
+        pass
+
+    out_headers: List[tuple] = []
+    # Preserve every Set-Cookie individually (requests collapses them otherwise).
+    raw = getattr(getattr(r, "raw", None), "headers", None)
+    set_cookies = raw.getlist("Set-Cookie") if raw is not None and hasattr(raw, "getlist") else []
+    for k, v in r.headers.items():
+        lk = k.lower()
+        if lk in _PROXY_DROP_RESP_HEADERS or lk == "set-cookie":
+            continue
+        if lk == "location":
+            # Make redirects host-relative so they resolve against the frontend
+            # origin under /target-zap/ instead of escaping to target-agent.
+            v = re.sub(r"^https?://[^/]+", "", v)
+        out_headers.append((k, v))
+    for c in set_cookies:
+        out_headers.append(("Set-Cookie", c))
+
+    return {"status_code": r.status_code, "headers": out_headers, "content": r.content}
 

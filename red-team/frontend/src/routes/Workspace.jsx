@@ -372,10 +372,13 @@ function LabBrowser({ moduleId, missionStarted, onNavigate, mode = 'tutorial', s
     if (p.startsWith('http://') || p.startsWith('https://')) return null // block external
     if (!p.startsWith('/')) p = '/' + p
     // Re-prefix to whichever proxy this mode owns. Strip an existing prefix
-    // first so toggling modes converts paths cleanly.
-    if (p.startsWith('/target-op')) p = p.slice('/target-op'.length) || '/'
+    // first so toggling modes converts paths cleanly. Check the longer,
+    // more-specific prefixes before the bare /target.
+    if (p.startsWith('/target-zap')) p = p.slice('/target-zap'.length) || '/'
+    else if (p.startsWith('/target-op')) p = p.slice('/target-op'.length) || '/'
     else if (p.startsWith('/target')) p = p.slice('/target'.length) || '/'
-    const proxy = (mode === 'lab') ? '/target-op' : '/target'
+    // Lab mode routes the browser through ZAP (/target-zap); tutorial stays direct.
+    const proxy = (mode === 'lab') ? '/target-zap' : '/target'
     return `${proxy}${p === '/' ? '/' : p}`
   }
 

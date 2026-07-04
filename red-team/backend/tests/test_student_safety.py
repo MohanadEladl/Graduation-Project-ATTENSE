@@ -79,6 +79,35 @@ def test_zap_target_normalization_blocks_external_urls():
             operator_api.normalize_zap_target_path(target)
 
 
+def test_zap_browse_path_mapping_is_local_only():
+    # Operator surfaces map under /op/; app-level assets/telemetry stay bare.
+    assert operator_api._zap_browse_target_path("auth/login") == "/op/auth/login"
+    assert operator_api._zap_browse_target_path("") == "/op/"
+    assert operator_api._zap_browse_target_path("profile/") == "/op/profile/"
+    assert operator_api._zap_browse_target_path("lab/__attense_trace.js") == "/lab/__attense_trace.js"
+    assert operator_api._zap_browse_target_path("static/x.css") == "/static/x.css"
+    # Any smuggled scheme is refused (nginx collapses http:// to http:/).
+    for evil in ("http://example.com/x", "https://8.8.8.8", "http:/example.com/x"):
+        assert operator_api._zap_browse_target_path(evil) is None
+    # A bare //host has no scheme; it degrades to a harmless LOCAL path on
+    # target-agent (a 404), never an external request — the upstream host in
+    # browse_through_zap is always hard-coded to target-agent.
+    mapped = operator_api._zap_browse_target_path("//evil.com")
+    assert mapped is None or mapped.startswith("/op/")
+
+
+def test_zap_browse_rejects_external_without_touching_network(monkeypatch):
+    # If mapping refuses the path, requests must never be called at all.
+    called = {"n": 0}
+    def _boom(*a, **k):
+        called["n"] += 1
+        raise AssertionError("requests.request must not run for a blocked path")
+    monkeypatch.setattr(operator_api.requests, "request", _boom)
+    out = operator_api.browse_through_zap("GET", "http://example.com/x")
+    assert out["status_code"] == 400
+    assert called["n"] == 0
+
+
 def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
     def ev(event_type, path, backend, via="zap_fuzzer", ts=1.0):
         return {

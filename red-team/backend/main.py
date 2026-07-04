@@ -36,9 +36,9 @@ import os
 import sys
 from typing import Any, Optional
 
-from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 import json as _json
 
@@ -887,6 +887,42 @@ def zap_fuzzer(body: FuzzerBody) -> dict:
         module_id=body.module_id,
         session_id=body.session_id,
     )
+
+
+# ── Operator Mode: Browser-through-ZAP proxy ─────────────────────────────────
+# The Operator lab browser loads /target-zap/... (proxied here by the frontend
+# nginx). We reverse-proxy each request to http://target-agent/op/... THROUGH
+# ZAP so normal clicks, form posts and navigation land in ZAP history — like
+# Burp Proxy History. Strictly local: operator_api.browse_through_zap only ever
+# targets target-agent.
+_ZAP_BROWSE_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+
+
+@app.api_route("/zap-browse/{path:path}", methods=_ZAP_BROWSE_METHODS)
+async def zap_browse(path: str, request: Request) -> Response:
+    body = await request.body()
+    host = request.headers.get("host", "target-agent")
+    headers = dict(request.headers)
+    method = request.method
+    query = request.url.query
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: operator_api.browse_through_zap(
+            method, path, query,
+            req_headers=headers, body=body, host=host,
+        ),
+    )
+    resp = Response(content=result["content"], status_code=result["status_code"])
+    # Drop Starlette's auto content-type/content-length; re-apply upstream's.
+    resp.raw_headers[:] = [
+        (k, v) for (k, v) in resp.raw_headers
+        if k.lower() not in (b"content-type",)
+    ]
+    for k, v in result["headers"]:
+        resp.raw_headers.append((k.encode("latin-1", "ignore"),
+                                 v.encode("latin-1", "ignore")))
+    return resp
 
 
 # ── Attack Chains ──────────────────────────────────────────────────────────────

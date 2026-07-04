@@ -265,6 +265,7 @@ export default function ZapPanel({ minimized, onToggleMinimize, sessionId, modul
         ) : activeTab === 'history' ? (
           <HistoryTab
             messages={messages}
+            isOperatorMode={isOperatorMode}
             onSelect={m => { setSelectedMsg(m); setActiveTab('inspector') }}
             onSendToFuzzer={m => handleSendToFuzzer(m.method, m.url, m.method === 'POST' ? '' : '')}
           />
@@ -296,18 +297,39 @@ export default function ZapPanel({ minimized, onToggleMinimize, sessionId, modul
 
 /* ── Sub-components ──────────────────────────────────────────────────────── */
 
-function HistoryTab({ messages, onSelect, onSendToFuzzer }) {
+// Burp-style banner: in Operator Mode the embedded lab browser is proxied
+// through ZAP, so ordinary clicks/forms/navigation show up here automatically.
+function ProxiedBanner() {
+  return (
+    <div
+      className="font-mono text-[10px] leading-relaxed rounded-md px-3 py-2 mb-3 flex items-start gap-2"
+      style={{ background: 'rgba(46,227,154,0.06)', border: '1px solid rgba(46,227,154,0.25)', color: '#2ee39a' }}
+    >
+      <span aria-hidden>●</span>
+      <span>Operator browser traffic is being proxied through ZAP — clicks, form
+        submissions and page navigation in the lab browser appear here automatically.</span>
+    </div>
+  )
+}
+
+function HistoryTab({ messages, isOperatorMode, onSelect, onSendToFuzzer }) {
   if (!messages.length) {
     return (
       <div className="font-mono text-[11px] text-attense-dim">
+        {isOperatorMode && <ProxiedBanner />}
         <div className="mb-2 text-attense-text font-semibold">ZAP is running.</div>
-        <div>No ZAP tool history yet. Use Repeater or Fuzzer to send local target requests.</div>
-        <div>Normal Lab Browser traffic is not proxied through this history.</div>
+        {isOperatorMode ? (
+          <div>No requests captured yet. Browse the target in the lab browser, or use
+            Repeater / Fuzzer — every request is recorded here.</div>
+        ) : (
+          <div>No ZAP tool history yet. Use Repeater or Fuzzer to send local target requests.</div>
+        )}
       </div>
     )
   }
   return (
     <div>
+      {isOperatorMode && <ProxiedBanner />}
       <div className="font-mono text-[9px] tracking-[0.3em] text-attense-dim mb-2">
         ZAP TOOL HISTORY ({messages.length} requests) · hover a row to send it to the Fuzzer
       </div>
@@ -319,6 +341,11 @@ function HistoryTab({ messages, onSelect, onSendToFuzzer }) {
             style={{ color: '#c8d0e8' }}
           >
             <button onClick={() => onSelect(m)} className="flex-1 min-w-0 text-left flex items-center gap-3">
+              {m.source && (
+                <span className="w-16 shrink-0 text-[8px] tracking-[0.12em] uppercase" style={{
+                  color: m.source === 'browser' ? '#2ee39a' : '#8a92a8'
+                }}>{m.source === 'zap_repeater' ? 'repeater' : m.source === 'zap_fuzzer' ? 'fuzzer' : m.source}</span>
+              )}
               <span className="w-12 shrink-0 font-semibold" style={{
                 color: m.method === 'POST' ? '#fbbf24' : '#7dd3fc'
               }}>{m.method}</span>
