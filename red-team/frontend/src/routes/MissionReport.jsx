@@ -406,6 +406,24 @@ export default function MissionReport() {
 
   if (!report) return null
 
+  // Guided Mode is reading-only — the backend never generates an attack
+  // report for it. Show the plain message instead of the full report UI
+  // (which expects grade/score/evidence fields a guided session never has).
+  if (report.reading_only) return (
+    <div className="p-6 max-w-2xl mx-auto">
+      <div className="rounded-xl p-6 text-center"
+        style={{ background: 'rgba(125,211,252,0.04)', border: '1px solid rgba(125,211,252,0.22)' }}>
+        <div className="font-mono text-[9px] tracking-[0.26em] mb-3" style={{ color: '#7dd3fc' }}>
+          GUIDED MODE · READING-ONLY
+        </div>
+        <div className="text-[13px] text-attense-text leading-relaxed">
+          {report.message || report.summary || 'Guided Mode is reading-only. No attack report is generated.'}
+        </div>
+      </div>
+      <Link to="/" className="inline-block mt-4 font-mono text-[11px] text-attense-muted hover:text-attense-red">← Back</Link>
+    </div>
+  )
+
   const c = GRADE_COLORS[report.grade] || GRADE_COLORS.C
 
   return (

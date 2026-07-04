@@ -6,9 +6,14 @@ against per-module success criteria. Also includes tool command evidence
 from lab mode (AttackBox). Returns a structured response the
 LearningPanel renders directly.
 
-Modes:
-  tutorial — all evidence counts; rich explanations for each task
-  lab      — only approved local tool evidence counts; requires real tool usage
+Modes (product contract — see docs/redteam-guided-mode-reading-only.md):
+  tutorial (aka "guided") — READING-ONLY. No attack execution, no
+    evidence-based completion, no target-agent scoring. compute() returns a
+    static reading_only=True payload immediately — see
+    `_guided_reading_only_response()` — without fetching any events.
+  lab (aka "operator")    — the only mode that runs the real lab pipeline:
+    /op/ route + approved local-tool evidence, objective-based completion,
+    quality scoring, ignored-evidence diagnostics.
 """
 from __future__ import annotations
 
@@ -109,20 +114,21 @@ def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool,
     Direct hits (via=unknown) — and browser traffic for every module except
     CSRF — stay visible in the evidence panel but never complete the mission.
 
-    Tutorial / Guided mode — counts guided-surface evidence from any channel,
-    but NOT operator-surface events, so the two modes never cross-complete.
+    Tutorial / Guided mode — reading-only, no evidence-based completion at
+    all. ``compute()`` short-circuits to a static reading_only response before
+    it ever calls this function for mode="tutorial", so this branch is a
+    defense-in-depth guarantee, not the live code path: nothing counts.
     """
+    if not is_lab:
+        return False
     backend = _event_backend(e)
-    if is_lab:
-        if str(e.get("via") or "") not in _allowed_via_for(module_id):
-            return False
-        if backend != "operator":
-            return False
-        if e.get("event_type") in DERIVED_EVENT_TYPES:
-            return True
-        return _event_path(e).startswith("/op/")
-    # Tutorial/guided: exclude operator-surface events; any channel is fine.
-    return backend != "operator"
+    if str(e.get("via") or "") not in _allowed_via_for(module_id):
+        return False
+    if backend != "operator":
+        return False
+    if e.get("event_type") in DERIVED_EVENT_TYPES:
+        return True
+    return _event_path(e).startswith("/op/")
 
 
 # Diagnostic reason buckets for events that were observed but NOT counted.
@@ -156,7 +162,9 @@ def _ignore_reason(e: Dict[str, Any], *, module_id: str, is_lab: bool,
     path = _event_path(e)
 
     if not is_lab:
-        # Tutorial/guided only excludes operator-surface events.
+        # Defense-in-depth only: compute() short-circuits Guided/Tutorial mode
+        # to a reading-only response before this function is ever called with
+        # is_lab=False, so this branch is unreachable in the live code path.
         return "ignored_wrong_backend" if backend == "operator" else "ignored_unknown_reason"
 
     # Lab-mode diagnostics, most-specific first.
@@ -206,37 +214,19 @@ def _brute_force_activity(events: List[Dict[str, Any]], *, is_lab: bool) -> Dict
 
 
 # ── Per-module success specs ────────────────────────────────────────────────
-# Each module has two task ladders:
-#   tasks_tutorial — for tutorial mode (any evidence channel, rich explanations)
-#   tasks_lab      — for lab mode (AttackBox/ZAP only, stricter requirements)
+# Operator (lab) Mode ONLY — Guided/Tutorial Mode is reading-only and never
+# reaches this code (compute() short-circuits earlier; see
+# `_guided_reading_only_response()`). The legacy `tasks_tutorial` /
+# `success_tutorial` ladders were removed as dead code — see
+# docs/redteam-guided-mode-reading-only.md.
 #
-# success_tutorial / success_lab list event_types that must ALL be observed
-# for the mission to be flagged as fully successful.
+#   tasks_lab — the legacy (non-variant) task ladder for lab mode
+#               (AttackBox/ZAP only, via the operator evidence gate).
+#   success_lab — event_types that must ALL be observed for the legacy ladder
+#                 to be flagged successful. Variant-based missions instead use
+#                 OBJECTIVE_SPECS' completion_groups (see below).
 PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
     "recon": {
-        "tasks_tutorial": [
-            {
-                "title":  "Visit the target portal",
-                "event_types": ["portal_visited"],
-                "explain": "Open the target home page in the lab browser.",
-            },
-            {
-                "title":  "Explore at least 3 application areas",
-                "event_types": ["route_discovered", "search_used", "diagnostics_used", "file_viewer_used", "file_upload_used", "profile_update_used"],
-                "min_count": 3,
-                "explain": "Click around the portal — visit the search, profile, files, system pages.",
-            },
-            {
-                "title":  "Discover a hidden lab clue",
-                "event_types": ["hidden_clue_accessed", "csrf_lure_visited"],
-                "explain": "Find a non-obvious route in the app (try /robots.txt or /.well-known/security.txt).",
-            },
-            {
-                "title":  "Trigger recon sequence detection",
-                "event_types": ["recon_sequence_observed"],
-                "explain": "Visit 4+ distinct areas of the portal to trigger this synthetic event.",
-            },
-        ],
         "tasks_lab": [
             {
                 "title":  "Capture the operator portal",
@@ -260,7 +250,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "After 4+ distinct /op/ areas are observed via approved local tools, this synthetic event fires.",
             },
         ],
-        "success_tutorial": ["portal_visited", "recon_sequence_observed"],
         "success_lab":      ["recon_sequence_observed"],
         "defensive_insight":
             "Hide internal route maps from public landing pages. Keep server "
@@ -268,24 +257,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
     },
 
     "brute_force": {
-        "tasks_tutorial": [
-            {
-                "title": "Use the login form at /auth/login",
-                "event_types": ["login_failed", "login_success"],
-                "explain": "Submit the login form to interact with the vulnerable endpoint.",
-            },
-            {
-                "title": "Make at least 6 failed login attempts",
-                "event_types": ["login_failed"],
-                "min_count": BRUTE_FORCE_MIN_FAILURES,
-                "explain": "Use the guided login form enough times to create a realistic failed-attempt pattern.",
-            },
-            {
-                "title": "Find a valid credential",
-                "event_types": ["credential_found"],
-                "explain": "Successfully log in to confirm a working username/password pair.",
-            },
-        ],
         "tasks_lab": [
             {
                 "title": "Probe the login endpoint with Repeater or safe curl",
@@ -310,7 +281,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Use the credential found by the local tool run in Repeater or AttackBox and confirm a 302 redirect to /profile/.",
             },
         ],
-        "success_tutorial": ["login_failed", "credential_found"],
         "success_lab":      ["login_failed", "credential_found"],
         "defensive_insight":
             "Add per-account and per-IP rate limiting, account lockout after "
@@ -318,23 +288,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
     },
 
     "xss": {
-        "tasks_tutorial": [
-            {
-                "title": "Use the search form",
-                "event_types": ["search_used"],
-                "explain": "Submit any query to interact with the reflective endpoint.",
-            },
-            {
-                "title": "Submit a script-like payload",
-                "event_types": ["xss_payload_observed"],
-                "explain": "Try things like <script>alert(1)</script> or onerror= handlers.",
-            },
-            {
-                "title": "Confirm reflection without escaping",
-                "event_types": ["reflected_input_detected"],
-                "explain": "When XSS-shaped input is reflected unescaped, this fires.",
-            },
-        ],
         "tasks_lab": [
             {
                 "title": "Capture the search endpoint in ZAP",
@@ -354,7 +307,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Verify the proof payload is reflected unescaped in the Repeater/Fuzzer response body.",
             },
         ],
-        "success_tutorial": ["xss_payload_observed", "reflected_input_detected"],
         "success_lab":      ["xss_payload_observed", "reflected_input_detected"],
         "defensive_insight":
             "Encode untrusted output before rendering it into HTML. Use a "
@@ -362,23 +314,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
     },
 
     "cmd_injection": {
-        "tasks_tutorial": [
-            {
-                "title": "Use the diagnostics ping form",
-                "event_types": ["diagnostics_used"],
-                "explain": "Submit a host value to /system/ping.",
-            },
-            {
-                "title": "Submit shell separator characters",
-                "event_types": ["command_separator_observed"],
-                "explain": "Try host values like 127.0.0.1; id  or  127.0.0.1 && whoami.",
-            },
-            {
-                "title": "Confirm command injection",
-                "event_types": ["command_injection_detected"],
-                "explain": "Output that includes uid=, root:, or /bin/* indicators.",
-            },
-        ],
         "tasks_lab": [
             {
                 "title": "Capture the ping endpoint in ZAP",
@@ -398,7 +333,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Use harmless local proof output via Repeater/Fuzzer. Do not use reverse shells, callbacks, deletion, or persistence.",
             },
         ],
-        "success_tutorial": ["command_injection_detected"],
         "success_lab":      ["command_injection_detected"],
         "defensive_insight":
             "Never pass user input to shell commands. Use parameterized "
@@ -407,23 +341,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
     },
 
     "dir_traversal": {
-        "tasks_tutorial": [
-            {
-                "title": "Use the file viewer",
-                "event_types": ["file_viewer_used"],
-                "explain": "Open /files/read?path=readme.txt.",
-            },
-            {
-                "title": "Submit a path-traversal sequence",
-                "event_types": ["traversal_pattern_observed"],
-                "explain": "Try ../../etc/passwd in the path field.",
-            },
-            {
-                "title": "Disclose a sensitive file",
-                "event_types": ["sensitive_file_disclosed"],
-                "explain": "When response content includes root:, /bin/, etc.",
-            },
-        ],
         "tasks_lab": [
             {
                 "title": "Capture the file viewer in ZAP",
@@ -443,7 +360,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Confirm a local lab file disclosure via approved ZAP tooling. Do not target external or host files.",
             },
         ],
-        "success_tutorial": ["sensitive_file_disclosed"],
         "success_lab":      ["sensitive_file_disclosed"],
         "defensive_insight":
             "Normalize paths with os.path.realpath and verify the resolved "
@@ -451,23 +367,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
     },
 
     "file_upload": {
-        "tasks_tutorial": [
-            {
-                "title": "Use the upload form",
-                "event_types": ["file_upload_used"],
-                "explain": "Submit any file via /files/upload.",
-            },
-            {
-                "title": "Successfully save a file",
-                "event_types": ["file_saved"],
-                "explain": "An uploaded file lands in /app/static/uploads/.",
-            },
-            {
-                "title": "Upload a dangerous file extension",
-                "event_types": ["dangerous_extension_accepted", "unrestricted_upload_detected"],
-                "explain": "Upload a .php / .jsp / .sh / .html file — it is accepted.",
-            },
-        ],
         "tasks_lab": [
             {
                 "title": "Capture the upload endpoint in ZAP",
@@ -487,7 +386,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Use ZAP Repeater/Fuzzer to edit filename or content type with harmless proof content. Do not create or upload a web shell.",
             },
         ],
-        "success_tutorial": ["unrestricted_upload_detected"],
         "success_lab":      ["unrestricted_upload_detected"],
         "defensive_insight":
             "Validate by file content (magic bytes), enforce an allowlist of "
@@ -496,27 +394,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
     },
 
     "csrf": {
-        "tasks_tutorial": [
-            {
-                "title": "Visit the profile page",
-                "event_types": ["profile_update_used", "route_discovered"],
-                "explain": "Open /profile/ to see a state-changing form.",
-            },
-            {
-                "title": "Open the CSRF demo lure page",
-                "event_types": ["csrf_lure_visited"],
-                "explain": "Visit /evil/csrf-demo while logged in.",
-            },
-            {
-                "title": "Submit forged update without a token",
-                "event_types": [
-                    "csrf_lure_submitted",
-                    "profile_changed_without_csrf",
-                    "csrf_token_missing",
-                ],
-                "explain": "Click the lure button — the profile email changes silently.",
-            },
-        ],
         "tasks_lab": [
             {
                 "title": "Open the profile page in the browser",
@@ -539,7 +416,6 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "explain": "Use the local /op/evil/csrf-demo lure and confirm the profile changed without a token. Do not use external exploit servers.",
             },
         ],
-        "success_tutorial": ["profile_changed_without_csrf"],
         "success_lab":      ["profile_changed_without_csrf"],
         "defensive_insight":
             "Require a CSRF token on every state-changing form, validate the "
@@ -550,9 +426,9 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  MODULE VARIANTS — Each module supports multiple attack flavours.
-#  The learner picks one when starting a mission.  At progress-compute time
-#  the variant's task ladder REPLACES the default tasks_tutorial / tasks_lab
-#  for that module, and the variant-specific success markers REPLACE the
+#  The learner picks one when starting a mission (Operator Mode only).  At
+#  progress-compute time the variant's task ladder REPLACES the default
+#  tasks_lab for that module, and the variant-specific success markers REPLACE the
 #  default ones.  The rest of the spec (defensive_insight etc.) is reused.
 #
 #  Each variant entry:
@@ -2347,6 +2223,59 @@ def _completion_report(module_id: str,
     return {"reached": reached, "score": score, "completed_required": labels}
 
 
+def _guided_reading_only_response(module_id: str, variant_id: Optional[str] = None) -> Dict[str, Any]:
+    """The ENTIRE Guided/Tutorial Mode progress contract.
+
+    Guided Mode is reading/tutorial-only: no attack execution, no
+    evidence-based mission completion, no target-agent scoring, no AI attack
+    report. This function performs NO event fetching and NO evidence
+    evaluation — it is a static response, by design, so nothing in Guided
+    Mode can ever be mistaken for a real, scored attack. See
+    docs/redteam-guided-mode-reading-only.md.
+    """
+    return {
+        "module_id":           module_id,
+        "mode":                "guided",
+        "variant_id":          variant_id,
+        "variant_name":        None,
+        "variant_difficulty":  None,
+        "variant_description": None,
+        "variant_overview":    None,
+        "reading_only":        True,
+        "progress_percent":    0,
+        "completed_tasks":     [],
+        "tasks":               [],
+        "evidence":            [],
+        "success":             False,
+        "learner_message": (
+            "Guided Mode is reading-only. Switch to Operator Mode to perform "
+            "the lab and generate an AI/Purple Team report."
+        ),
+        "defensive_insight":   None,
+        "events_examined":     0,
+        "brute_force_activity": None,
+
+        "objective": "Read the guided explanation, then switch to Operator Mode to perform the lab.",
+        "completion_score":   0,
+        "quality_score":      0,
+        "completed_required": [],
+        "completed_quality":  [],
+        "missing_quality":    [],
+        "warnings": [
+            "Guided Mode is reading-only. Attack progress is available in Operator Mode.",
+        ],
+        "next_recommended_action": "Switch to Operator Mode when ready to practice.",
+        "objective_tasks":    [],
+
+        "raw_event_count":      0,
+        "counted_event_count":  0,
+        "ignored_event_count":  0,
+        "ignored_reasons":      {r: 0 for r in IGNORED_REASONS},
+        "last_observed_events": [],
+        "last_counted_events":  [],
+    }
+
+
 def compute(module_id: str,
             mission_started_at: float,
             session_completed_steps: Optional[List[int]] = None,
@@ -2364,15 +2293,20 @@ def compute(module_id: str,
           learner_message, defensive_insight,
         }
 
-    `mode` selects evidence-channel gating:
-      - "tutorial" → counts evidence from any channel (browser, attackbox, …)
-      - "lab"      → only counts evidence from attackbox/zap_repeater/zap_fuzzer.
+    `mode` selects the product contract (see
+    docs/redteam-guided-mode-reading-only.md):
+      - "tutorial" (aka "guided")  → READING-ONLY. Returns a static
+        reading_only=True payload immediately — no events are fetched, no
+        evidence is scored, `success` is always False.
+      - "lab" (aka "operator")    → the real lab pipeline: /op/ route +
+        approved local-tool evidence, objective-based completion, quality
+        scoring, ignored-evidence diagnostics.
 
     `variant_id` selects the specific attack flavour (e.g. "password_spray",
-    "credential_stuffing", "hydra_targeted" for brute_force).  When set, the
-    variant's tasks REPLACE the module's default ladder, and the variant's
-    success_event_types REPLACE the default success criteria.  When omitted
-    the legacy default ladder is used.
+    "credential_stuffing", "hydra_targeted" for brute_force) — Operator Mode
+    only. When set, the variant's tasks REPLACE the module's default ladder,
+    and the variant's success_event_types REPLACE the default success
+    criteria. When omitted the legacy default ladder is used.
 
     Legacy values "guided" and "operator" are normalised to "tutorial"/"lab".
     """
@@ -2383,6 +2317,12 @@ def compute(module_id: str,
         mode = "lab"
     if mode not in ("tutorial", "lab"):
         mode = "tutorial"
+
+    # Guided/Tutorial Mode is reading-only — short-circuit BEFORE any event
+    # fetching or evidence evaluation. This is the only Guided Mode code path;
+    # nothing below this line ever runs for mode="tutorial".
+    if mode == "tutorial":
+        return _guided_reading_only_response(module_id, variant_id)
 
     spec = PROGRESS_SPECS.get(module_id)
     if not spec:
@@ -2403,16 +2343,14 @@ def compute(module_id: str,
     # If a known variant is supplied, its tasks replace the default ladder
     # and its success_event_types replace the default success criteria.
     variant = get_variant_spec(module_id, variant_id)
-    is_lab = (mode == "lab")
+    is_lab = True  # Operator Mode only — Guided Mode returned above.
 
     if variant is not None:
         task_ladder = variant["tasks"]
         variant_id_out = variant_id or next(iter(MODULE_VARIANTS.get(module_id, {})), None)
     else:
-        # Legacy path — use the module's default tasks_lab / tasks_tutorial
-        task_ladder = (
-            spec.get("tasks_lab") if is_lab else None
-        ) or spec.get("tasks_tutorial", spec.get("tasks", []))
+        # Legacy path — the module's default tasks_lab ladder.
+        task_ladder = spec.get("tasks_lab") or spec.get("tasks", [])
         variant_id_out = None
 
     # Fetch ALL events since mission start — do NOT filter by module_id here.
@@ -2485,9 +2423,8 @@ def compute(module_id: str,
         spec_event_types.update(variant_success)
         success_required = variant_success
     else:
-        success_key = "success_lab" if is_lab and spec.get("success_lab") else "success_tutorial"
-        spec_event_types.update(spec.get(success_key) or [])
-        success_required = set(spec.get(success_key) or [])
+        spec_event_types.update(spec.get("success_lab") or [])
+        success_required = set(spec.get("success_lab") or [])
 
     # Build evidence cards (one per event_type, keep latest occurrence).
     # We use raw_events here (not the gated set) so a learner who clicked

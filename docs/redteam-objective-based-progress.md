@@ -1,5 +1,15 @@
 # Red Team — Objective-Based Progress (Completion vs Quality)
 
+> **Scope update (see `docs/redteam-guided-mode-reading-only.md`):**
+> Everything in this document — objective-based completion, quality scoring,
+> ignored-evidence diagnostics, the CSRF browser exception — applies to
+> **Operator Mode only**. Guided Mode is reading-only: it is never scored by
+> target-agent evidence. `lab_progress.compute(mode="tutorial")` short-circuits
+> to a static `reading_only=True` response before any of the machinery
+> described below ever runs. Where this document says "the mission" or "the
+> student's evidence," read that as Operator Mode's mission/evidence — Guided
+> Mode has neither.
+
 ## Why the progress model changed
 
 Operator Mode previously felt too procedural: a lab could be finished with one

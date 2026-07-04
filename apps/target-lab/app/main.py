@@ -188,6 +188,16 @@ def detect_via() -> str:
 app.detect_via = detect_via
 
 # ── Register blueprints ───────────────────────────────────────────────────────
+# NON-OPERATOR ROUTES (this block): demo/legacy target surfaces.
+# Guided Mode is reading/tutorial-only in the current frontend and does not
+# drive a live target through these routes anymore (see
+# docs/redteam-guided-mode-reading-only.md). They are kept online only as a
+# fallback demo surface for instructors — red-team/backend/lab_progress.py no
+# longer scores or completes a Red Team mission from evidence recorded here
+# (backend="guided" events never satisfy Operator Mode's evidence gate, and
+# Guided Mode's compute() short-circuits to a reading-only response before any
+# evidence is even fetched). Do not treat requests to these paths as graded
+# attack progress.
 app.register_blueprint(home_bp)
 app.register_blueprint(auth_bp,    url_prefix="/auth")
 app.register_blueprint(search_bp)
@@ -196,9 +206,13 @@ app.register_blueprint(files_bp,   url_prefix="/files")
 app.register_blueprint(profile_bp, url_prefix="/profile")
 app.register_blueprint(containment_bp, url_prefix="/containment")
 
-# Operator-mode (HARDER) parallel backend. All 7 module surfaces now
-# have a routes_op/ counterpart with stricter logic — same UI, harder
-# backend.
+# OPERATOR ROUTES (this block): the ONLY scored Red Team Operator Mode mission
+# surface. All 7 module surfaces have a routes_op/ counterpart with stricter
+# logic — same UI, harder backend. Every request here is tagged
+# backend="operator"; lab_progress.py's objective-based completion, quality
+# scoring, and ignored-evidence diagnostics are computed exclusively from
+# these routes (gated further by approved `via` — attackbox/zap_repeater/
+# zap_fuzzer, plus the documented CSRF browser-lure exception).
 app.register_blueprint(home_op_bp,    url_prefix="/op")
 app.register_blueprint(auth_op_bp,    url_prefix="/op/auth")
 app.register_blueprint(search_op_bp,  url_prefix="/op")

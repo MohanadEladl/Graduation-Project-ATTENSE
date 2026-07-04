@@ -25,9 +25,15 @@ Endpoints:
   POST   /api/operator/zap/repeater/send     – send request through ZAP
   POST   /api/operator/zap/fuzzer/send       – fuzz a wordlist through ZAP (Intruder-style)
 
-Modes:
-  guided   – rich walkthrough; browser interactions count as evidence
-  operator – AttackBox terminal/ZAP required; browser clicks do NOT count
+Modes (see docs/redteam-guided-mode-reading-only.md):
+  guided (wire value "tutorial") – READING-ONLY. No attack execution, no
+    evidence-based completion, no target-agent scoring, no AI attack report.
+    /check-progress returns lab_progress's static reading_only=True payload;
+    /report returns a short "start Operator Mode" message instead of a
+    generated report.
+  operator (wire value "lab")    – the ONLY mode that runs the real lab
+    pipeline: /op/ routes, ZAP/AttackBox evidence, objective-based
+    completion, quality scoring, AI/Purple report.
 """
 from __future__ import annotations
 
@@ -249,9 +255,14 @@ async def check_progress(sid: str, mode: Optional[str] = None) -> dict:
     """Inspect target-agent evidence since mission start; do NOT run attack.
 
     Uses the mode and variant_id stored on the session:
-      tutorial — all evidence counts toward task completion
-      lab      — only evidence with via="attackbox" counts toward task completion
-      variant_id — selects the specific attack flavour (replaces task ladder)
+      tutorial (guided)  — READING-ONLY. lab_progress.compute() short-circuits
+                            to a static reading_only=True payload; no evidence
+                            is fetched or scored.
+      lab (operator)     — the real lab pipeline. Only evidence from an
+                            approved local tool against the /op/ operator
+                            surface counts toward objective-based completion.
+      variant_id — selects the specific attack flavour (Operator Mode only;
+                   replaces the task ladder).
 
     Returns per-task completion + evidence cards + success state for the
     LearningPanel. Pure read — no side effects on the attack engine.
@@ -458,6 +469,12 @@ async def restart_session(sid: str) -> dict:
     return await reset_evidence(sid)
 
 
+GUIDED_MODE_REPORT_MESSAGE = (
+    "Guided Mode is reading-only. No attack report is generated. Start "
+    "Operator Mode to perform the lab and receive AI feedback."
+)
+
+
 @app.get("/api/sessions/{sid}/report")
 async def get_report(sid: str) -> dict:
     """Return (or generate) the post-mission coaching report for a session.
@@ -467,8 +484,24 @@ async def get_report(sid: str) -> dict:
       • the unified timeline (browser + terminal + lab events)
       • the AI coaching agent (Claude Haiku, with rule-based fallback)
     and is cached on the session so repeat visits don't re-bill the LLM.
+
+    Guided Mode is reading-only and never generates an attack report — this
+    returns a short reading_only message instead (Operator Mode only).
     """
     rec = _require_session(sid)
+    if rec.mode == "tutorial":
+        return {
+            "session_id":   sid,
+            "module_id":     rec.module.module_id,
+            "module_name":   rec.module.name,
+            "mode":          "guided",
+            "reading_only":  True,
+            "success":       False,
+            "grade":         None,
+            "score":         0,
+            "summary":       GUIDED_MODE_REPORT_MESSAGE,
+            "message":       GUIDED_MODE_REPORT_MESSAGE,
+        }
     if rec.report_cache:
         return rec.report_cache
 

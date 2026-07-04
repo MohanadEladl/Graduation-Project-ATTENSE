@@ -213,7 +213,8 @@ function MissionSidebar({
           </div>
         </div>
 
-        {/* Timer + progress */}
+        {/* Timer + progress — Operator Mode only shows attack-completion
+            tracking; Guided Mode is reading-only and never claims progress. */}
         <div
           className="rounded-xl p-4 mb-4"
           style={{
@@ -221,27 +222,35 @@ function MissionSidebar({
             border: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-[9px] tracking-[0.32em] text-attense-dim">PROGRESS</span>
-            <span className="font-mono text-[10px] text-attense-text tabular-nums">
-              {completedCount}/{totalTasks}
-            </span>
-          </div>
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
-            <div
-              className="h-full rounded-full transition-all duration-700"
-              style={{
-                width: pct + '%',
-                background: isDone || progress?.success
-                  ? '#2ee39a'
-                  : pct > 0
-                    ? 'linear-gradient(90deg,#ff1535,#ff6b00)'
-                    : '#3a4060',
-                boxShadow: pct > 0 && !(isDone || progress?.success)
-                  ? '0 0 6px rgba(255,21,53,0.5)' : 'none',
-              }}
-            />
-          </div>
+          {isLab ? (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-[9px] tracking-[0.32em] text-attense-dim">PROGRESS</span>
+                <span className="font-mono text-[10px] text-attense-text tabular-nums">
+                  {completedCount}/{totalTasks}
+                </span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: pct + '%',
+                    background: isDone || progress?.success
+                      ? '#2ee39a'
+                      : pct > 0
+                        ? 'linear-gradient(90deg,#ff1535,#ff6b00)'
+                        : '#3a4060',
+                    boxShadow: pct > 0 && !(isDone || progress?.success)
+                      ? '0 0 6px rgba(255,21,53,0.5)' : 'none',
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="font-mono text-[9px] tracking-[0.24em]" style={{ color: '#7dd3fc' }}>
+              GUIDED MODE · READING-ONLY
+            </div>
+          )}
           <div
             className="flex items-center justify-between mt-3 pt-3"
             style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
@@ -703,107 +712,14 @@ function WSection({ label, color, mono, children }) {
   )
 }
 
-// ── A single TryHackMe-style walkthrough task ───────────────────────────────
-function WalkthroughTask({ index, task, isOpen, onToggle, missionStarted }) {
-  const complete = !!task.complete
-  const matchCount = task.match_count ?? 0
-  const minCount   = task.min_count ?? 1
-  return (
-    <div
-      className="rounded-xl overflow-hidden mb-2 transition-colors"
-      style={{
-        border: `1px solid ${complete ? 'rgba(46,227,154,0.32)' : isOpen ? 'rgba(255,21,53,0.32)' : 'rgba(255,255,255,0.08)'}`,
-        background: complete ? 'rgba(46,227,154,0.045)' : isOpen ? 'rgba(255,21,53,0.03)' : 'rgba(255,255,255,0.02)',
-      }}
-    >
-      <button onClick={onToggle} className="w-full flex items-center gap-3 px-3.5 py-3 text-left">
-        <span
-          className="shrink-0 grid place-items-center rounded-full transition-all"
-          style={{
-            width: 22, height: 22,
-            border: `2px solid ${complete ? '#2ee39a' : 'rgba(255,255,255,0.2)'}`,
-            background: complete ? '#2ee39a' : 'transparent',
-          }}
-        >
-          {complete ? (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04130c" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 6L9 17l-5-5" />
-            </svg>
-          ) : (
-            <span className="font-mono text-[10px]" style={{ color: '#8b93ad' }}>{index + 1}</span>
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="font-mono text-[8px] tracking-[0.22em] mb-0.5" style={{ color: complete ? '#2ee39a' : '#7a8194' }}>
-            TASK {index + 1}{complete ? ' · COMPLETE' : ''}
-          </div>
-          <div className="text-[12.5px] font-semibold leading-snug text-attense-text">
-            {task.title}
-          </div>
-        </div>
-        <span className="text-attense-dim text-sm transition-transform shrink-0" style={{ transform: isOpen ? 'rotate(180deg)' : '' }}>
-          ▾
-        </span>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="px-3.5 pb-3.5 pt-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-              <WSection label="WHAT IS THIS" color="#7dd3fc">{task.what}</WSection>
-              <WSection label="HOW IT'S DONE" color="#ff6b81" mono>{task.how}</WSection>
-              <WSection label="WHAT TO LOOK FOR" color="#9be8c5">{task.look_for}</WSection>
-
-              {/* live auto-tracking status */}
-              <div
-                className="mt-1 flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-mono text-[9.5px]"
-                style={{
-                  background: complete ? 'rgba(46,227,154,0.07)' : 'rgba(255,255,255,0.025)',
-                  border: `1px solid ${complete ? 'rgba(46,227,154,0.25)' : 'rgba(255,255,255,0.07)'}`,
-                }}
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: complete ? '#2ee39a' : missionStarted ? '#fbbf24' : '#4a5280' }}
-                />
-                <span style={{ color: complete ? '#2ee39a' : '#9aa0c0' }}>
-                  {complete
-                    ? 'Detected — step complete'
-                    : missionStarted
-                      ? `Auto-tracking… ${matchCount}/${minCount} detected`
-                      : 'Press START, then act on the target'}
-                </span>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-// ── Guided walkthrough (overview + progress + task sections) ─────────────────
-function GuidedWalkthrough({ progress, missionStarted, briefing }) {
-  const tasks = progress?.tasks || []
-  const completedCount = (progress?.completed_tasks || []).length
-  const total = tasks.length
-  const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0
+// ── Guided walkthrough (reading-only overview — no attack tracking) ─────────
+// Guided/Tutorial Mode is reading-only: the backend never fetches or scores
+// evidence for it (lab_progress.compute() short-circuits to a static
+// reading_only response), so this renders concept content only — no
+// progress bar, no per-task auto-tracking, no "attack complete" state.
+function GuidedWalkthrough({ progress, briefing }) {
   const overview = progress?.variant_overview
     || briefing?.objective || briefing?.background || ''
-
-  // Auto-open the first incomplete task; collapse all when finished.
-  const firstIncomplete = tasks.findIndex(t => !t.complete)
-  const [openTask, setOpenTask] = useState(0)
-  const [userTouched, setUserTouched] = useState(false)
-  useEffect(() => {
-    if (!userTouched) setOpenTask(firstIncomplete)
-  }, [firstIncomplete, userTouched])
 
   return (
     <div className="mb-4">
@@ -818,7 +734,7 @@ function GuidedWalkthrough({ progress, missionStarted, briefing }) {
         >
           <div className="flex items-center gap-2 mb-2">
             <div className="font-mono text-[9px] tracking-[0.26em]" style={{ color: '#ff6b81' }}>
-              {progress?.variant_name ? progress.variant_name.toUpperCase() : 'OVERVIEW'}
+              {progress?.variant_name ? progress.variant_name.toUpperCase() : 'CONCEPT OVERVIEW'}
             </div>
             {progress?.variant_difficulty && (
               <span className="ml-auto font-mono text-[8px] font-bold tracking-[0.14em] px-1.5 py-0.5 rounded uppercase"
@@ -831,48 +747,20 @@ function GuidedWalkthrough({ progress, missionStarted, briefing }) {
         </div>
       )}
 
-      {/* Progress bar — TryHackMe room completion */}
-      {total > 0 && (
-        <div className="rounded-xl p-3.5 mb-3" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-[9px] tracking-[0.28em] text-attense-dim">WALKTHROUGH</span>
-            <span className="font-mono text-[10px] tabular-nums" style={{ color: pct === 100 ? '#2ee39a' : '#cfd6e8' }}>
-              {completedCount}/{total} · {pct}%
-            </span>
-          </div>
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
-            <motion.div
-              className="h-full rounded-full"
-              animate={{ width: pct + '%' }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-              style={{
-                background: pct === 100 ? '#2ee39a' : 'linear-gradient(90deg,#ff1535,#ff6b00)',
-                boxShadow: pct > 0 && pct < 100 ? '0 0 6px rgba(255,21,53,0.5)' : 'none',
-              }}
-            />
-          </div>
+      {/* Reading-only notice — Guided Mode never tracks or scores an attack */}
+      <div
+        className="rounded-xl p-4 text-center"
+        style={{ background: 'rgba(125,211,252,0.04)', border: '1px dashed rgba(125,211,252,0.22)' }}
+      >
+        <div className="font-mono text-[9px] tracking-[0.24em] mb-1.5" style={{ color: '#7dd3fc' }}>
+          READING-ONLY
         </div>
-      )}
-
-      {/* Task sections */}
-      {total > 0 ? (
-        tasks.map((t, i) => (
-          <WalkthroughTask
-            key={i}
-            index={i}
-            task={t}
-            isOpen={openTask === i}
-            onToggle={() => { setUserTouched(true); setOpenTask(openTask === i ? -1 : i) }}
-            missionStarted={missionStarted}
-          />
-        ))
-      ) : (
-        <div className="rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)' }}>
-          <div className="font-mono text-[10px] text-attense-dim leading-relaxed">
-            {missionStarted ? 'Loading walkthrough…' : 'Press START to load the guided walkthrough.'}
-          </div>
+        <div className="text-[11px] text-attense-dim leading-relaxed">
+          Guided Mode explains the concept — it does not track or score an attack.
+          Switch to <span style={{ color: '#7dd3fc' }} className="font-semibold">OPERATOR MODE</span> above
+          when you're ready to practice hands-on and receive a report.
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -962,11 +850,10 @@ function LearningPanel({
           />
         )}
 
-        {/* Guided walkthrough — TryHackMe-style task sections (tutorial mode) */}
+        {/* Guided walkthrough — reading-only concept overview (tutorial mode) */}
         {!isLab && !activeMutation && (
           <GuidedWalkthrough
             progress={progress}
-            missionStarted={missionStarted}
             briefing={briefing}
           />
         )}

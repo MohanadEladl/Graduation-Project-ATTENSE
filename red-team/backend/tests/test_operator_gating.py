@@ -11,8 +11,11 @@ file_upload, csrf) via lab_progress._event_counts_for_mode:
   is visible but never completes. Guided-surface evidence never completes
   operator mode.
 
-  Tutorial / Guided mode — guided-surface evidence from any channel completes;
-  operator-surface events do NOT (the two modes never cross-complete).
+  Tutorial / Guided mode — READING-ONLY (see
+  docs/redteam-guided-mode-reading-only.md). compute() short-circuits to a
+  static reading_only response before any event is even fetched, so success is
+  always False regardless of what evidence exists — see
+  test_guided_reading_only.py for that contract.
 
 brute_force is covered separately in test_student_safety.py (it keeps its
 dedicated failure-count logic) and is intentionally excluded here.
@@ -120,20 +123,29 @@ def test_guided_surface_does_not_complete_operator(monkeypatch, module_id):
     assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is False
 
 
-# ── Tutorial / Guided mode ───────────────────────────────────────────────────
+# ── Tutorial / Guided mode — reading-only, regardless of evidence ───────────
+# Guided Mode no longer runs the lab pipeline at all: compute() short-circuits
+# to a static reading-only response BEFORE fetching any events, so neither
+# guided-surface NOR operator-surface evidence can ever complete it. The full
+# reading-only contract (all response fields) is covered by
+# test_guided_reading_only.py; these two just prove no evidence shape can
+# sneak a completion through in tutorial mode.
 @pytest.mark.parametrize("module_id", GATED_MODULES)
-def test_tutorial_completes_with_guided_browser_evidence(monkeypatch, module_id):
+def test_tutorial_never_completes_even_with_guided_browser_evidence(monkeypatch, module_id):
     events = _events(module_id, path=GUIDED_PATH[module_id], backend="guided", via="browser")
     _patch(monkeypatch, events)
-    assert lab_progress.compute(module_id, 0.0, mode="tutorial")["success"] is True
+    result = lab_progress.compute(module_id, 0.0, mode="tutorial")
+    assert result["success"] is False
+    assert result["reading_only"] is True
 
 
 @pytest.mark.parametrize("module_id", GATED_MODULES)
-def test_tutorial_not_completed_by_operator_events(monkeypatch, module_id):
-    # Operator-surface evidence must not cross-complete the tutorial mission.
+def test_tutorial_never_completes_even_with_operator_evidence(monkeypatch, module_id):
     events = _events(module_id, path=OP_PATH[module_id], backend="operator", via="zap_repeater")
     _patch(monkeypatch, events)
-    assert lab_progress.compute(module_id, 0.0, mode="tutorial")["success"] is False
+    result = lab_progress.compute(module_id, 0.0, mode="tutorial")
+    assert result["success"] is False
+    assert result["reading_only"] is True
 
 
 # ── Evidence-card `counts` flag mirrors the gate ─────────────────────────────

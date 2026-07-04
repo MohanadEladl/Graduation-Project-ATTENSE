@@ -35,6 +35,11 @@ AUTO_ATTACK_DISABLED_MESSAGE = (
     "Auto execution is disabled in student mode. Use Guided or Operator tools."
 )
 
+GUIDED_MODE_EXECUTE_DISABLED_MESSAGE = (
+    "Guided Mode is reading-only and cannot run scripted attack execution. "
+    "Switch to Operator Mode to perform the lab."
+)
+
 
 def auto_attacks_enabled() -> bool:
     return os.getenv("ENABLE_AUTO_ATTACKS", "false").strip().lower() in {
@@ -369,6 +374,11 @@ class SessionManager:
         """Run the attack on the executor; return the final snapshot."""
         if record.attack.state == "running":
             raise RuntimeError("attack already running")
+
+        # Guided Mode is reading-only and never runs scripted attack execution,
+        # regardless of the instructor/demo auto-attacks flag below.
+        if record.mode == "tutorial":
+            raise RuntimeError(GUIDED_MODE_EXECUTE_DISABLED_MESSAGE)
 
         # Automated module execution is instructor/demo-only. Student mode must
         # be driven by observed lab evidence from the browser, AttackBox, or ZAP.

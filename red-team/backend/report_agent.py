@@ -585,9 +585,36 @@ def _mutation_adaptability(session, progress: dict, timeline: list) -> Dict[str,
     return {"timeline": rows, "score": score, "grade": grade}
 
 
+GUIDED_MODE_REPORT_MESSAGE = (
+    "Guided Mode is reading-only. No attack report is generated. Start "
+    "Operator Mode to perform the lab and receive AI feedback."
+)
+
+
 def generate(session, events: list, timeline: list,
              progress: dict, mode: str = "tutorial") -> Dict[str, Any]:
-    """Produce the full structured report."""
+    """Produce the full structured report.
+
+    Guided Mode is reading-only — main.py's /report endpoint already
+    intercepts guided sessions before calling this function, but this check
+    is defense-in-depth: report_agent never synthesizes an attack report for
+    a reading-only mode, even if called directly.
+    """
+    if mode == "tutorial":
+        module_id = getattr(session.module, "module_id", None) or getattr(session, "module_id", None)
+        return {
+            "session_id":  getattr(session, "session_id", None),
+            "module_id":   module_id,
+            "module_name": getattr(session.module, "name", None) or module_id,
+            "mode":        "guided",
+            "reading_only": True,
+            "success":     False,
+            "grade":       None,
+            "score":       0,
+            "summary":     GUIDED_MODE_REPORT_MESSAGE,
+            "message":     GUIDED_MODE_REPORT_MESSAGE,
+        }
+
     module_id  = getattr(session.module, "module_id", None) or getattr(session, "module_id", None)
     module_name = getattr(session.module, "name", None) or module_id
     variant_id = getattr(session, "variant_id", None) or progress.get("variant_id")

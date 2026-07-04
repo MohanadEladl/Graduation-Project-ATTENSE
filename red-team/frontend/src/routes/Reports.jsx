@@ -104,13 +104,17 @@ export default function Reports() {
                     onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,200,255,0.12)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,200,255,0.06)'}
                   >REPLAY</button>
-                  <button
-                    onClick={e => { e.stopPropagation(); navigate(`/report/${s.session_id}`) }}
-                    className="font-mono text-[9.5px] font-bold tracking-[0.1em] px-2.5 py-1 rounded-md transition-colors"
-                    style={{ background: 'rgba(46,227,154,0.08)', border: '1px solid rgba(46,227,154,0.3)', color: '#2ee39a' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(46,227,154,0.16)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(46,227,154,0.08)'}
-                  >VIEW REPORT</button>
+                  {/* Guided Mode is reading-only — never offer a report for it,
+                      even for a stale session recorded before this change. */}
+                  {isLab && (
+                    <button
+                      onClick={e => { e.stopPropagation(); navigate(`/report/${s.session_id}`) }}
+                      className="font-mono text-[9.5px] font-bold tracking-[0.1em] px-2.5 py-1 rounded-md transition-colors"
+                      style={{ background: 'rgba(46,227,154,0.08)', border: '1px solid rgba(46,227,154,0.3)', color: '#2ee39a' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(46,227,154,0.16)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(46,227,154,0.08)'}
+                    >VIEW REPORT</button>
+                  )}
                 </div>
               </div>
 
