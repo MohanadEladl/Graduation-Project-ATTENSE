@@ -348,6 +348,7 @@ def ensure_room_for_incident(incident_id: str, scenario_id: str) -> dict:
             existing["status"] = "active"
             existing.setdefault("attack_started_at", _now_iso())
             _save_room(existing)
+        _bind_signal_store_to_room(incident_id, existing.get("room_id"))
         return existing
 
     company = company_store.ensure_exercise_company()
@@ -382,7 +383,23 @@ def ensure_room_for_incident(incident_id: str, scenario_id: str) -> dict:
         "Auto-created Blue Team room %s for incident %s (scenario %s)",
         room_id, incident_id, scenario_id,
     )
+    _bind_signal_store_to_room(incident_id, room_id)
     return room
+
+
+def _bind_signal_store_to_room(incident_id: str, room_id: Optional[str]) -> None:
+    """Point the signal-store at this room so Wazuh detections for this incident
+    are stamped with X-Room-Id and accepted by the Blue Team API (roomless
+    raise-alert calls are rejected with 401). Best-effort: a signal-store that is
+    unreachable must never fail attack-event ingestion / room auto-creation."""
+    if not room_id:
+        return
+    try:
+        _configure_signal_store_incident(incident_id, room_id)
+    except Exception:
+        logger.exception(
+            "Failed to bind signal-store to room %s (incident %s)", room_id, incident_id
+        )
 
 
 def prefire_room(room_id: str, username: str) -> dict:

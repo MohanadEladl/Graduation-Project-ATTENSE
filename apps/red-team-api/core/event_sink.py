@@ -49,6 +49,11 @@ def post_malicious_action_event(
         "actor_id": actor_id,
         "actor_type": "red_team",
         "target_id": target_id,
+        # Required by the control API's StandardEvent contract (extra="forbid",
+        # target_type is mandatory). Red-team modules attack the lab host, so
+        # this is always "host". Without it the control API rejects the event
+        # with 422 and never auto-creates the Blue Team room.
+        "target_type": "host",
         "outcome": outcome,
         "metadata": metadata or {},
     }
