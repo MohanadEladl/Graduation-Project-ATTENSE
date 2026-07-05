@@ -1,0 +1,44 @@
+# =============================================================================
+# ATTENSE Cyber Range --- infra/compose.autocycle.yml
+# =============================================================================
+# Optional convenience layer: once the stack is healthy, automatically fire the
+# red-team -> Blue Team cycle so the operator does not have to manually create a
+# room and launch an attack on every `docker compose up`.
+#
+# It runs scripts/auto_cycle.py, which drives the red-team backend's
+# create/start/execute API. execute() emits `malicious_action_executed` to the
+# control API, which auto-surfaces the Blue Team room and binds signal-store so
+# Wazuh detections flow into that room.
+#
+# Reuses the red-team-api image (guaranteed Python, no extra pull) and just
+# overrides the entrypoint. Runs once (restart: "no"); set AUTO_CYCLE_MODULES /
+# AUTO_MODE via the environment to customise. To opt out for a run, either drop
+# this file from the include list in docker-compose.yml or set
+# ENABLE_AUTO_ATTACKS=false.
+# =============================================================================
+
+services:
+  auto-cycle:
+    build:
+      context: ../apps/red-team-api
+    image: attense-red-team-backend
+    container_name: attense_auto_cycle
+    depends_on:
+      red-team-backend:
+        condition: service_healthy
+      attense-app:
+        condition: service_healthy
+      target-agent:
+        condition: service_healthy
+    environment:
+      REDTEAM_URL: "http://red-team-backend:8000"
+      AUTO_MODULES: "${AUTO_CYCLE_MODULES:-xss,cmd_injection,dir_traversal}"
+      AUTO_MODE: "${AUTO_CYCLE_MODE:-lab}"
+      AUTO_WAIT_SECONDS: "240"
+    entrypoint: ["python"]
+    command: ["/auto_cycle.py"]
+    volumes:
+      - ../scripts/auto_cycle.py:/auto_cycle.py:ro
+    restart: "no"
+    networks:
+      - attense_net

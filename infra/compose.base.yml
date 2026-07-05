@@ -260,6 +260,10 @@ services:
       # when no room is joined. Matches signal-store's INCIDENT_ID below for
       # that no-room case so both sides still agree on one incident.
       INCIDENT_ID: "phase3-incident-001"
+      # Allow instructor/demo auto-execution of modules via POST /execute. The
+      # auto-cycle service (infra/compose.autocycle.yml) uses this to fire the
+      # red-team -> Blue Team pipeline automatically once the stack is healthy.
+      ENABLE_AUTO_ATTACKS: "${ENABLE_AUTO_ATTACKS:-true}"
     volumes:
       - red_team_logs:/red-team/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro

@@ -17,16 +17,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from core.base_module import BaseModule
 from core.models import TargetConfig
 from engine.session import AttackSession
+
+logger = logging.getLogger(__name__)
 
 # Temp file — lives inside the container; removed when `docker rm` clears /tmp
 _PERSIST_PATH = os.getenv("SESSION_STORE", "/tmp/attense_sessions.json")
@@ -45,6 +49,51 @@ def auto_attacks_enabled() -> bool:
     return os.getenv("ENABLE_AUTO_ATTACKS", "false").strip().lower() in {
         "1", "true", "yes", "on"
     }
+
+
+def _emit_malicious_action_event(record: "SessionRecord") -> None:
+    """Fire-and-forget: tell the control API a red-team module just ran.
+
+    The API session path (SessionManager.execute → module._cmd_execute) does not
+    go through core.engine.Engine.run(), so it never triggered core.engine's
+    event_sink hook. Without that event the control API never receives a
+    `malicious_action_executed`, so it never auto-surfaces a Blue Team room
+    (see incidents_router.ingest_event → room_manager.ensure_room_for_incident).
+    This mirrors Engine.run()'s emit for the API path so firing a module in the
+    lab completes the red-team → Blue Team pipeline. Best-effort by design:
+    event delivery must never crash or fail an attack run.
+    """
+    incident_id = os.environ.get("INCIDENT_ID", "")
+    if not incident_id:
+        return
+    try:
+        from core import event_sink
+
+        total = len(getattr(record.module, "steps", []) or [])
+        done = len(record.completed_steps)
+        outcome = "success" if (record.attack.state == "completed" and done > 0) else "failure"
+        anchor = record.mission_started_at or record.created_at
+        timestamp = datetime.fromtimestamp(anchor, tz=timezone.utc).isoformat()
+        event_sink.post_malicious_action_event(
+            event_id=record.session_id,
+            incident_id=incident_id,
+            scenario_id=record.module.scenario_id,
+            actor_id=os.environ.get("OPERATOR_ID", "red-team"),
+            target_id=record.target.host,
+            outcome=outcome,
+            timestamp=timestamp,
+            metadata={
+                "module_id": record.module.module_id,
+                "module_name": record.module.name,
+                "total_steps": total,
+                "successful_steps": done,
+            },
+            run_id=record.session_id,
+        )
+    except Exception:  # noqa: BLE001 — fire-and-forget, never break the run
+        logger.warning(
+            "event_sink emit failed for session %s", record.session_id, exc_info=True
+        )
 
 
 # Small ring buffer of recent log lines per session.
@@ -393,6 +442,9 @@ class SessionManager:
                 record.completed_steps = list(range(len(steps)))
 
         await loop.run_in_executor(None, _run)
+        # Notify the control API so the Blue Team room auto-surfaces for this
+        # attack (fire-and-forget; never blocks or fails the run).
+        _emit_malicious_action_event(record)
         return record.snapshot()
 
     # ── Logs / streaming ─────────────────────────────────────────────────────

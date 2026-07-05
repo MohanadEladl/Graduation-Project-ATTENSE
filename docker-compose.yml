@@ -19,3 +19,6 @@ include:
   - infra/compose.base.yml
   - infra/compose.security.yml
   - infra/compose.ai.yml
+  # Optional auto-run layer: fires the red-team -> Blue Team cycle once healthy
+  # so the operator doesn't have to create a room / launch an attack by hand.
+  - infra/compose.autocycle.yml
