@@ -313,10 +313,27 @@ def get(room_id: str, session: dict = Depends(require_session)):
                 "blue_started_at": room.get("blue_started_at"),
                 "blue_started_by": room.get("blue_started_by"),
             }
+            zero_day_alerts = [
+                {
+                    "classification": (e.metadata or {}).get("classification", "UNKNOWN"),
+                    "severity": (e.metadata or {}).get("severity", "UNKNOWN"),
+                    "confidence": (e.metadata or {}).get("confidence", "UNKNOWN"),
+                    "kill_chain_stage": (e.metadata or {}).get("kill_chain_stage", "Unknown"),
+                    "closest_mitre_id": (e.metadata or {}).get("closest_mitre_id", "?"),
+                    "closest_mitre_name": (e.metadata or {}).get("closest_mitre_name", "?"),
+                    "match_level": (e.metadata or {}).get("match_level", "?"),
+                    "attack_vector": (e.metadata or {}).get("attack_vector", "Unknown"),
+                    "affected_containers": (e.metadata or {}).get("affected_containers", []),
+                    "timestamp": e.timestamp.isoformat() if hasattr(e.timestamp, "isoformat") else str(e.timestamp),
+                }
+                for e in getattr(incident, "events", [])
+                if e.event_type == "alert_raised" and e.actor_id == "zeroday-agent"
+            ]
             detail.append({
                 "incident_id": incident_id,
                 "status": incident.status,
                 "report": report,
+                "zero_day_alerts": zero_day_alerts,
             })
     room["incidents_detail"] = detail
     # Blue Team users get the shared TheHive login creds + launch url on every

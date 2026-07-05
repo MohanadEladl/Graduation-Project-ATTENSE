@@ -363,6 +363,76 @@ function SkillBar({ label, value, tone }) {
  return <div className="dc-skill"><div><span>{label}</span><b>{value}%</b></div><i><em className={tone} style={{ width: value + '%' }} /></i></div>
 }
 
+function ZeroDaySection({ alerts }) {
+ const detected = alerts.filter((a) => a.classification === 'TRUE_ZERO_DAY' || a.classification === 'ZERO_DAY_VARIANT')
+ const hasDetection = detected.length > 0
+ const primary = detected[0] || alerts[0] || null
+
+ const severityColor = (s) => {
+  if (s === 'CRITICAL') return '#ff3b3b'
+  if (s === 'HIGH') return '#ff7043'
+  if (s === 'MEDIUM') return '#ffa726'
+  return '#4a86e8'
+ }
+
+ if (!hasDetection) {
+  return (
+   <section className="dc-zeroday-report">
+    <div className="dc-zeroday-clear">
+     <div className="dc-zeroday-icon safe" />
+     <h2>No Zero-Day Activity Detected</h2>
+     <p>The zero-day detection agent found no novel or unclassified attack behavior during this exercise. All observed activity matched known MITRE ATT&CK techniques.</p>
+     {alerts.length > 0 && <p className="dc-zeroday-note">Scanned {alerts.length} alert event(s) — all classified as known attack patterns.</p>}
+    </div>
+   </section>
+  )
+ }
+
+ return (
+  <section className="dc-zeroday-report">
+   <div className="dc-zeroday-alert-banner">
+    <div className="dc-zeroday-icon threat" />
+    <div>
+     <h2>Zero-Day Activity Detected</h2>
+     <p>{detected.length} zero-day alert{detected.length > 1 ? 's' : ''} flagged during this exercise.</p>
+    </div>
+    <span className="dc-zeroday-badge" style={{ background: severityColor(primary?.severity) + '22', color: severityColor(primary?.severity), borderColor: severityColor(primary?.severity) + '55' }}>{primary?.classification?.replace(/_/g, ' ')}</span>
+   </div>
+   {detected.map((alert, i) => (
+    <div key={i} className="dc-zeroday-card">
+     <header>
+      <h3>Detection {i + 1}</h3>
+      <div className="dc-zeroday-pills">
+       <span style={{ background: severityColor(alert.severity) + '22', color: severityColor(alert.severity) }}>Severity: {alert.severity}</span>
+       <span>Confidence: {alert.confidence}</span>
+       <span>Kill Chain: {alert.kill_chain_stage}</span>
+      </div>
+     </header>
+     <div className="dc-zeroday-grid">
+      <article>
+       <span>MITRE Technique</span>
+       <strong>[{alert.closest_mitre_id}] {alert.closest_mitre_name}</strong>
+       <p>Match level: {alert.match_level}</p>
+      </article>
+      <article>
+       <span>Attack Vector</span>
+       <strong>{alert.attack_vector}</strong>
+      </article>
+      <article>
+       <span>Affected Containers</span>
+       <strong>{(alert.affected_containers || []).join(', ') || 'Unknown'}</strong>
+      </article>
+      <article>
+       <span>Detected At</span>
+       <strong>{alert.timestamp ? new Date(alert.timestamp).toLocaleTimeString() : '--'}</strong>
+      </article>
+     </div>
+    </div>
+   ))}
+  </section>
+ )
+}
+
 function ReportView({ user, room }) {
  const [mode, setMode] = useState((user?.role === 'soc_manager' || user?.role === 'ciso') ? 'manager' : 'analyst')
  const [expanded, setExpanded] = useState(null)
@@ -407,8 +477,9 @@ function ReportView({ user, room }) {
  const teamAvg = Math.round(scores.reduce((sum, item) => sum + item, 0) / Math.max(scores.length, 1))
  return (
  <main className="dc-main">
- <section className="dc-report-header"><div><p>Post-Incident Report</p><h1>{roomScenario(activeRoom)}</h1><div className="dc-report-badges"><span>{roomDate(activeRoom)}</span><span>{roomOutcome(activeRoom)}</span></div></div><div className="dc-toggle"><button className={mode === 'analyst' ? 'active' : ''} onClick={() => setMode('analyst')}>Analyst View</button><button className={mode === 'manager' ? 'active manager' : ''} onClick={() => setMode('manager')}>SOC Manager</button></div></section>
+ <section className="dc-report-header"><div><p>Post-Incident Report</p><h1>{roomScenario(activeRoom)}</h1><div className="dc-report-badges"><span>{roomDate(activeRoom)}</span><span>{roomOutcome(activeRoom)}</span></div></div><div className="dc-toggle"><button className={mode === 'analyst' ? 'active' : ''} onClick={() => setMode('analyst')}>Analyst View</button><button className={mode === 'manager' ? 'active manager' : ''} onClick={() => setMode('manager')}>SOC Manager</button><button className={mode === 'zeroday' ? 'active zeroday' : ''} onClick={() => setMode('zeroday')}>Zero Day</button></div></section>
  {mode === 'analyst' && <section className="dc-analyst-report"><div className="dc-score-card"><div className="dc-score-ring"><svg viewBox="0 0 140 140"><defs><linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#4a86e8" /><stop offset="100%" stopColor="#43d39f" /></linearGradient></defs><circle cx="70" cy="70" r="52" /><circle cx="70" cy="70" r="52" pathLength="100" style={{ strokeDasharray: 100, strokeDashoffset: 100 - actualScore }} /></svg><div><strong>{actualScore}</strong><span>/100</span></div></div><p>Final Grade</p><b style={{ color: scoreColor(actualScore), borderColor: scoreColor(actualScore) + '40', background: scoreColor(actualScore) + '18' }}>{gradeFor(actualScore)}</b></div><div className="dc-report-side"><div className="dc-metric-grid"><article><span>Time to Detect</span><strong>{formatDuration(report?.ttd)}</strong><p>TTD</p></article><article><span>Time to Contain</span><strong>{formatDuration(report?.ttc)}</strong><p>TTC</p></article><article><span>Time to Respond</span><strong>{formatDuration(report?.ttc)}</strong><p>TTR</p></article></div><div className="dc-skills"><h2>Skill Breakdown</h2><SkillBar label="Detection" value={analystRows[0].det} tone="green" /><SkillBar label="Containment" value={analystRows[0].con} tone="blue" /><SkillBar label="Recovery" value={analystRows[0].rec} tone="purple" /></div></div><div className="dc-ai-feedback"><h2>Incident Outcome</h2><p>{report?.outcome ? `The incident received outcome: ${report.outcome}.` : analystRows[0].narrative}</p></div></section>}
+ {mode === 'zeroday' && <ZeroDaySection alerts={activeRoom?.incidents_detail?.[0]?.zero_day_alerts || []} />}
  {mode === 'manager' && <section className="dc-manager-report"><div className="dc-team-stats"><article><span>Team Avg Score</span><strong>{teamAvg}</strong><p>/ 100 points</p></article><article><span>Best Score</span><strong>{Math.max(...scores)}</strong><p>{roomName(activeRoom)}</p></article><article><span>Lowest Score</span><strong>{Math.min(...scores)}</strong><p>Review needed</p></article><article><span>Analysts</span><strong>{analystRows.length}</strong><p>Report rows</p></article></div><div className="dc-analyst-table"><header><h2>Incident Summary</h2><p>Report derived from active room data</p></header><div className="dc-analyst-head"><span>Report</span><span>Role</span><span>Score</span><span>TTD</span><span>TTC</span><span>TTR</span><span /></div>{analystRows.map((analyst) => <div key={analyst.id}><button className="dc-analyst-row" type="button" onClick={() => setExpanded(expanded === analyst.id ? null : analyst.id)}><div><i>{analyst.avatar}</i><strong>{analyst.name}</strong></div><span>{analyst.role}</span><b style={{ color: scoreColor(analyst.score) }}>{analyst.score}</b><span>{analyst.ttd}</span><span>{analyst.ttc}</span><span>{analyst.ttr}</span><em>{expanded === analyst.id ? 'up' : 'down'}</em></button>{expanded === analyst.id && <div className="dc-expanded"><div className="dc-mini-score"><strong>{analyst.score}</strong><span style={{ color: scoreColor(analyst.score), borderColor: scoreColor(analyst.score) + '40', background: scoreColor(analyst.score) + '18' }}>{analyst.grade}</span></div><div><div className="dc-metric-grid small"><article><span>TTD</span><strong>{analyst.ttd}</strong></article><article><span>TTC</span><strong>{analyst.ttc}</strong></article><article><span>TTR</span><strong>{analyst.ttr}</strong></article></div><div className="dc-skills compact"><SkillBar label="Detection" value={analyst.det} tone="green" /><SkillBar label="Containment" value={analyst.con} tone="blue" /><SkillBar label="Recovery" value={analyst.rec} tone="purple" /></div><p>{analyst.narrative}</p></div></div>}</div>)}</div></section>}
  </main>
  )
