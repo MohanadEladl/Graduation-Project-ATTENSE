@@ -90,7 +90,7 @@ def ping():
         "event": "ping_request",
         "endpoint": "/system/ping",
         "host_param": host,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
 
     # Lab evidence - generic usage
@@ -99,9 +99,8 @@ def ping():
         "diagnostics_used",
         module_id="cmd_injection",
         path="/system/ping", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         extra={"host_param": host},
     )
     # Detect injection patterns
@@ -110,9 +109,8 @@ def ping():
             "command_separator_observed",
             module_id="cmd_injection",
             path="/system/ping", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
             severity="medium",
             extra={"host_param": host[:200]},
         )
@@ -132,9 +130,8 @@ def ping():
             "command_injection_detected",
             module_id="cmd_injection",
             path="/system/ping", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
             severity="critical",
             extra={"host_param": host[:200], "output_excerpt": output[:300]},
         )

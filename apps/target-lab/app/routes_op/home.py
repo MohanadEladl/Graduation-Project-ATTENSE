@@ -28,16 +28,15 @@ def index():
     logger.info(json.dumps({
         "event": "portal_visited",
         "endpoint": "/op/",
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
         "user_agent": request.headers.get("User-Agent", ""),
     }))
     evidence.record(
         "portal_visited",
         module_id="recon",
         path="/op/", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         extra={"backend": "operator"},
     )
     return render_template_string(_INDEX)
@@ -89,9 +88,8 @@ def git_config():
         "hidden_clue_accessed",
         module_id="recon",
         path="/op/.git/config", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         severity="medium",
         learner_message="Discovered exposed .git/config - internal repository metadata leaked.",
         extra={"backend": "operator"},
@@ -119,9 +117,8 @@ def csrf_lure():
         "csrf_lure_visited",
         module_id="csrf",
         path="/op/evil/csrf-demo", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         severity="medium",
         extra={"backend": "operator"},
     )

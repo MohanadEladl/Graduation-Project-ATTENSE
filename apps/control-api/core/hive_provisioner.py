@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import re
-import threading
 import time
 from pathlib import Path
 
@@ -43,34 +42,6 @@ def derive_password(login: str) -> str:
     digest = hmac.new(secret.encode("utf-8"), login.lower().encode("utf-8"), hashlib.sha256).digest()
     token = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:16]
     return f"At1!{token}"
-
-
-def api_key_is_valid(api_key: str) -> bool:
-    """Whether *api_key* still authenticates against TheHive.
-
-    A room's pipeline key is normally minted exactly once (see
-    `room_manager._ensure_room_hive`) and assumed valid forever after -
-    but if TheHive's own state is ever reset independently of ATTENSE's
-    room store (its DB/volumes recreated, the service account manually
-    removed, etc.), that assumption breaks: the room keeps a key TheHive
-    no longer recognises, and every alert/notification-rule call for that
-    room 401s forever with no way to recover (confirmed live: a service
-    account that TheHive now 404s on `GET /api/user/{login}`, while the
-    room's stored key still exists and gets rejected). Callers use this to
-    detect that case and re-provision instead of trusting a stored key
-    blindly.
-    """
-    if not api_key:
-        return False
-    try:
-        response = httpx.get(
-            f"{HIVE_URL}/api/v1/user/current",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=10,
-        )
-        return response.status_code == 200
-    except httpx.HTTPError:
-        return False
 
 
 _alert_org_cache: str | None = None
@@ -364,18 +335,14 @@ def _put_notification_rule(org_api_key: str):
     )
 
 
-def _wait_for_thehive_ready(timeout_seconds: float = 280) -> bool:
+def _wait_for_thehive_ready(timeout_seconds: float = 150) -> bool:
     """Poll /api/status until TheHive answers or *timeout_seconds* elapses.
 
     A restarted container's PROCESS comes back long before its Play/JVM
-    server actually binds port 9000 (confirmed live: ~60-90s gap, but the
-    container's own healthcheck allows a `start_period` of up to 240s on a
-    cold boot) - so this must wait comfortably past that, not just past the
-    common case. Callers that need to talk to TheHive right after a restart
-    (e.g. ensure_notification_rule) must wait for this, not just for
-    `container.restart()` to return. Runs off the request path (see
-    `authorize_org_for_webhook`), so a generous timeout here no longer costs
-    the calling HTTP request anything.
+    server actually binds port 9000 (confirmed live: ~60-90s gap). Callers
+    that need to talk to TheHive right after a restart (e.g.
+    ensure_notification_rule) must wait for this, not just for
+    `container.restart()` to return.
     """
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -389,133 +356,54 @@ def _wait_for_thehive_ready(timeout_seconds: float = 280) -> bool:
     return False
 
 
-# Guards the conf-file read-modify-write below (Race B: two entries for two
-# different brand-new rooms landing on different threadpool threads - see
-# room_manager.enter_room, dispatched via FastAPI's sync-route threadpool -
-# could otherwise read the file before either writes and silently clobber
-# each other's appended org). Held only briefly and synchronously on the
-# calling thread; the file I/O + json parse it guards is sub-millisecond, so
-# this never reintroduces the blocking problem below.
-_conf_lock = threading.Lock()
-
-# Guards the actual `container.restart()` (Race A: two near-simultaneous
-# entries into two different brand-new rooms would otherwise each spawn
-# their own restart thread, restarting the one shared TheHive container back
-# to back). Only ever acquired from the background restart thread, never
-# from a request thread.
-_restart_lock = threading.Lock()
-# Monotonic counter of conf-file writes, and the highest one already covered
-# by a completed restart. Lets a later-queued restart notice that an
-# earlier one (which restarted AFTER this org was already written to disk)
-# already picked up its org, so it can skip its own redundant restart
-# instead of unconditionally restarting again - this is what actually fixes
-# "TheHive keeps restarting forever" when several new rooms are entered in
-# a session, not just the double-restart case.
-_conf_write_seq = 0
-_restarted_through_seq = 0
-
-
 def authorize_org_for_webhook(org_name: str) -> bool:
     """Add *org_name* to the webhook's `includedTheHiveOrganisations` allow-list
-    in application.conf and schedule a TheHive restart in the BACKGROUND so
-    the change takes effect - this returns as soon as the conf file is
-    written, without waiting for the restart or for TheHive to come back up.
+    in application.conf, restart TheHive so the change takes effect, and wait
+    for it to actually come back up before returning.
 
     Additive: other already-authorised orgs (other rooms/companies) are kept,
     so this never de-authorises anyone else's webhook. Returns False (no-op,
-    nothing scheduled) if the org was already on the list. Returns True if
-    the org was newly added and a restart has been queued - this does NOT
-    mean TheHive has finished restarting, only that it will (eventually,
-    possibly coalesced with another room's restart - see
-    `_restart_thehive_in_background`). Raises RuntimeError only for the
-    synchronous conf-parsing failure; a restart/readiness failure can no
-    longer propagate from here (it happens on a background thread) and is
-    instead logged there - callers should treat the whole thing as
-    best-effort (a missing/delayed restart only degrades auto-attach, it
-    doesn't break the room itself, and the next room entry retries it - see
-    room_manager._ensure_room_hive).
+    no restart) if the org was already on the list. Raises RuntimeError on
+    failure - callers should treat this as best-effort (log, don't block room
+    entry) since a missing restart only degrades auto-attach, it doesn't
+    break the room itself.
     """
-    with _conf_lock:
-        conf_path = Path(THEHIVE_CONF_PATH)
-        content = conf_path.read_text(encoding="utf-8")
-        pattern = re.compile(r'includedTheHiveOrganisations\s*=\s*(\[[^\]]*\])')
-        match = pattern.search(content)
-        if not match:
-            raise RuntimeError(
-                f"Could not find includedTheHiveOrganisations in {conf_path}"
-            )
-        current: list[str] = json.loads(match.group(1))
-        if org_name in current:
-            return False
+    conf_path = Path(THEHIVE_CONF_PATH)
+    content = conf_path.read_text(encoding="utf-8")
+    pattern = re.compile(r'includedTheHiveOrganisations\s*=\s*(\[[^\]]*\])')
+    match = pattern.search(content)
+    if not match:
+        raise RuntimeError(
+            f"Could not find includedTheHiveOrganisations in {conf_path}"
+        )
+    current: list[str] = json.loads(match.group(1))
+    if org_name in current:
+        return False
 
-        current.append(org_name)
-        new_content = content[: match.start(1)] + json.dumps(current) + content[match.end(1):]
-        conf_path.write_text(new_content, encoding="utf-8")
-        global _conf_write_seq
-        _conf_write_seq += 1
-        my_seq = _conf_write_seq
+    current.append(org_name)
+    new_content = content[: match.start(1)] + json.dumps(current) + content[match.end(1):]
+    conf_path.write_text(new_content, encoding="utf-8")
+    logger.info("Authorised org '%s' for the TheHive webhook; restarting TheHive ...", org_name)
 
-    logger.info(
-        "Authorised org '%s' for the TheHive webhook; restart queued in the "
-        "background (seq=%s)", org_name, my_seq,
-    )
-    threading.Thread(
-        target=_restart_thehive_in_background,
-        args=(org_name, my_seq),
-        daemon=True,
-        name=f"thehive-restart-{org_name}",
-    ).start()
-    return True
-
-
-def _restart_thehive_in_background(org_name: str, my_seq: int) -> None:
-    """Restart TheHive and wait for it to come back up, off the request path.
-
-    Runs on its own daemon thread (spawned by `authorize_org_for_webhook`).
-    Must never let an exception escape: a daemon thread's default excepthook
-    just prints to stderr, so this is the ONLY place a docker/restart
-    failure for *org_name* can be observed - every failure path here is
-    caught and logged with the org name.
-    """
-    global _restarted_through_seq
+    client = docker.from_env()
     try:
-        with _restart_lock:
-            if _restarted_through_seq >= my_seq:
-                # A restart that already ran (queued after this org was
-                # written to disk - conf writes happen under _conf_lock
-                # before their restart is queued, so ordering is guaranteed)
-                # already picked up this org. Restarting again would just be
-                # another multi-minute outage for no new authorization.
-                logger.info(
-                    "TheHive restart already covers org '%s' (seq %s); "
-                    "skipping redundant restart", org_name, my_seq,
-                )
-                return
+        container = client.containers.get(THEHIVE_CONTAINER_NAME)
+        container.restart(timeout=30)
+    finally:
+        client.close()
 
-            logger.info("Restarting TheHive container for org '%s' ...", org_name)
-            client = docker.from_env()
-            try:
-                container = client.containers.get(THEHIVE_CONTAINER_NAME)
-                container.restart(timeout=30)
-            finally:
-                client.close()
-
-            # container.restart() returns once the container PROCESS is
-            # back, not once TheHive's own server is accepting requests -
-            # wait here so the "restart done" bookkeeping below is accurate.
-            if _wait_for_thehive_ready():
-                logger.info("TheHive back up after restart for org '%s'.", org_name)
-            else:
-                logger.warning(
-                    "TheHive did not answer /api/status within the timeout "
-                    "after restarting for org '%s' - next room entry retries.",
-                    org_name,
-                )
-
-            with _conf_lock:
-                _restarted_through_seq = max(_restarted_through_seq, _conf_write_seq)
-    except Exception:
-        logger.exception("Background TheHive restart failed for org '%s'", org_name)
+    # container.restart() returns once the container PROCESS is back, not
+    # once TheHive's own server is accepting requests - callers immediately
+    # doing a TheHive API call (e.g. ensure_notification_rule) need the
+    # latter, so wait here rather than pushing this timing bug onto every
+    # caller.
+    if not _wait_for_thehive_ready():
+        logger.warning(
+            "TheHive did not answer /api/status within the timeout after "
+            "restarting for org '%s' - proceeding anyway (caller retries).",
+            org_name,
+        )
+    return True
 
 
 # -- Org reuse (TheHive has no organisation-delete API) ------------------------

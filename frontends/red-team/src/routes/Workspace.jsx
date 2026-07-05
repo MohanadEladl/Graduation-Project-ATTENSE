@@ -75,9 +75,6 @@ function LabModePanel({ moduleId, briefing }) {
   const tools = requiredToolsFor(moduleId)
   const [hintsRevealed, setHintsRevealed] = useState(0)
   const hints = useMemo(() => {
-    // Operator Mode uses its own staged hints (no guided enumeration / credential
-    // leak). Fall back to tip + watchFor for modules without operator hints.
-    if (briefing?.operatorHints?.length) return briefing.operatorHints
     const h = []
     if (briefing?.tip) h.push(briefing.tip)
     if (briefing?.watchFor) briefing.watchFor.forEach(w => h.push(w))
@@ -375,13 +372,10 @@ function LabBrowser({ moduleId, missionStarted, onNavigate, mode = 'tutorial', s
     if (p.startsWith('http://') || p.startsWith('https://')) return null // block external
     if (!p.startsWith('/')) p = '/' + p
     // Re-prefix to whichever proxy this mode owns. Strip an existing prefix
-    // first so toggling modes converts paths cleanly. Check the longer,
-    // more-specific prefixes before the bare /target.
-    if (p.startsWith('/target-zap')) p = p.slice('/target-zap'.length) || '/'
-    else if (p.startsWith('/target-op')) p = p.slice('/target-op'.length) || '/'
+    // first so toggling modes converts paths cleanly.
+    if (p.startsWith('/target-op')) p = p.slice('/target-op'.length) || '/'
     else if (p.startsWith('/target')) p = p.slice('/target'.length) || '/'
-    // Lab mode routes the browser through ZAP (/target-zap); tutorial stays direct.
-    const proxy = (mode === 'lab') ? '/target-zap' : '/target'
+    const proxy = (mode === 'lab') ? '/target-op' : '/target'
     return `${proxy}${p === '/' ? '/' : p}`
   }
 
@@ -956,16 +950,13 @@ function LearningPanel({
   const requiredTools = isLab ? requiredToolsFor(moduleId) : []
   const [hintsRevealed, setHintsRevealed] = useState(0)
 
-  // Build hint tiers from briefing. In Lab/Operator Mode use the dedicated
-  // staged operatorHints (no guided enumeration/credential leak); Guided Mode
-  // keeps tip + watchFor.
+  // Build hint tiers from briefing
   const hints = useMemo(() => {
-    if (isLab && briefing?.operatorHints?.length) return briefing.operatorHints
     const h = []
     if (briefing?.tip) h.push(briefing.tip)
     if (briefing?.watchFor) briefing.watchFor.forEach(w => h.push(w))
     return h
-  }, [briefing, isLab])
+  }, [briefing])
 
   return (
     <motion.aside
@@ -1253,13 +1244,9 @@ function LearningPanel({
 // ── Advanced collapsed strip (bottom) ───────────────────────────────────────
 // Only visible when the user opts in via the LearningPanel toggle. Holds
 // the optional "Run Automated Scan" affordance for instructor demos.
-function AdvancedTools({ open, snapshot, sid, onExecute, executing, autoAttacksEnabled }) {
+function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
   if (!open) return null
-  const instructor =
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('instructor') === '1'
   const attackDone = snapshot?.state === 'completed' || snapshot?.state === 'error'
-  const canAutoRun = instructor && autoAttacksEnabled
   return (
     <div
       className="shrink-0"
@@ -1273,43 +1260,35 @@ function AdvancedTools({ open, snapshot, sid, onExecute, executing, autoAttacksE
         <div className="font-mono text-[9px] tracking-[0.28em] text-attense-dim">
           ADVANCED
         </div>
-        {canAutoRun ? (
-          <>
-            <button
-              onClick={onExecute}
-              disabled={executing}
-              className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
-              style={{
-                background: executing ? 'rgba(255,255,255,0.04)' : 'rgba(245,196,0,0.06)',
-                border: '1px solid rgba(245,196,0,0.25)',
-                color: executing ? '#3a4060' : '#fbbf24',
-                cursor: executing ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {executing ? 'RUNNING…' : 'RUN AUTOMATED SCAN'}
-            </button>
-            {attackDone && (
-              <Link
-                to={`/attack-report/${sid}`}
-                className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
-                style={{
-                  background: 'rgba(255,64,96,0.07)',
-                  border: '1px solid rgba(255,64,96,0.3)',
-                  color: '#ff4060',
-                }}
-              >
-                VIEW ATTACK REPORT →
-              </Link>
-            )}
-            {!attackDone && (
-              <span className="font-mono text-[9.5px] text-attense-dim">
-                (runs the backend scanner — an attack report will be available after)
-              </span>
-            )}
-          </>
-        ) : (
+        <button
+          onClick={onExecute}
+          disabled={executing}
+          className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
+          style={{
+            background: executing ? 'rgba(255,255,255,0.04)' : 'rgba(245,196,0,0.06)',
+            border: '1px solid rgba(245,196,0,0.25)',
+            color: executing ? '#3a4060' : '#fbbf24',
+            cursor: executing ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {executing ? 'RUNNING…' : 'RUN AUTOMATED SCAN'}
+        </button>
+        {attackDone && (
+          <Link
+            to={`/attack-report/${sid}`}
+            className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
+            style={{
+              background: 'rgba(255,64,96,0.07)',
+              border: '1px solid rgba(255,64,96,0.3)',
+              color: '#ff4060',
+            }}
+          >
+            VIEW ATTACK REPORT →
+          </Link>
+        )}
+        {!attackDone && (
           <span className="font-mono text-[9.5px] text-attense-dim">
-            Hands-on lab — drive the attack yourself from the Terminal or ZAP, then Check Progress.
+            (runs the backend scanner — an attack report will be available after)
           </span>
         )}
       </div>
@@ -1802,7 +1781,6 @@ export default function Workspace() {
   const [missionStarted, setMissionStarted] = useState(false)
   const [showAdvanced, setShowAdvanced]     = useState(false)
   const [executing, setExecuting]           = useState(false)
-  const [autoAttacksEnabled, setAutoAttacksEnabled] = useState(false)
   const [labPanelMinimized, setLabPanelMinimized] = useState(false)
   const [leftCollapsed, setLeftCollapsed]   = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
@@ -1896,18 +1874,6 @@ export default function Workspace() {
   const [variantId, setVariantId] = useState(null)
   const toolsVisible = mode === 'lab' || isMutationRun
   const activeMutation = activeMutations[activeMutations.length - 1] || null
-
-  useEffect(() => {
-    let cancelled = false
-    api.config()
-      .then(cfg => {
-        if (!cancelled) setAutoAttacksEnabled(Boolean(cfg.enable_auto_attacks))
-      })
-      .catch(() => {
-        if (!cancelled) setAutoAttacksEnabled(false)
-      })
-    return () => { cancelled = true }
-  }, [])
 
   useEffect(() => {
     if (!modeHydratedRef.current && snapshot?.mode) {
@@ -2316,9 +2282,6 @@ export default function Workspace() {
                 selectedTool={selectedLabTool}
                 minimized={labPanelMinimized}
                 onToggleMinimize={() => setLabPanelMinimized(v => !v)}
-                sessionId={sid}
-                moduleId={snapshot.module_id}
-                mode={mode}
               />
             </motion.div>
           )}
@@ -2343,7 +2306,6 @@ export default function Workspace() {
       <AdvancedTools
         open={showAdvanced} snapshot={snapshot} sid={sid}
         onExecute={handleAdvancedExecute} executing={executing}
-        autoAttacksEnabled={autoAttacksEnabled}
       />
 
       <ShapeshiftOverlay

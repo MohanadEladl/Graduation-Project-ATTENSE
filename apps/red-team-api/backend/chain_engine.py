@@ -128,13 +128,7 @@ def check_step_complete(chain_session_id: str) -> bool:
       - variant_id = None (chains always use default variant)
       - mission_started_at = chain session's started_at timestamp
 
-    Returns True if score >= step's threshold AND the module's
-    success_required event types were actually observed. progress_percent
-    alone isn't enough to advance a chain phase: a module's task ladder can
-    cross the threshold without the learner having pulled off the actual
-    exploit (e.g. partial recon credit), so requiring `success` too ensures
-    "advance to next phase" means the same thing as "mission succeeded" in
-    the single-mission flow.
+    Returns True if score >= step's threshold.
     """
     if chain_session_id not in _CHAIN_SESSIONS:
         raise KeyError("Chain session not found: " + chain_session_id)
@@ -157,10 +151,9 @@ def check_step_complete(chain_session_id: str) -> bool:
         module_id=module_id,
         mission_started_at=session["started_at"],
         variant_id=None,
-        session_id=session["session_id"],
     )
     score = int(result.get("progress_percent", 0))
-    return score >= threshold and bool(result.get("success"))
+    return score >= threshold
 
 
 def advance_chain(chain_session_id: str) -> Dict[str, Any]:
@@ -189,8 +182,7 @@ def advance_chain(chain_session_id: str) -> Dict[str, Any]:
         step = chain["steps"][idx]
         raise ValueError(
             "Current step '" + step["label"] + "' is not yet complete. "
-            "Score must reach " + str(step["threshold"]) + "% AND the module's "
-            "exploit must actually be confirmed."
+            "Score must reach " + str(step["threshold"]) + "%."
         )
 
     # Snapshot current phase result BEFORE wiping evidence
@@ -203,26 +195,22 @@ def advance_chain(chain_session_id: str) -> Dict[str, Any]:
         module_id=step["module_id"],
         mission_started_at=session["started_at"],
         variant_id=None,
-        session_id=session["session_id"],
     )
     _score = int(_result.get("progress_percent", 0))
-    _success = bool(_result.get("success"))
     session["phase_results"][idx] = {
         "phase_index": idx,
         "module_id": step["module_id"],
         "label": step["label"],
         "threshold": step["threshold"],
         "score": _score,
-        "passed": _score >= step["threshold"] and _success,
-        "success": _success,
+        "passed": _score >= step["threshold"],
         "evidence": _result.get("evidence", []),
         "completed_tasks": _result.get("completed_tasks", []),
         "timestamp": time.time(),
     }
 
-    # Reset this session's target-agent evidence only - swallow any failure
-    import urllib.parse as _up
-    reset_url = TARGET_AGENT_URL + "/lab/events/reset?session_id=" + _up.quote(session["session_id"])
+    # Reset target-agent evidence - swallow any failure
+    reset_url = TARGET_AGENT_URL + "/lab/events/reset"
     try:
         req = urllib.request.Request(
             reset_url, data=b"", method="POST",
@@ -270,7 +258,6 @@ def get_chain_report(chain_session_id: str) -> Dict[str, Any]:
                 "threshold": step["threshold"],
                 "score": score,
                 "passed": stored["passed"],
-                "success": stored.get("success", False),
                 "evidence": stored.get("evidence", []),
                 "completed_tasks": stored.get("completed_tasks", []),
             })
@@ -280,17 +267,14 @@ def get_chain_report(chain_session_id: str) -> Dict[str, Any]:
                 module_id=step["module_id"],
                 mission_started_at=session["started_at"],
                 variant_id=None,
-                session_id=session["session_id"],
             )
             score = int(result.get("progress_percent", 0))
-            success = bool(result.get("success"))
             steps_out.append({
                 "module_id": step["module_id"],
                 "label": step["label"],
                 "threshold": step["threshold"],
                 "score": score,
-                "passed": score >= step["threshold"] and success,
-                "success": success,
+                "passed": score >= step["threshold"],
                 "evidence": result.get("evidence", []),
                 "completed_tasks": result.get("completed_tasks", []),
             })
@@ -303,7 +287,6 @@ def get_chain_report(chain_session_id: str) -> Dict[str, Any]:
                 "threshold": step["threshold"],
                 "score": 0,
                 "passed": False,
-                "success": False,
                 "evidence": [],
                 "completed_tasks": [],
             })

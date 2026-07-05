@@ -44,22 +44,20 @@ def read_file():
 
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
 
     logger.info(json.dumps({
         "event": "file_read_request",
         "endpoint": "/op/files/read",
         "path_param": raw,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
 
     evidence.record(
         "file_viewer_used",
         module_id="dir_traversal",
         path="/op/files/read", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"path_param": raw, "backend": "operator"},
     )
 
@@ -69,9 +67,8 @@ def read_file():
             "traversal_pattern_observed",
             module_id="dir_traversal",
             path="/op/files/read", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="medium",
             extra={"path_param": raw[:200], "backend": "operator"},
         )
@@ -91,9 +88,8 @@ def read_file():
                     "sensitive_file_disclosed",
                     module_id="dir_traversal",
                     path="/op/files/read", method="GET",
-                    source_ip=current_app.fake_attacker_ip(),
+                    source_ip=request.remote_addr,
                     via=via,
-                    session_id=session_id,
                     severity="critical",
                     extra={"path_param": raw[:200], "backend": "operator"},
                 )
@@ -112,14 +108,12 @@ def read_file():
 def upload_file():
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
     evidence.record(
         "file_upload_used",
         module_id="file_upload",
         path="/op/files/upload", method=request.method,
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"backend": "operator"},
     )
     if request.method == "GET":
@@ -153,9 +147,8 @@ def upload_file():
         "file_saved",
         module_id="file_upload",
         path="/op/files/upload", method="POST",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"filename": filename, "content_type": file.content_type or "",
                "backend": "operator"},
     )
@@ -165,9 +158,8 @@ def upload_file():
             "dangerous_extension_accepted",
             module_id="file_upload",
             path="/op/files/upload", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="high",
             extra={"filename": filename, "backend": "operator"},
         )
@@ -175,9 +167,8 @@ def upload_file():
             "unrestricted_upload_detected",
             module_id="file_upload",
             path="/op/files/upload", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="high",
             learner_message=(
                 "A bypass-style extension was accepted by the upload form "

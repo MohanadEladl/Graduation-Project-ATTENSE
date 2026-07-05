@@ -29,10 +29,6 @@ services:
     logging: *default-logging
     environment:
       - CONTAINMENT_API_TOKEN=${CONTAINMENT_API_TOKEN:-attense-containment-token}
-      # Operator (harder-mode) login credentials for routes_op/auth.py - kept
-      # out of source so they're not sitting in git history; default here
-      # matches the value this lab has always used, override via .env.
-      - OPERATOR_AUTH_USERS_JSON=${OPERATOR_AUTH_USERS_JSON:-{"admin":"Br3akMe!2025","operator":"Tr0ub4dor&3","service":"S3rvice@cct"}}
     depends_on:
       wazuh-manager:
         condition: service_healthy
@@ -289,8 +285,7 @@ services:
     depends_on:
       - red-team-backend
     ports:
-      # All-interfaces publish for cross-OS localhost — see blue-team-frontend below.
-      - "3000:8080"
+      - "127.0.0.1:3000:8080"  # loopback only --- not exposed to the LAN
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
@@ -312,13 +307,7 @@ services:
     depends_on:
       - attense-app
     ports:
-      # Published on all interfaces so the browser's localhost resolves on every
-      # OS: macOS resolves localhost to IPv6 ::1 first, Windows/Linux to IPv4
-      # 127.0.0.1. Docker Desktop forwards localhost on both stacks to this
-      # publish (same as red-team-frontend). Pinning to 127.0.0.1 broke macOS
-      # (Chrome hit an unbound ::1) and pinning to [::1] risks failing to start
-      # on hosts with IPv6 loopback disabled.
-      - "3100:8080"            # Blue Team workspace
+      - "127.0.0.1:3100:8080"  # loopback only, Blue Team workspace
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s
@@ -340,8 +329,7 @@ services:
       - red-team-frontend
       - blue-team-frontend
     ports:
-      # All-interfaces publish for cross-OS localhost — see blue-team-frontend above.
-      - "5173:8080"
+      - "127.0.0.1:5173:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/frontend-health | grep -q ok"]
       interval: 15s

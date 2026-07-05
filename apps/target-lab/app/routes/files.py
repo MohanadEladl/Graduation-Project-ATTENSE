@@ -110,7 +110,7 @@ def read_file():
         "event": "file_read_request",
         "endpoint": "/files/read",
         "path_param": path,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
 
     import evidence
@@ -118,9 +118,8 @@ def read_file():
         "file_viewer_used",
         module_id="dir_traversal",
         path="/files/read", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         extra={"path_param": path},
     )
     # Detect traversal attempts
@@ -129,9 +128,8 @@ def read_file():
             "traversal_pattern_observed",
             module_id="dir_traversal",
             path="/files/read", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
             severity="medium",
             extra={"path_param": path[:200]},
         )
@@ -140,7 +138,7 @@ def read_file():
         logger.warning(json.dumps({
             "event": "file_read_blocked",
             "path_param": path,
-            "source_ip": current_app.fake_attacker_ip(),
+            "source_ip": request.remote_addr,
         }))
         return render_template_string(
             _READ_PAGE,
@@ -162,9 +160,8 @@ def read_file():
                 "sensitive_file_disclosed",
                 module_id="dir_traversal",
                 path="/files/read", method="GET",
-                source_ip=current_app.fake_attacker_ip(),
+                source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
                 severity="critical",
                 extra={"path_param": path[:200]},
             )
@@ -249,9 +246,8 @@ def upload_file():
         "file_upload_used",
         module_id="file_upload",
         path="/files/upload", method=request.method,
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
     )
     if request.method == "GET":
         return render_template_string(_UPLOAD_PAGE, message="")
@@ -271,7 +267,7 @@ def upload_file():
         "endpoint": "/files/upload",
         "filename": filename,
         "content_type": file.content_type,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
 
     # [VULN] No extension check, no MIME validation, no size limit, no rename
@@ -289,9 +285,8 @@ def upload_file():
         "file_saved",
         module_id="file_upload",
         path="/files/upload", method="POST",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         extra={"filename": filename, "content_type": file.content_type or ""},
     )
     if has_extension(filename, GUIDED_DANGEROUS_UPLOAD_EXTENSIONS):
@@ -299,9 +294,8 @@ def upload_file():
             "dangerous_extension_accepted",
             module_id="file_upload",
             path="/files/upload", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
             severity="high",
             extra={"filename": filename},
         )
@@ -309,9 +303,8 @@ def upload_file():
             "unrestricted_upload_detected",
             module_id="file_upload",
             path="/files/upload", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
             severity="high",
             learner_message=(
                 "An executable-style extension was accepted by the upload form. "

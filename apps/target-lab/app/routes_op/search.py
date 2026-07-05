@@ -40,21 +40,19 @@ def search():
         "endpoint": "/op/search",
         "query": raw_q,
         "sanitized": q,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
         "method": request.method,
     }))
 
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
     evidence.record(
         "search_used",
         module_id="xss",
         path="/op/search",
         method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"query": raw_q, "backend": "operator"},
     )
 
@@ -66,9 +64,8 @@ def search():
             module_id="xss",
             path="/op/search",
             method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="medium",
             extra={"query": raw_q[:200], "backend": "operator"},
         )
@@ -80,9 +77,8 @@ def search():
                 module_id="xss",
                 path="/op/search",
                 method="GET",
-                source_ip=current_app.fake_attacker_ip(),
+                source_ip=request.remote_addr,
                 via=via,
-                session_id=session_id,
                 severity="high",
                 extra={"query": q[:200], "backend": "operator"},
             )

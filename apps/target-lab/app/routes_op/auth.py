@@ -16,9 +16,7 @@ and to /op/auth/login when reached directly via the AttackBox.
 """
 import json
 import logging
-import os
 import time
-from pathlib import Path
 
 from flask import Blueprint, request, render_template_string, session, redirect, current_app
 
@@ -26,59 +24,14 @@ logger = logging.getLogger("target.auth_op")
 
 auth_op_bp = Blueprint("auth_op", __name__)
 
-
-def _parse_user_config(raw: str) -> dict[str, str]:
-    """Parse JSON or comma-separated user:password pairs from local config."""
-    raw = (raw or "").strip()
-    if not raw:
-        return {}
-    if raw.startswith("{"):
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("operator credential config must be a JSON object")
-        return {
-            str(user): str(password)
-            for user, password in data.items()
-            if str(user) and str(password)
-        }
-
-    users: dict[str, str] = {}
-    for pair in raw.split(","):
-        user, sep, password = pair.partition(":")
-        if sep and user.strip() and password:
-            users[user.strip()] = password
-    return users
-
-
-def _load_operator_users() -> dict[str, str]:
-    """Load the harder-mode operator credentials from env or a mounted secret
-    file, instead of hardcoding them in source - so the same credential set
-    used today (see infra/compose.yml's OPERATOR_AUTH_USERS_JSON) isn't sitting
-    in plaintext in the repo/git history, and can be rotated per deployment
-    without a code change."""
-    raw = os.getenv("OPERATOR_AUTH_USERS_JSON") or os.getenv("OPERATOR_AUTH_USERS")
-    source = "environment"
-    if not raw:
-        path = os.getenv("OPERATOR_AUTH_USERS_FILE", "/run/secrets/operator-auth-users.json")
-        source = path
-        try:
-            raw = Path(path).read_text(encoding="utf-8")
-        except OSError:
-            raw = ""
-    try:
-        users = _parse_user_config(raw)
-    except (ValueError, json.JSONDecodeError) as exc:
-        logger.error("Invalid operator credential config from %s: %s", source, exc)
-        return {}
-    if not users:
-        logger.error("Operator credential config is missing or empty; /op/auth/login will fail closed")
-    return users
-
-
-# Harder cred set - not in default rockyou-mini. Learners need to either run a
-# longer wordlist, hand-craft against the policy hint shown on the login page,
-# or chain hydra with a bigger dictionary.
-_USERS = _load_operator_users()
+# Harder cred set - not in default rockyou-mini.
+# Learners need to either run a longer wordlist, hand-craft against the policy
+# hint shown on the login page, or chain hydra with a bigger dictionary.
+_USERS = {
+    "admin": "Br3akMe!2025",
+    "operator": "Tr0ub4dor&3",
+    "service": "S3rvice@cct",
+}
 
 # Per-attempt delay (seconds). Slow but does not block - a hint that this
 # backend has minimal protections, not a hard lockout.
@@ -103,7 +56,6 @@ def login():
 
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
 
     if _USERS.get(username) == password:
         session["user"] = username
@@ -111,24 +63,22 @@ def login():
             "event": "login_success",
             "endpoint": "/op/auth/login",
             "username": username,
-            "source_ip": current_app.fake_attacker_ip(),
+            "source_ip": request.remote_addr,
         }))
         evidence.record(
             "login_success",
             module_id="brute_force",
             path="/op/auth/login", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             extra={"username": username, "backend": "operator"},
         )
         evidence.record(
             "credential_found",
             module_id="brute_force",
             path="/op/auth/login", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="high",
             learner_message=(
                 f"Valid credential confirmed against the harder operator "
@@ -144,15 +94,14 @@ def login():
         "event": "login_failure",
         "endpoint": "/op/auth/login",
         "username": username,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
     evidence.record(
         "login_failed",
         module_id="brute_force",
         path="/op/auth/login", method="POST",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={
             "username": username,
             "known_user": False, # operator backend hides this

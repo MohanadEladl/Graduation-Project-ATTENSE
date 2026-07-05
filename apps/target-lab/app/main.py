@@ -11,13 +11,10 @@ Fix vs. original:
     is valid JSON, so Wazuh's json decoder will parse it cleanly.
   * Root logger still writes human-readable lines to stderr for container logs.
 """
-import hashlib
 import json
 import logging
 import os
-import threading
 from logging import LogRecord
-from typing import Dict, Optional
 from flask import Flask, request
 
 from routes.home import home_bp
@@ -183,96 +180,6 @@ def detect_via() -> str:
 # Make detect_via reachable from blueprint modules without circular imports
 app.detect_via = detect_via
 
-
-# -----------------------------------------------------------------------------
-# Session attribution - which learner's mission is this request part of?
-#
-# The target-agent container is shared by every concurrent session, so
-# evidence needs a session id to avoid one learner's reset/traffic
-# contaminating another's. Resolution order:
-#   1. ?attense_sid=<sid> query param (set by the frontend's LabBrowser
-#      iframe on navigation)
-#   2. the "attense_sid" cookie (set by _stamp_session_cookie below the
-#      first time #1 is seen, so it survives same-tab link clicks/form
-#      posts that don't carry the query param)
-#   3. X-Attense-Session header (set by the ZAP repeater / AttackBox tool
-#      evidence path - see operator_api.py)
-# -----------------------------------------------------------------------------
-def current_session_id() -> Optional[str]:
-    try:
-        return (
-            request.args.get("attense_sid")
-            or request.cookies.get("attense_sid")
-            or request.headers.get("X-Attense-Session")
-            or None
-        )
-    except RuntimeError:
-        return None  # outside request context
-
-
-app.current_session_id = current_session_id
-
-
-# -----------------------------------------------------------------------------
-# Fake attacker IP - every request that reaches this Flask process comes from
-# this container's own nginx over loopback (see nginx.conf's `proxy_pass
-# http://127.0.0.1:5000`), so `request.remote_addr` is unconditionally
-# 127.0.0.1 regardless of who the real upstream client was (browser iframe,
-# AttackBox, ZAP, raw curl). A real attacker IP is never available here
-# without deeper network plumbing, and even then it would only ever be a
-# docker-internal 172.x bridge address for AttackBox-driven traffic - not
-# meaningfully more "realistic" for Blue Team training than loopback.
-#
-# Instead, generate a fake-but-realistic public IP, deterministic per
-# session_id (same learner always shows the same IP across every alert/
-# observable, so correlation in TheHive still makes sense), drawn from the
-# RFC 5737 TEST-NET ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) -
-# reserved for documentation/testing, so it can never collide with a real
-# routable address.
-# -----------------------------------------------------------------------------
-_FAKE_IP_RANGES = ("192.0.2.", "198.51.100.", "203.0.113.")
-_fake_ip_cache: Dict[str, str] = {}
-_fake_ip_lock = threading.Lock()
-
-
-def _derive_fake_ip(key: str) -> str:
-    digest = hashlib.sha256(key.encode("utf-8")).digest()
-    prefix = _FAKE_IP_RANGES[digest[0] % len(_FAKE_IP_RANGES)]
-    host_octet = 1 + (digest[1] % 254)  # 1-254, avoid .0/.255
-    return f"{prefix}{host_octet}"
-
-
-def fake_attacker_ip() -> str:
-    try:
-        sid = current_session_id()
-        key = f"sid:{sid}" if sid else f"noattr:{request.remote_addr}:{detect_via()}"
-    except Exception:
-        key = None
-    if not key:
-        return "192.0.2.1"  # outside request context / can't resolve any key
-    with _fake_ip_lock:
-        ip = _fake_ip_cache.get(key)
-        if ip is None:
-            ip = _derive_fake_ip(key)
-            _fake_ip_cache[key] = ip
-        return ip
-
-
-app.fake_attacker_ip = fake_attacker_ip
-
-
-@app.after_request
-def _stamp_session_cookie(resp):
-    """Persist ?attense_sid= as a cookie so it survives same-tab navigation
-    that doesn't repeat the query param (plain links, form posts)."""
-    try:
-        sid = request.args.get("attense_sid")
-        if sid:
-            resp.set_cookie("attense_sid", sid, httponly=True, samesite="Lax")
-    except Exception:
-        pass
-    return resp
-
 # -- Register blueprints -------------------------------------------------------
 app.register_blueprint(home_bp)
 app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -303,36 +210,25 @@ from flask import jsonify # noqa: E402
 
 @app.get("/lab/events")
 def lab_events():
-    """List structured lab events. Filter with ?since=<float> & ?module_id=<id> & ?via=<channel> & ?session_id=<sid>."""
+    """List structured lab events. Filter with ?since=<float> & ?module_id=<id> & ?via=<channel>."""
     try:
         since = float(request.args.get("since", "0") or 0.0)
     except ValueError:
         since = 0.0
     module_id = request.args.get("module_id") or None
     via = request.args.get("via") or None
-    session_id = request.args.get("session_id") or None
     try:
         limit = int(request.args.get("limit", "500"))
     except ValueError:
         limit = 500
-    events = evidence.list_events(since=since, module_id=module_id, via=via, session_id=session_id, limit=limit)
+    events = evidence.list_events(since=since, module_id=module_id, via=via, limit=limit)
     return jsonify({"events": events, "now": __import__("time").time()})
 
 
 @app.post("/lab/events/reset")
 def lab_events_reset():
-    """Clear the in-memory evidence store. Used when a learner restarts a mission.
-
-    Pass ?session_id=<sid> to only clear that session's events; omitting it
-    clears the entire shared store (old behavior)."""
-    session_id = request.args.get("session_id") or None
-    evidence.reset(session_id=session_id)
-    if session_id:
-        # Also revert any session-scoped stored-vuln state (e.g. the profile
-        # module's stored XSS) so a restart/finish leaves the module clean
-        # and replayable for this learner.
-        from routes.profile import clear_session as _clear_profile_session
-        _clear_profile_session(session_id)
+    """Clear the in-memory evidence store. Used when a learner restarts a mission."""
+    evidence.reset()
     return jsonify({"ok": True})
 
 

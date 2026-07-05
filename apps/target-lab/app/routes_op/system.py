@@ -1,9 +1,9 @@
 """
 routes_op/system.py - Operator-mode HARDER command injection.
 
-The host parameter is filtered: `;`, `|`, `&&`, and `||` are all stripped
-before being passed to popen. Backticks (`...`) and `$(...)` STILL pass
-through - the bypass is to use those instead of the obvious separators.
+The host parameter is filtered: `;` and `|` are stripped before being
+passed to popen. Backticks (`...`) and `$(...)` STILL pass through - the
+bypass is to use those instead of the obvious separators.
 
 Same evidence event types so lab_progress.py is unchanged.
 """
@@ -37,19 +37,17 @@ def ping():
         "endpoint": "/op/system/ping",
         "host_param": raw,
         "sanitized": host,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
 
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
     evidence.record(
         "diagnostics_used",
         module_id="cmd_injection",
         path="/op/system/ping", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"host_param": raw, "backend": "operator"},
     )
 
@@ -61,9 +59,8 @@ def ping():
             "command_separator_observed",
             module_id="cmd_injection",
             path="/op/system/ping", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="medium",
             extra={"host_param": raw[:200], "sanitized": host[:200], "backend": "operator"},
         )
@@ -74,9 +71,8 @@ def ping():
             "command_injection_detected",
             module_id="cmd_injection",
             path="/op/system/ping", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="critical",
             extra={"host_param": raw[:200], "output_excerpt": output[:300],
                    "backend": "operator"},

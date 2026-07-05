@@ -15,7 +15,7 @@ from flask import Blueprint, request, render_template_string, current_app
 from markupsafe import escape
 
 import containment
-from route_security import has_effective_xss_payload, has_xss_payload
+from route_security import has_xss_payload
 
 logger = logging.getLogger("target.search")
 search_bp = Blueprint("search", __name__)
@@ -105,7 +105,7 @@ def search():
         "event": "search_request",
         "endpoint": "/search",
         "query": q,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
         "method": request.method,
     }))
 
@@ -115,40 +115,30 @@ def search():
         "search_used",
         module_id="xss",
         path="/search", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         extra={"query": q},
     )
-    rendered_q = escape(q) if containment.is_enabled("sanitize_input") else q
-
     # Detect XSS-like payloads: script tags, event handlers, javascript:
-    # `xss_payload_observed` credits the raw attempt; `reflected_input_detected`
-    # only fires if the actually-rendered output still carries an effective
-    # payload - i.e. it confirms the bypass, not just the attempt. Matches
-    # routes_op/search.py's pattern; harmless today since sanitize_input
-    # defaults off (rendered_q == q), but correct if that containment is ever enabled.
     if has_xss_payload(q):
         evidence.record(
             "xss_payload_observed",
             module_id="xss",
             path="/search", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=current_app.detect_via(),
-            session_id=current_app.current_session_id(),
             severity="medium",
             extra={"query": q[:200]},
         )
-        if has_effective_xss_payload(rendered_q):
-            evidence.record(
-                "reflected_input_detected",
-                module_id="xss",
-                path="/search", method="GET",
-                source_ip=current_app.fake_attacker_ip(),
-                via=current_app.detect_via(),
-                session_id=current_app.current_session_id(),
-                severity="high",
-                extra={"query": q[:200]},
-            )
+        evidence.record(
+            "reflected_input_detected",
+            module_id="xss",
+            path="/search", method="GET",
+            source_ip=request.remote_addr,
+            via=current_app.detect_via(),
+            severity="high",
+            extra={"query": q[:200]},
+        )
 
+    rendered_q = escape(q) if containment.is_enabled("sanitize_input") else q
     return render_template_string(_TEMPLATE, q=rendered_q)

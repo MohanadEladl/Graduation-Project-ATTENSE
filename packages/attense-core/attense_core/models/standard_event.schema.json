@@ -39,8 +39,7 @@
         "eradication_completed",
         "recovery_validated",
         "dismissal_approved",
-        "lessons_learned_recorded",
-        "mission_finished"
+        "lessons_learned_recorded"
       ],
       "title": "EventType",
       "type": "string"

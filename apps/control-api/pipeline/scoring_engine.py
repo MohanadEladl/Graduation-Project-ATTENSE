@@ -630,23 +630,17 @@ def score_members(
             suffix = rule.rule_id.split("-")[-1]
             owner = _responsible_actor(suffix, idx_actor)
             if owner == member:
-                # This analyst performed the qualifying action.
                 member_rules.append(rule)
                 penalty_total += rule.penalty_points
-            elif owner is not None:
-                # A different teammate performed it — not this analyst's responsibility.
+            else:
+                attribution = f"performed by {owner}" if owner else "not performed by anyone on the team"
                 member_rules.append(RuleResult(
                     rule_id=rule.rule_id,
                     description=rule.description,
                     penalty_points=0,
                     status="not_applicable",
-                    evidence=[f"Completed by teammate {owner}."],
+                    evidence=[f"Not this analyst's action ({attribution})."],
                 ))
-            else:
-                # Nobody on the team performed this step — shared team failure,
-                # penalty applies to every member so it shows in the headline score.
-                member_rules.append(rule)
-                penalty_total += rule.penalty_points
 
         member_compliance = _compliance_ratio(member_rules)
         member_bonus = team_result.raw_difficulty_bonus * member_compliance

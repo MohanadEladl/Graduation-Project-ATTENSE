@@ -54,7 +54,6 @@ def record(
     severity: str = "info",
     source_ip: Optional[str] = None,
     via: Optional[str] = None,
-    session_id: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Record a structured lab event. Returns the event.
@@ -67,11 +66,7 @@ def record(
                        source_ip matches the AttackBox container hostname)
       - "unknown" -> none of the above (e.g. someone hitting the bare
                        target-agent host directly)
-
-    `session_id`, when the caller can determine it (see main.py's
-    current_session_id()), scopes the event to one learner's mission so
-    concurrent sessions on this shared container don't see each other's
-    evidence and a reset only clears one session's events.
+    Operator-mode missions only count evidence with via="attackbox".
     """
     ev = {
         "id": len(_events),
@@ -83,7 +78,6 @@ def record(
         "severity": severity,
         "source_ip": source_ip,
         "via": via or "unknown",
-        "session_id": session_id,
         "learner_message": learner_message or _DEFAULT_MSG.get(event_type),
         "extra": dict(extra or {}),
     }
@@ -135,34 +129,23 @@ def _detect_patterns(ev: Dict[str, Any]) -> None:
                 for e in _recent.get(ip, [])
             )
         if len(recent_fails) >= 3 and not already:
-            # Inherit path/backend from the triggering event rather than
-            # hardcoding /auth/login - a synthesized event for an operator-mode
-            # (/op/auth/login) brute force must not misreport itself as the
-            # guided path, or report_agent's brute-force summary and the
-            # operator/guided evidence split both end up wrong.
-            triggering_extra = ev.get("extra") or {}
             synth = {
                 "id": len(_events),
                 "ts": time.time(),
                 "event_type": "brute_force_pattern",
                 "module_id": "brute_force",
-                "path": ev.get("path") or "/auth/login",
+                "path": "/auth/login",
                 "method": "POST",
                 "severity": "high",
                 "source_ip": ip,
-                # Inherit via/session_id from the triggering event so
-                # derived events attribute to the same channel and learner.
+                # Inherit via from the triggering event so operator-mode
+                # gating still works on derived events.
                 "via": ev.get("via", "unknown"),
-                "session_id": ev.get("session_id"),
                 "learner_message": (
                     f"{len(recent_fails)} failed login attempts from this client "
                     "in the last 5 minutes - brute-force pattern detected."
                 ),
-                "extra": {
-                    "failure_count": len(recent_fails),
-                    "backend": triggering_extra.get("backend"),
-                    "path": ev.get("path") or "/auth/login",
-                },
+                "extra": {"failure_count": len(recent_fails)},
             }
             with _lock:
                 _events.append(synth)
@@ -193,7 +176,6 @@ def _detect_patterns(ev: Dict[str, Any]) -> None:
                 "severity": "medium",
                 "source_ip": ip,
                 "via": ev.get("via", "unknown"),
-                "session_id": ev.get("session_id"),
                 "learner_message": (
                     f"Learner visited {len(visited_types)} distinct portal areas "
                     f"({', '.join(sorted(visited_types))}) - recon sequence confirmed."
@@ -208,24 +190,11 @@ def _detect_patterns(ev: Dict[str, Any]) -> None:
 def list_events(*, since: float = 0.0,
                 module_id: Optional[str] = None,
                 via: Optional[str] = None,
-                session_id: Optional[str] = None,
                 limit: int = 500) -> List[Dict[str, Any]]:
     """Return events recorded after `since` epoch seconds, optionally filtered.
 
     `via` filters by the channel the request came from:
       "browser" | "attackbox" | "unknown"
-
-    `session_id`, when given, restricts results to events attributed to that
-    session PLUS any untagged events (`session_id=None`). Untagged events are
-    AttackBox-terminal traffic (curl/nmap/hydra) - there is no mechanism to
-    attach a session id to that channel today (see `main.py`'s
-    `current_session_id()`), so treating them as "belongs to nobody in
-    particular, visible to everybody" is the only way a session_id filter
-    doesn't silently discard the majority of real attack evidence. This means
-    two *tagged* sessions (e.g. two learners' browser traffic) stay isolated
-    from each other, but two sessions that are BOTH AttackBox-only can still
-    see each other's evidence - an accepted, disclosed limitation, unchanged
-    from before session scoping existed.
     """
     with _lock:
         snap = list(_events)
@@ -234,33 +203,14 @@ def list_events(*, since: float = 0.0,
         out = [e for e in out if e.get("module_id") == module_id]
     if via:
         out = [e for e in out if e.get("via") == via]
-    if session_id:
-        out = [e for e in out if e.get("session_id") in (None, session_id)]
     return out[-limit:]
 
 
-def reset(*, session_id: Optional[str] = None) -> None:
-    """Clear the store. Useful when a learner restarts a mission.
-
-    When `session_id` is given, that session's own tagged events AND any
-    untagged events (`session_id=None` - see `list_events()`) are removed,
-    so a restart also clears orphaned AttackBox-terminal evidence instead of
-    leaving it stuck forever; other sessions' own tagged events are left
-    alone. Omitting `session_id` entirely keeps the old global-clear
-    behavior.
-    """
+def reset() -> None:
+    """Clear the store. Useful when a learner restarts a mission."""
     with _lock:
-        if session_id:
-            _events[:] = [e for e in _events if e.get("session_id") not in (None, session_id)]
-            for ip, evs in list(_recent.items()):
-                remaining = [e for e in evs if e.get("session_id") not in (None, session_id)]
-                if remaining:
-                    _recent[ip] = remaining
-                else:
-                    del _recent[ip]
-        else:
-            _events.clear()
-            _recent.clear()
+        _events.clear()
+        _recent.clear()
 
 
 # -- Default learner-friendly messages ----------------------------------------

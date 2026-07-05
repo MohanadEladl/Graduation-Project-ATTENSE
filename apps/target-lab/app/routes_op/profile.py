@@ -54,9 +54,8 @@ def profile():
         "route_discovered",
         module_id="csrf",
         path="/op/profile/", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         extra={"user": user, "backend": "operator"},
     )
     return render_template_string(
@@ -78,22 +77,20 @@ def update():
         "endpoint": "/op/profile/update",
         "user": user,
         "new_email": email,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
         "referer": referer or "(none)",
         "origin": origin or "(none)",
     }))
 
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
 
     evidence.record(
         "profile_update_used",
         module_id="csrf",
         path="/op/profile/update", method="POST",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"user": user, "new_email": email, "referer": referer or "(none)",
                "backend": "operator"},
     )
@@ -104,9 +101,8 @@ def update():
             "csrf_token_missing",
             module_id="csrf",
             path="/op/profile/update", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="high",
             extra={"user": user, "referer": referer or "(none)", "backend": "operator"},
         )
@@ -116,9 +112,8 @@ def update():
             "csrf_lure_submitted",
             module_id="csrf",
             path="/op/profile/update", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="high",
             extra={"user": user, "referer": referer, "backend": "operator"},
         )
@@ -155,9 +150,8 @@ def update():
                 "profile_changed_without_csrf",
                 module_id="csrf",
                 path="/op/profile/update", method="POST",
-                source_ip=current_app.fake_attacker_ip(),
+                source_ip=request.remote_addr,
                 via=via,
-                session_id=session_id,
                 severity="critical",
                 extra={"user": user, "old_email": old_email, "new_email": email,
                        "backend": "operator"},
