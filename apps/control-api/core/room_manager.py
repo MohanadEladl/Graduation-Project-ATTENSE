@@ -974,10 +974,10 @@ def _iter_rooms_from_db(company_id: Optional[str] = None) -> list[dict]:
     _ensure_room_db_schema()
     with connection() as conn, conn.cursor() as cur:
         if company_id is None:
-            cur.execute('SELECT metadata FROM "Room" WHERE room_key IS NOT NULL ORDER BY room_id')
+            cur.execute('SELECT metadata FROM "Room" WHERE room_key IS NOT NULL ORDER BY room_id DESC')
         else:
             cur.execute(
-                'SELECT metadata FROM "Room" WHERE room_key IS NOT NULL AND company_key = %s ORDER BY room_id',
+                'SELECT metadata FROM "Room" WHERE room_key IS NOT NULL AND company_key = %s ORDER BY room_id DESC',
                 (company_id,),
             )
         return [dict(row["metadata"]) for row in cur.fetchall()]
