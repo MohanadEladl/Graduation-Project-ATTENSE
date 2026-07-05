@@ -298,7 +298,11 @@ services:
       - ../integrations/thehive:/thehive # script patches application.conf here
       - ../secrets:/secrets # reads ATTENSE.env then deletes it
       - /var/run/docker.sock:/var/run/docker.sock # to restart TheHive
-    command: python /scripts/setup_cortex.py
+    # Best-effort: Cortex enrichment (Cortex-Lite) is optional, and this init
+    # step gates check-secrets -> the whole app tier. A Cortex setup failure
+    # (e.g. a cold-start 5xx, or reset ES indices) must NOT stop attense-app /
+    # red-team-backend from starting, so we always exit 0 and log the failure.
+    command: ["/bin/sh", "-lc", "python /scripts/setup_cortex.py || echo '[cortex-init] setup failed (best-effort Cortex enrichment); continuing so the stack can start'"]
     networks:
       - attense_net
 
