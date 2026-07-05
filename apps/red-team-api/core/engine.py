@@ -7,9 +7,11 @@ removes the PySide6 dependency from the entire core.
 """
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime, timezone
 
+from core import event_sink
 from core.base_module import BaseModule
 from core.logger import LogManager
 from core.models import AttackResult, TargetConfig
@@ -100,4 +102,28 @@ class Engine:
             self.log.error(result.summary)
 
         self.log.log_result(result)
+
+        incident_id = os.environ.get("INCIDENT_ID", "")
+        if incident_id:
+            try:
+                outcome = "success" if result.successful_steps > 0 else "failure"
+                event_sink.post_malicious_action_event(
+                    event_id=result.run_id,
+                    incident_id=incident_id,
+                    scenario_id=result.scenario_id,
+                    actor_id=os.environ.get("OPERATOR_ID", "red-team"),
+                    target_id=result.target,
+                    outcome=outcome,
+                    timestamp=result.started_at,
+                    metadata={
+                        "module_id": result.module_id,
+                        "module_name": result.module_name,
+                        "total_steps": result.total_steps,
+                        "successful_steps": result.successful_steps,
+                    },
+                    run_id=result.run_id,
+                )
+            except Exception:  # noqa: BLE001
+                pass  # fire-and-forget: never let event delivery crash the engine
+
         return result
