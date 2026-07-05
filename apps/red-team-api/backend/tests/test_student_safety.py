@@ -286,7 +286,10 @@ def test_zap_history_model_full_fields_and_truncation():
     assert row["response_status"] == "401"
 
 
-def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
+def test_operator_brute_force_completes_from_credential_any_via(monkeypatch):
+    """Goal-trigger model: a real credential on the operator login completes the
+    mission from ANY local channel, with NO failed-attempt requirement. Only the
+    guided surface (backend != operator) is still refused."""
     def ev(event_type, path, backend, via="zap_fuzzer", ts=1.0):
         return {
             "event_type": event_type,
@@ -297,79 +300,39 @@ def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
             "extra": {"backend": backend, "path": path},
         }
 
-    wrong_path = [
-        *[ev("login_failed", "/auth/login", "guided", ts=i) for i in range(6)],
-        ev("credential_found", "/auth/login", "guided", ts=9),
-    ]
-    too_few = [
-        *[ev("login_failed", "/op/auth/login", "operator", ts=i) for i in range(3)],
-        ev("credential_found", "/op/auth/login", "operator", ts=9),
-    ]
-    complete = [
-        *[ev("login_failed", "/op/auth/login", "operator", ts=i) for i in range(6)],
-        # Discovery is via zap_fuzzer (the default); the confirming hit must
-        # still be a deliberate, single Repeater send to actually complete.
-        ev("credential_found", "/op/auth/login", "operator", via="zap_repeater", ts=9),
-    ]
-    # Found during a bulk sweep now completes after enough tool-driven failures,
-    # but it still misses Repeater confirmation quality.
-    found_but_not_confirmed = [
-        *[ev("login_failed", "/op/auth/login", "operator", ts=i) for i in range(6)],
-        ev("credential_found", "/op/auth/login", "operator", via="zap_fuzzer", ts=9),
-    ]
-    browser_complete = [
-        *[ev("login_failed", "/op/auth/login", "operator", via="browser", ts=i) for i in range(6)],
-        ev("credential_found", "/op/auth/login", "operator", via="browser", ts=9),
-    ]
-    legacy_zap_complete = [
-        *[ev("login_failed", "/op/auth/login", "operator", via="unknown", ts=i) for i in range(6)],
-        ev("credential_found", "/op/auth/login", "operator", via="unknown", ts=9),
-    ]
-    empty_via_complete = [
-        *[ev("login_failed", "/op/auth/login", "operator", via="", ts=i) for i in range(6)],
-        ev("credential_found", "/op/auth/login", "operator", via="", ts=9),
-    ]
-    missing_via_complete = [
-        *[ev("login_failed", "/op/auth/login", "operator", ts=i) for i in range(6)],
-        ev("credential_found", "/op/auth/login", "operator", ts=9),
-    ]
-    for event in missing_via_complete:
+    # Guided surface never completes an operator mission (lab-boundary safety).
+    guided = [ev("credential_found", "/auth/login", "guided", ts=9)]
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: guided)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
+
+    # Operator credential completes via every local channel — zero failed
+    # attempts required, even an uncaptured/empty/missing via.
+    for via in ("zap_repeater", "zap_fuzzer", "attackbox", "browser", "unknown", ""):
+        events = [ev("credential_found", "/op/auth/login", "operator", via=via, ts=9)]
+        monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: events)
+        r = lab_progress.compute("brute_force", 0.0, mode="lab")
+        assert r["success"] is True, f"via={via!r} credential should complete"
+        assert r["goal_triggered"] is True
+
+    missing_via = [ev("credential_found", "/op/auth/login", "operator", ts=9)]
+    for event in missing_via:
         event.pop("via", None)
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: missing_via)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is True
 
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: wrong_path)
-    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
+    # login_success alone also completes.
+    ls = [ev("login_success", "/op/auth/login", "operator", via="browser", ts=9)]
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: ls)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is True
 
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: too_few)
-    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
-
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: browser_complete)
-    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
-
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: complete)
-    progress = lab_progress.compute("brute_force", 0.0, mode="lab")
-    assert progress["success"] is True
-    assert progress["brute_force_activity"]["failed_attempt_count"] == 6
-    assert progress["brute_force_activity"]["path"] == "/op/auth/login"
-    assert progress["brute_force_activity"]["credential_confirmed_via_repeater"] is True
-
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: found_but_not_confirmed)
-    progress = lab_progress.compute("brute_force", 0.0, mode="lab")
-    assert progress["success"] is True
-    assert progress["completion_score"] == 100
-    assert progress["quality_score"] < 100
-    assert progress["brute_force_activity"]["credential_found"] is True
-    assert progress["brute_force_activity"]["credential_confirmed_via_repeater"] is False
-    assert any("Repeater" in m["label"] or "Repeater" in m["recommendation"]
-               for m in progress["missing_quality"])
-
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: legacy_zap_complete)
-    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
-
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: empty_via_complete)
-    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
-
-    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: missing_via_complete)
-    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
+    # Tool credential scores at least as high a quality as a browser credential.
+    tool = [ev("credential_found", "/op/auth/login", "operator", via="zap_repeater", ts=9)]
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: tool)
+    q_tool = lab_progress.compute("brute_force", 0.0, mode="lab")["quality_score"]
+    browser = [ev("credential_found", "/op/auth/login", "operator", via="browser", ts=9)]
+    monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: browser)
+    q_browser = lab_progress.compute("brute_force", 0.0, mode="lab")["quality_score"]
+    assert q_browser <= q_tool
 
 
 @pytest.mark.parametrize("via", ["attackbox", "zap_repeater", "zap_fuzzer"])

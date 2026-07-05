@@ -447,17 +447,27 @@ def _rule_based_coaching(progress: dict, vuln: dict) -> str:
             f" You used the '{variant_name}' approach, which is the baseline technique for {vuln_name}."
         )
         opening = (
-            f"You completed {vuln_name} via the '{variant_name}' variant with a {pct}% task-completion score."
+            f"You reached the objective for {vuln_name} via the '{variant_name}' variant."
             + diff_note
         )
-        followup = (
-            "The most valuable next step is the harder variant of this module — same vulnerability, "
-            "tighter filters. Compare your approach against the ideal-approach commands below to find "
-            "where you can reduce noise and improve precision."
-            if difficulty in ("", "easy") else
-            "You are now ready for chaining this technique — look for scenarios where "
-            f"{vuln_name} is the entry point into a deeper attack chain."
-        )
+        # Methodology note from the goal-trigger model — the objective is reached
+        # regardless of tool, but call out skipped repeatable tooling for the score.
+        q_score = progress.get("quality_score", 100)
+        q_feedback = progress.get("quality_feedback") or ""
+        recs = progress.get("report_recommendations") or []
+        if q_score < 100 and q_feedback:
+            followup = q_feedback
+            if recs:
+                followup += " Next time, raise your methodology score: " + recs[0]
+        else:
+            followup = (
+                "The most valuable next step is the harder variant of this module — same vulnerability, "
+                "tighter filters. Compare your approach against the ideal-approach commands below to find "
+                "where you can reduce noise and improve precision."
+                if difficulty in ("", "easy") else
+                "You are now ready for chaining this technique — look for scenarios where "
+                f"{vuln_name} is the entry point into a deeper attack chain."
+            )
     elif pct >= 50:
         missed_str = ", ".join(f'"{t}"' for t in missed_tasks[:3]) if missed_tasks else "the final step"
         opening = (
@@ -497,14 +507,22 @@ def _grade(progress: dict, browser_vs_attackbox: tuple) -> tuple:
       -10 — penalty: lab mode, more browser clicks than attackbox tool use
     """
     score = 0.0
-    success = bool(progress.get("success"))
+    # `success` mirrors goal_triggered in the goal-trigger model.
+    success = bool(progress.get("goal_triggered", progress.get("success")))
     if success:
         score += 40
 
-    tasks = progress.get("tasks", [])
-    if tasks:
-        done = len(progress.get("completed_tasks", []))
-        score += (done / len(tasks)) * 40
+    # Methodology quality (goal-trigger model) — browser/unknown completions
+    # score low here even though the mission is complete, so the grade reflects
+    # HOW the goal was reached, not just that it was.
+    quality_score = progress.get("quality_score")
+    if quality_score is not None:
+        score += (quality_score / 100.0) * 40
+    else:
+        tasks = progress.get("tasks", [])
+        if tasks:
+            done = len(progress.get("completed_tasks", []))
+            score += (done / len(tasks)) * 40
 
     ev_count = len(progress.get("evidence", []))
     score += min(ev_count / 10.0, 1.0) * 20

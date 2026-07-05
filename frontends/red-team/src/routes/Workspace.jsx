@@ -138,10 +138,6 @@ function MissionSidebar({
   variantId,
   collapsed, onToggle,
 }) {
-  const tasks = progress?.tasks || []
-  const completedCount = (progress?.completed_tasks || []).length
-  const totalTasks     = tasks.length || 3
-  const pct = totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0
   const isLab = mode === 'lab'
 
   return (
@@ -224,27 +220,29 @@ function MissionSidebar({
         >
           {isLab ? (
             <>
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-[9px] tracking-[0.32em] text-attense-dim">PROGRESS</span>
-                <span className="font-mono text-[10px] text-attense-text tabular-nums">
-                  {completedCount}/{totalTasks}
-                </span>
-              </div>
-              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{
-                    width: pct + '%',
-                    background: isDone || progress?.success
-                      ? '#2ee39a'
-                      : pct > 0
-                        ? 'linear-gradient(90deg,#ff1535,#ff6b00)'
-                        : '#3a4060',
-                    boxShadow: pct > 0 && !(isDone || progress?.success)
-                      ? '0 0 6px rgba(255,21,53,0.5)' : 'none',
-                  }}
-                />
-              </div>
+              {/* Goal-trigger status — the mission completes the instant the
+                  goal event fires on the target; no task ladder or percentage. */}
+              <span className="font-mono text-[9px] tracking-[0.32em] text-attense-dim">GOAL STATUS</span>
+              {(isDone || progress?.goal_triggered) ? (
+                <div className="mt-2 flex items-start gap-2">
+                  <span className="text-[13px] leading-none" style={{ color: '#2ee39a' }}>●</span>
+                  <div>
+                    <div className="font-mono text-[10.5px] font-semibold" style={{ color: '#2ee39a' }}>
+                      Goal triggered — mission complete
+                    </div>
+                    {progress?.trigger_event && (
+                      <div className="font-mono text-[8.5px] text-attense-dim mt-0.5">
+                        Trigger: {progress.trigger_event}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[13px] leading-none" style={{ color: '#5a6580' }}>○</span>
+                  <span className="font-mono text-[10.5px] text-attense-muted">Not triggered yet</span>
+                </div>
+              )}
             </>
           ) : (
             <div className="font-mono text-[9px] tracking-[0.24em]" style={{ color: '#7dd3fc' }}>
@@ -1042,28 +1040,19 @@ function LearningPanel({
           </div>
         )}
 
-        {/* Check Progress button */}
-        <button
-          onClick={onCheckProgress}
-          disabled={!missionStarted || isCheckingProgress}
-          className="w-full font-mono text-[10.5px] font-bold tracking-[0.16em] px-4 py-2.5 rounded-lg transition-all duration-150 mb-4 flex items-center justify-center gap-2"
+        {/* Goal status — auto-detected; no manual "Check Progress" step. */}
+        <div
+          className="w-full font-mono text-[10px] tracking-[0.14em] px-4 py-2.5 rounded-lg mb-4 flex items-center justify-center gap-2"
           style={{
-            background: !missionStarted
-              ? 'rgba(255,255,255,0.04)'
-              : isCheckingProgress
-                ? 'rgba(255,255,255,0.04)'
-                : 'linear-gradient(135deg, #7dd3fc, #0ea5e9)',
-            color: !missionStarted || isCheckingProgress ? '#3a4060' : '#0c0f16',
-            border: !missionStarted ? '1px solid rgba(255,255,255,0.08)' : 'none',
-            cursor: !missionStarted || isCheckingProgress ? 'not-allowed' : 'pointer',
+            background: success ? 'rgba(46,227,154,0.08)' : 'rgba(255,255,255,0.03)',
+            color: success ? '#2ee39a' : '#7dd3fc',
+            border: `1px solid ${success ? 'rgba(46,227,154,0.3)' : 'rgba(125,211,252,0.22)'}`,
           }}
         >
-          {!missionStarted
-            ? 'PRESS START FIRST'
-            : isCheckingProgress
-              ? 'CHECKING…'
-              : 'CHECK PROGRESS ↻'}
-        </button>
+          {!missionStarted ? 'PRESS START FIRST'
+            : success ? '● GOAL TRIGGERED — COMPLETE'
+              : (<><span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#7dd3fc' }} /> WATCHING FOR GOAL</>)}
+        </div>
 
         {/* Evidence cards */}
         <div className="mb-4">
@@ -1084,7 +1073,7 @@ function LearningPanel({
               <div className="font-mono text-[10px] text-attense-dim leading-relaxed">
                 {!missionStarted
                   ? 'Press START to begin tracking evidence.'
-                  : 'Interact with the target page on the left, then click CHECK PROGRESS.'}
+                  : 'Interact with the target on the left — evidence appears here automatically as the goal fires.'}
               </div>
             </div>
           ) : (
@@ -2117,11 +2106,20 @@ export default function Workspace() {
             style={{ background: 'linear-gradient(135deg,#ff1535,#cc0020)', color: 'white', boxShadow: '0 0 14px rgba(255,21,53,0.35)' }}
           >START ▸</button>
         )}
+        {/* No manual "Check Progress" — the app watches the target automatically
+            and flips to complete the instant the goal event fires. */}
         {!replay && !guided && missionStarted && !isDone && (
-          <button onClick={handleCheckProgress} disabled={isCheckingProgress}
+          <span className="font-mono text-[9px] tracking-[0.16em] px-3 py-2 rounded-lg shrink-0 flex items-center gap-2"
+            style={{ border: '1px solid rgba(125,211,252,0.25)', color: '#7dd3fc', background: 'rgba(125,211,252,0.06)' }}>
+            <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#7dd3fc' }} />
+            WATCHING FOR GOAL
+          </span>
+        )}
+        {!replay && !guided && isDone && (
+          <Link to={`/report/${sid}`}
             className="font-mono text-[10.5px] font-bold tracking-[0.14em] px-4 py-2 rounded-lg transition-all duration-150 shrink-0"
-            style={{ background: 'linear-gradient(135deg,#7dd3fc,#0ea5e9)', color: '#0c0f16', cursor: isCheckingProgress ? 'wait' : 'pointer' }}
-          >{isCheckingProgress ? 'CHECKING…' : 'CHECK PROGRESS ↻'}</button>
+            style={{ background: 'linear-gradient(135deg,#2ee39a,#0ea572)', color: '#04120c', boxShadow: '0 0 14px rgba(46,227,154,0.3)' }}
+          >GENERATE REPORT →</Link>
         )}
       </div>
 

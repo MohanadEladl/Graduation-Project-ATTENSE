@@ -90,6 +90,66 @@ BROWSER_COMPLETION_EVENT_TYPES = {
 BROWSER_COMPLETABLE_MODULES = set(BROWSER_COMPLETION_EVENT_TYPES)
 
 
+# ── Goal-trigger engine ──────────────────────────────────────────────────────
+# A mission is COMPLETE the instant its goal event is observed on the active lab
+# target — no task ladder, no required failure count, no tool requirement. It
+# does NOT matter whether the student used the Browser, AttackBox, ZAP
+# Repeater/Fuzzer, curl, or manual form entry; tool choice only shapes the
+# quality score/report, never completion. Lab-boundary safety is still enforced:
+# the goal event must have operator scope (backend=operator + /op/* path, or a
+# derived operator event) and match the module. Guided-surface and external
+# evidence never trigger a goal. via is deliberately ignored for completion —
+# even via="unknown" completes (it just tanks the quality score).
+GOAL_TRIGGERS: Dict[str, set] = {
+    "recon":         {"recon_sequence_observed", "hidden_clue_accessed"},
+    "brute_force":   {"credential_found", "login_success"},
+    "xss":           {"reflected_input_detected", "xss_payload_observed", "stored_payload_observed"},
+    "cmd_injection": {"command_injection_detected"},
+    "dir_traversal": {"sensitive_file_disclosed", "lab_file_disclosed"},
+    "file_upload":   {"dangerous_extension_accepted", "unrestricted_upload_detected",
+                      "uploaded_file_retrieved"},
+    "csrf":          {"profile_changed_without_csrf"},
+}
+
+# recon may also complete on enough route-discovery evidence (mapping proof),
+# even if the derived recon_sequence_observed event never fired.
+RECON_ROUTE_DISCOVERY_MIN = 3
+
+
+def _event_triggers_goal(e: Dict[str, Any], module_id: str, *, is_lab: bool) -> bool:
+    """True when a single event is a goal trigger for the module: a GOAL event
+    type observed with valid operator lab scope. via-INDEPENDENT by design."""
+    return (
+        e.get("event_type") in GOAL_TRIGGERS.get(module_id or "", set())
+        and _event_has_operator_scope(e, is_lab=is_lab, module_id=module_id)
+    )
+
+
+def _goal_trigger(module_id: str, events: List[Dict[str, Any]], *, is_lab: bool):
+    """Resolve the mission goal from observed events.
+
+    Returns (triggered: bool, trigger_event: str|None, trigger_reason: str|None).
+    Completion fires on the FIRST goal event seen, from any local channel.
+    """
+    hits = [e for e in events if _event_triggers_goal(e, module_id, is_lab=is_lab)]
+    if hits:
+        first = min(hits, key=lambda e: e.get("ts") or 0)
+        et = first.get("event_type")
+        return True, et, f"Goal reached: '{_evidence_title(et)}' observed on the operator target."
+    # recon fallback — enough operator route-discovery proves the map was built.
+    if module_id == "recon":
+        routes = [
+            e for e in events
+            if e.get("event_type") == "route_discovered"
+            and _event_has_operator_scope(e, is_lab=is_lab, module_id=module_id)
+        ]
+        if len(routes) >= RECON_ROUTE_DISCOVERY_MIN:
+            return True, "route_discovered", (
+                f"Goal reached: mapped {len(routes)} operator routes."
+            )
+    return False, None, None
+
+
 def _allowed_via_for(module_id: Optional[str]) -> set:
     """Approved operator `via` channels for objective completion."""
     if module_id in BROWSER_COMPLETABLE_MODULES:
@@ -125,21 +185,17 @@ def _event_has_operator_scope(e: Dict[str, Any], *, is_lab: bool,
 
 def _event_counts_for_completion(e: Dict[str, Any], *, is_lab: bool,
                                  module_id: Optional[str] = None) -> bool:
-    """Gate objective completion evidence.
+    """Gate objective completion evidence — the goal-trigger rule.
 
-    Completion always requires Operator Mode, backend=operator, and /op/* (with
-    existing derived-event inheritance preserved). Tool channels always count.
-    Browser only counts for high-confidence objective events declared in
-    BROWSER_COMPLETION_EVENT_TYPES; via=unknown never counts.
+    An event counts toward completion when it is a GOAL event (see
+    GOAL_TRIGGERS) observed with valid operator lab scope (Operator Mode,
+    backend=operator, /op/* path or a derived operator event, matching module).
+    Completion is deliberately via-INDEPENDENT: Browser, AttackBox, ZAP
+    Repeater/Fuzzer, curl, and even an uncaptured via="unknown" all count —
+    tool choice affects only the quality score, never completion. Guided-surface
+    and external evidence still never count.
     """
-    if not _event_has_operator_scope(e, is_lab=is_lab, module_id=module_id):
-        return False
-    via = str(e.get("via") or "")
-    if via in OPERATOR_TOOL_VIA:
-        return True
-    if via != "browser":
-        return False
-    return e.get("event_type") in BROWSER_COMPLETION_EVENT_TYPES.get(module_id or "", set())
+    return _event_triggers_goal(e, module_id or "", is_lab=is_lab)
 
 
 def _event_counts_for_quality(e: Dict[str, Any], *, is_lab: bool,
@@ -2272,11 +2328,12 @@ def get_objective_spec(module_id: str) -> Dict[str, Any]:
 
 
 def completion_event_types(module_id: str) -> List[str]:
-    """Flat list with one representative event type per completion group — the
-    minimum evidence that proves the objective. Used by tests and callers that
-    need to synthesise a 'just completed' evidence set."""
-    groups = OBJECTIVE_SPECS.get(module_id, {}).get("completion_groups", [])
-    return [g[0] for g in groups if g]
+    """One representative goal event that completes the mission. Used by tests
+    and callers that need to synthesise a 'just completed' evidence set. Under
+    the goal-trigger model a single goal event is enough, so this returns one
+    representative goal type."""
+    goals = sorted(GOAL_TRIGGERS.get(module_id, set()))
+    return goals[:1]
 
 
 def _quality_task_matched(qt: Dict[str, Any], module_events: List[Dict[str, Any]]) -> bool:
@@ -2358,6 +2415,16 @@ def _guided_reading_only_response(module_id: str, variant_id: Optional[str] = No
         "defensive_insight":   None,
         "events_examined":     0,
         "brute_force_activity": None,
+
+        # Goal-trigger model — Guided Mode never triggers a goal (reading-only).
+        "goal_triggered":        False,
+        "status":                "incomplete",
+        "trigger_event":         None,
+        "trigger_reason":        None,
+        "quality_feedback":      "Guided Mode is reading-only — no goal to trigger.",
+        "missing_methodology":   [],
+        "observed_tools":        [],
+        "report_recommendations": [],
 
         "objective": "Read the guided explanation, then switch to Operator Mode to perform the lab.",
         "completion_score":   0,
@@ -2636,41 +2703,25 @@ def compute(module_id: str,
         pass  # operator_api not available — skip tool evidence
     cards.sort(key=lambda c: c.get("timestamp") or 0, reverse=True)
 
-    # ── Objective-based completion (the core of the objective model) ─────────
-    # COMPLETION depends only on reaching the objective through the gated
-    # channel, NOT on finishing the recommended methodology ladder.
-    brute_force_activity = None
-    if module_id == "brute_force":
-        # Completion still requires real brute-force methodology evidence, but
-        # the final valid credential may be confirmed in the operator browser.
-        brute_force_activity = _brute_force_activity(raw_events, is_lab=is_lab)
-        brute_force_method_observed = (
-            brute_force_activity["failed_attempt_count"] >= BRUTE_FORCE_MIN_FAILURES
-            or brute_force_activity["brute_force_pattern_observed"]
-        )
-        success = (
-            brute_force_method_observed
-            and brute_force_activity["credential_confirmed"]
-        )
-        # Discovery-only progress (found a hit mid-sweep, not yet confirmed by
-        # hand) still earns partial completion_score so the panel doesn't look
-        # stuck at the old bulk-discovery percentage once the credential lands.
-        discovery_score = int(round(
-            100 * min(brute_force_activity["failed_attempt_count"] / BRUTE_FORCE_MIN_FAILURES, 1.0)
-        ))
-        completion = {
-            "reached": success,
-            "score": 100 if success else (
-                90 if brute_force_activity["credential_found"] else discovery_score
-            ),
-            "completed_required": (
-                [_evidence_title("brute_force_pattern"), _evidence_title("credential_found")]
-                if success else []
-            ),
-        }
-    else:
-        completion = _completion_report(module_id, events_for_completion)
-        success = completion["reached"]
+    # ── Goal-trigger completion (the core of the goal-trigger model) ─────────
+    # The mission is COMPLETE the instant its goal event is observed on the
+    # operator target — via-independent, no task ladder, no failure count, no
+    # tool requirement. brute_force is no longer special-cased: a single
+    # credential_found / login_success on /op/auth/login completes it, exactly
+    # like every other module.
+    brute_force_activity = (
+        _brute_force_activity(raw_events, is_lab=is_lab)
+        if module_id == "brute_force" else None
+    )
+    goal_triggered, trigger_event, trigger_reason = _goal_trigger(
+        module_id, raw_events, is_lab=is_lab
+    )
+    success = goal_triggered
+    completion = {
+        "reached": goal_triggered,
+        "score": 100 if goal_triggered else 0,
+        "completed_required": [_evidence_title(trigger_event)] if goal_triggered else [],
+    }
 
     # ── Learning QUALITY (methodology) — scored, never blocks completion ─────
     # Matched against high-quality tool events only; browser objective proof can
@@ -2685,6 +2736,59 @@ def compute(module_id: str,
     quality_event_ids = {id(e) for e in events_for_quality}
     module_quality_events = [e for e in module_events if id(e) in quality_event_ids]
     quality = _quality_report(module_id, module_quality_events)
+
+    # ── Report-only quality signal (never blocks completion) ─────────────────
+    # observed_tools = the channels the student actually drove the attack from,
+    # across every in-scope operator event (not just goal events). unknown maps
+    # to an explicit "tool not captured" label so the report can call it out.
+    _VIA_LABELS = {
+        "attackbox":    "AttackBox (local CLI)",
+        "zap_repeater": "ZAP Repeater",
+        "zap_fuzzer":   "ZAP Fuzzer",
+        "browser":      "Browser (manual)",
+        "unknown":      "unstructured method / tool not captured",
+    }
+    scoped_module_events = [
+        e for e in module_events
+        if _event_has_operator_scope(e, is_lab=is_lab, module_id=module_id)
+    ]
+    observed_vias = {str(e.get("via") or "unknown") for e in scoped_module_events}
+    observed_tools = [_VIA_LABELS.get(v, v) for v in sorted(observed_vias)]
+    used_repeatable_tool = bool(observed_vias & OPERATOR_TOOL_VIA)
+    used_unknown_channel = "unknown" in observed_vias
+    browser_only = observed_vias and observed_vias.issubset({"browser"})
+
+    # missing_methodology / report_recommendations reuse the quality rubric —
+    # they describe what the student SKIPPED, purely for the report.
+    missing_methodology = quality["missing"]
+    report_recommendations = [m["recommendation"] for m in missing_methodology if m.get("recommendation")]
+
+    # quality_feedback — one plain-language summary of methodology depth.
+    if not success:
+        quality_feedback = "Goal not triggered yet — no methodology to score."
+    elif used_repeatable_tool:
+        quality_feedback = (
+            f"Strong methodology: you used repeatable tooling "
+            f"({', '.join(sorted(observed_vias & OPERATOR_TOOL_VIA))}). "
+            f"Methodology score {quality['score']}%."
+        )
+    elif browser_only:
+        quality_feedback = (
+            "Objective reached, but methodology score is low: you used only the "
+            "browser/manual entry and did not demonstrate repeatable tooling "
+            "(ZAP Repeater/Fuzzer or the AttackBox)."
+        )
+    elif used_unknown_channel:
+        quality_feedback = (
+            "Objective reached through an unstructured/uncaptured method. The "
+            "attack worked, but methodology score is very low because no "
+            "repeatable ZAP/AttackBox evidence was recorded."
+        )
+    else:
+        quality_feedback = (
+            "Objective reached. Use ZAP Repeater/Fuzzer or the AttackBox next "
+            "time to raise your methodology score."
+        )
 
     # ── Ignored-event diagnostics ────────────────────────────────────────────
     # Explain, per event, why in-scope evidence did NOT count. This makes the
@@ -2734,26 +2838,18 @@ def compute(module_id: str,
                 f"({', '.join(vias)}). In Operator Mode, redo it on the /op/ route "
                 "through ZAP Repeater/Fuzzer or the AttackBox so it counts."
             )
-        if any(str(e.get("via") or "") == "unknown" for e in module_events):
+        if success and used_unknown_channel:
+            # Not ignored any more — the goal still counted — but flag it so the
+            # report can score methodology down for unstructured evidence.
             warnings.append(
-                "Some requests came from an unrecognized source and were ignored — "
-                "drive the attack from ZAP or the AttackBox."
+                "The goal was reached through an unstructured/uncaptured method. "
+                "It still completed the mission, but your methodology score is "
+                "lower — drive the attack from ZAP or the AttackBox for full credit."
             )
 
     # ── Next recommended action (advisory, never a solution) ─────────────────
-    if (
-        module_id == "brute_force" and not success
-        and brute_force_activity is not None
-        and brute_force_activity["credential_found"]
-    ):
-        next_action = (
-            "A valid credential was observed, but the mission still needs "
-            "tool-driven brute-force evidence in this run. Generate enough "
-            "failed /op/auth/login attempts with ZAP Fuzzer or the AttackBox, "
-            "then confirm the credential on the operator surface."
-        )
-    elif quality["missing"]:
-        next_action = quality["missing"][0]["recommendation"]
+    if success and missing_methodology:
+        next_action = missing_methodology[0]["recommendation"]
     elif not success:
         next_action = OBJECTIVE_SPECS.get(module_id, {}).get("objective")
     else:
@@ -2848,9 +2944,22 @@ def compute(module_id: str,
         "events_examined":     len(raw_events),
         "brute_force_activity": brute_force_activity,
 
-        # ── Objective-based progress model ──────────────────────────────────
-        # Mission success == objective reached (the `success` field above).
-        # Quality is advisory and never blocks completion.
+        # ── Goal-trigger model (authoritative) ──────────────────────────────
+        # A mission is complete the instant its goal event fires on the operator
+        # target, independent of tool/channel. Quality is report-only and never
+        # blocks completion.
+        "goal_triggered":        goal_triggered,
+        "status":                "complete" if goal_triggered else "incomplete",
+        "trigger_event":         trigger_event,
+        "trigger_reason":        trigger_reason,
+        "quality_feedback":      quality_feedback,
+        "missing_methodology":   missing_methodology,
+        "observed_tools":        observed_tools,
+        "report_recommendations": report_recommendations,
+
+        # ── Objective/quality fields (compat) ───────────────────────────────
+        # `success` and `completion_score` are compatibility mirrors of
+        # `goal_triggered`; new callers should read goal_triggered/status.
         "objective":             OBJECTIVE_SPECS.get(module_id, {}).get("objective"),
         "completion_score":      completion["score"],
         "quality_score":         quality["score"],
