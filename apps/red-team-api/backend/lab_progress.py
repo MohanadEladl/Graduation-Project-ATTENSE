@@ -199,17 +199,28 @@ def _brute_force_activity(events: List[Dict[str, Any]], *, is_lab: bool) -> Dict
     scoped = [e for e in events if _is_brute_force_event_for_mode(e, is_lab=is_lab)]
     failures = [e for e in scoped if e.get("event_type") == "login_failed"]
     credentials = [e for e in scoped if e.get("event_type") == "credential_found"]
+    successes = [e for e in scoped if e.get("event_type") == "login_success"]
+    # Discovery (bulk failures/pattern) can come from any approved tool — Fuzzer,
+    # Hydra/AttackBox, or Repeater used repeatedly. But the CONFIRMING hit must be
+    # a single, deliberate Repeater "Send" — Repeater is architecturally the only
+    # tool that is always one request at a time, never part of an automated bulk
+    # sweep. This stops a bulk tool's own lucky hit mid-sweep from silently
+    # completing the mission; the student must enter the discovered username +
+    # password themselves and observe the 302 to finish.
+    confirmed = [e for e in (credentials + successes) if str(e.get("via") or "") == "zap_repeater"]
     paths = sorted({_event_path(e) for e in scoped if _event_path(e)})
     tools = sorted({str(e.get("via")) for e in scoped if str(e.get("via") or "") in OPERATOR_TOOL_VIA})
     return {
         "failed_attempt_count": len(failures),
         "credential_found": bool(credentials),
+        "credential_confirmed_via_repeater": bool(confirmed),
         "required_failed_attempts": BRUTE_FORCE_MIN_FAILURES,
         "path": "/op/auth/login" if is_lab else "/auth/login",
         "paths_observed": paths,
         "tools_observed": tools,
         "first_failed_at": failures[0].get("ts") if failures else None,
         "credential_found_at": credentials[-1].get("ts") if credentials else None,
+        "confirmed_at": confirmed[-1].get("ts") if confirmed else None,
     }
 
 
@@ -503,16 +514,20 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             ],
             "success_event_types": ["brute_force_pattern", "credential_found"],
             "ideal_commands": [
-                "# ── Two-phase attack · ZAP Fuzzer — the PortSwigger method ──",
+                "# ── Credential stuffing · ZAP Fuzzer ──",
                 "#   (Lab Tools → ZAP → Fuzzer.  Attack type: Sniper.  Route: /op/auth/login.)",
                 "#",
-                "# PHASE 1 — enumerate a valid USERNAME (Sniper on the username):",
-                "#   POSITIONS: username=§&password=x   →  PAYLOADS 'Common usernames'  →  START ATTACK",
-                "#   GREP-MATCH 'Incorrect password' flags valid users (invalid users say",
-                "#   'Account not found'). The ✓ rows in the MATCH column are real accounts.",
+                "# The operator backend gives an IDENTICAL generic 'Invalid credentials' 401",
+                "# for every wrong guess — there is no enumeration signal here, so a",
+                "# grep-match phase cannot distinguish a valid username. Instead:",
                 "#",
-                "# PHASE 2 — brute that user's PASSWORD (Sniper on the password):",
-                "#   POSITIONS: username=<valid user>&password=§  →  PAYLOADS 'Leaked mini-list'",
+                "# STEP 1 — get the real payload list (built-in presets will NOT work):",
+                "#   AttackBox:  cat /lab/operator-passwords.txt",
+                "#",
+                "# STEP 2 — Sniper the password field, once per candidate username",
+                "#   (admin, operator, service — the only three valid accounts):",
+                "#   POSITIONS: username=admin&password=§   →  PAYLOADS: paste Step 1's list  →  START ATTACK",
+                "#   Repeat with username=operator, then username=service, if the first two don't hit.",
                 "#   Read the STATUS column: the 302 row is the working password.",
                 "#",
                 "# CONFIRM — Repeater: resend the winning username/password → 302 /profile/.",
@@ -545,8 +560,11 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "ideal_commands": [
                 "# Advanced track — real CLI tooling. For the GUI-only path, use the",
                 "# ZAP Fuzzer instead (Password Spraying / Credential Stuffing variants).",
-                "# Hydra form-template against the operator route: path:body:failure-string",
-                "hydra -l admin -P /wordlists/rockyou-mini.txt target-agent http-post-form '/op/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 8 -f",
+                "# Hydra form-template against the operator route: path:body:failure-string.",
+                "# Use the REAL local wordlist, not a built-in list — cat it first if unsure:",
+                "#   cat /lab/operator-passwords.txt",
+                "# admin / operator / service are the three valid accounts; -l tries one at a time.",
+                "hydra -l admin -P /lab/operator-passwords.txt target-agent http-post-form '/op/auth/login:username=^USER^&password=^PASS^:Invalid credentials' -t 8 -f",
                 "# Then confirm the reported credential in ZAP Repeater on /op/auth/login (→ 302 /profile/).",
             ],
         },
@@ -2118,7 +2136,12 @@ OBJECTIVE_SPECS: Dict[str, Dict[str, Any]] = {
         ],
     },
     "brute_force": {
-        "objective": "Trip the brute-force detector and confirm a valid credential on /op/auth/login.",
+        "objective": (
+            "Discover a valid credential on /op/auth/login (6+ failed attempts, "
+            "detector triggered), then manually confirm it through ZAP Repeater "
+            "and watch for the 302 redirect — that manual confirmation is what "
+            "completes the mission, not the bulk sweep itself."
+        ),
         # Completion is computed by the dedicated brute_force_activity logic, not
         # these groups; they are kept for documentation/report labelling.
         "completion_groups": [["brute_force_pattern"], ["credential_found", "login_success"]],
@@ -2129,9 +2152,13 @@ OBJECTIVE_SPECS: Dict[str, Dict[str, Any]] = {
              "recommendation": "Send the request to Repeater to learn its format before automating."},
             {"id": "fuzzer_used", "label": "Automate with the Fuzzer", "via": ["zap_fuzzer"],
              "recommendation": "Use the Fuzzer with the local wordlist and compare status/length between attempts."},
-            {"id": "credential_confirmed", "label": "Confirm the credential",
+            {"id": "credential_confirmed", "label": "Confirm the credential by hand in Repeater",
              "event_types": ["credential_found", "login_success"],
-             "recommendation": "Confirm the working credential returns a 302 to /profile/."},
+             "recommendation": (
+                 "Discovery (Fuzzer/Hydra) only finds a candidate. Send that exact "
+                 "username and password through ZAP Repeater yourself — the 302 "
+                 "you see there is what completes the mission."
+             )},
         ],
     },
 }
@@ -2509,15 +2536,21 @@ def compute(module_id: str,
         brute_force_activity = _brute_force_activity(events_for_progress, is_lab=is_lab)
         success = (
             brute_force_activity["failed_attempt_count"] >= BRUTE_FORCE_MIN_FAILURES
-            and brute_force_activity["credential_found"]
+            and brute_force_activity["credential_confirmed_via_repeater"]
         )
+        # Discovery-only progress (found a hit mid-sweep, not yet confirmed by
+        # hand) still earns partial completion_score so the panel doesn't look
+        # stuck at the old bulk-discovery percentage once the credential lands.
+        discovery_score = int(round(
+            100 * min(brute_force_activity["failed_attempt_count"] / BRUTE_FORCE_MIN_FAILURES, 1.0)
+        ))
         completion = {
             "reached": success,
-            "score": 100 if success else int(round(
-                100 * min(brute_force_activity["failed_attempt_count"] / BRUTE_FORCE_MIN_FAILURES, 1.0)
-            )),
+            "score": 100 if success else (
+                90 if brute_force_activity["credential_found"] else discovery_score
+            ),
             "completed_required": (
-                [_evidence_title("brute_force_pattern"), _evidence_title("credential_found")]
+                [_evidence_title("brute_force_pattern"), "Credential confirmed via Repeater"]
                 if success else []
             ),
         }
@@ -2596,7 +2629,21 @@ def compute(module_id: str,
             )
 
     # ── Next recommended action (advisory, never a solution) ─────────────────
-    if quality["missing"]:
+    if (
+        module_id == "brute_force" and not success
+        and brute_force_activity is not None
+        and brute_force_activity["credential_found"]
+        and not brute_force_activity["credential_confirmed_via_repeater"]
+    ):
+        # Found a hit during a bulk sweep (Fuzzer/Hydra) but haven't confirmed
+        # it by hand yet — that manual step is what completes the mission.
+        next_action = (
+            "A credential was found during your sweep, but it hasn't been "
+            "confirmed yet. Send that exact username and password through "
+            "ZAP Repeater and check for a 302 redirect — that's what completes "
+            "the mission."
+        )
+    elif quality["missing"]:
         next_action = quality["missing"][0]["recommendation"]
     elif not success:
         next_action = OBJECTIVE_SPECS.get(module_id, {}).get("objective")

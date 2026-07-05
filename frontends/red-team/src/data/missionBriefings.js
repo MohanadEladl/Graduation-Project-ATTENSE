@@ -143,8 +143,11 @@ export const MISSION_BRIEFINGS = {
     operatorHints: [
       'Hint 1 - Methodology: Capture one failed login first, then use response differences to guide testing instead of guessing in the browser.',
       'Hint 2 - Where to inspect: In Proxy History, send POST /op/auth/login to Repeater and verify the body fields and generic 401 response.',
-      'Hint 3 - What to compare: In Fuzzer results, compare status, length, and redirect behavior; the useful row differs from the repeated failures.',
-      'Hint 4 - Tool: Use ZAP Fuzzer for iteration and AttackBox only to print the local lab wordlist for paste-in payloads.',
+      "Hint 3 - Do NOT use the Fuzzer's built-in Common passwords / Common usernames / Leaked mini-list presets here — none of them contain the real value for this lab instance and every row will just come back 401.",
+      "Hint 4 - Get the real payloads: open the AttackBox terminal and run  cat /lab/operator-passwords.txt  — then copy those lines into the Fuzzer's payload box, replacing whatever preset is loaded.",
+      'Hint 5 - The operator backend only accepts a small, fixed set of usernames: admin, operator, service. It gives an identical generic "Invalid credentials" 401 for every wrong guess, so you cannot tell which part (username or password) was wrong from the response alone.',
+      'Hint 6 - Sniper only marks one field at a time, so run the Fuzzer once PER username: username=admin&password=§, then username=operator&password=§, then username=service&password=§ — each time with the real wordlist from Hint 4 as payloads. The row that returns 302 instead of 401 (and a different length) is the hit.',
+      'Hint 7 - Tool: ZAP Fuzzer (GUI) and Hydra (AttackBox CLI) are two ways to do the SAME thing — pick one, not both. Hydra also needs the real wordlist from Hint 4, not a built-in list.',
     ],
   },
 

@@ -169,15 +169,26 @@ def test_quality_scored_independently_of_completion(monkeypatch):
 
 
 # Brute force keeps its stricter completion but is now also quality-scored.
+# Completion requires a DISTINCT manual confirmation via Repeater — a bulk
+# tool (Fuzzer/Hydra) finding the credential mid-sweep is not enough on its own.
 def test_brute_force_keeps_strict_completion(monkeypatch):
-    def ev(t, ts):
+    def ev(t, ts, via="zap_fuzzer"):
         return {"event_type": t, "path": "/op/auth/login", "method": "POST",
-                "via": "zap_fuzzer", "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
-    events = [*[ev("login_failed", i) for i in range(6)], ev("credential_found", 9)]
+                "via": via, "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
+    events = [*[ev("login_failed", i) for i in range(6)],
+              ev("credential_found", 9, via="zap_repeater")]
     _patch(monkeypatch, events)
     r = lab_progress.compute("brute_force", 0.0, mode="lab")
     assert r["success"] is True
     assert r["completion_score"] == 100
+
+    # Found during the bulk sweep itself (via=zap_fuzzer) but never confirmed
+    # by hand via Repeater — must NOT complete.
+    events_unconfirmed = [*[ev("login_failed", i) for i in range(6)], ev("credential_found", 9)]
+    _patch(monkeypatch, events_unconfirmed)
+    r_unconfirmed = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert r_unconfirmed["success"] is False
+
     # 3 failures alone: not complete, but partial completion score.
     events_few = [ev("login_failed", i) for i in range(3)]
     _patch(monkeypatch, events_few)

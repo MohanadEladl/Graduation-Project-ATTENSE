@@ -151,7 +151,14 @@ def login():
             "path":      "/op/auth/login",
         },
     )
-    return render_template_string(_LOGIN_PAGE, username=username, error=msg), 401
+    # Plain 200 (not 401) — Hydra's http-post-form module has a built-in
+    # heuristic that treats ANY 401/403 response as "this must be real HTTP
+    # Basic Auth, not a form" and refuses to evaluate the failure-condition
+    # string at all, looping on the same attempt forever regardless of
+    # wordlist or F= string. A 200 with the error rendered in the page body
+    # is functionally identical for a browser (no WWW-Authenticate challenge
+    # is sent either way) and lets Hydra's condition-string logic work.
+    return render_template_string(_LOGIN_PAGE, username=username, error=msg), 200
 
 
 @auth_op_bp.route("/logout")

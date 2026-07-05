@@ -135,7 +135,14 @@ export default function TerminalPanel({ minimized, onToggleMinimize, sessionId, 
     <div
       className="h-full w-full flex flex-col overflow-hidden"
       style={{ background: '#0a0d13', borderTop: '1px solid rgba(255,255,255,0.06)' }}
-      onClick={() => inputRef.current?.focus()}
+      onClick={() => {
+        // Don't steal focus if the student just click-dragged to select output
+        // text (e.g. to copy a wordlist) — focusing the input would collapse
+        // that selection right as they release the mouse.
+        const sel = window.getSelection?.()
+        if (sel && sel.toString().length > 0) return
+        inputRef.current?.focus()
+      }}
     >
       {/* Header bar */}
       <div

@@ -784,13 +784,34 @@ def zap_fuzzer_send(method: str, path: str, body_template: str,
     # 401s and the valid credential never stands out — the whole point here.
     headers = dict(headers or {})
     has_ct = any(k.lower() == "content-type" for k in headers)
-    if not has_ct and body_template and not body_template.lstrip().startswith("{"):
+    is_json_body = bool(body_template and body_template.lstrip().startswith("{"))
+    if not has_ct and body_template and not is_json_body:
         headers["Content-Type"] = "application/x-www-form-urlencoded"
+    content_type = next((v for k, v in headers.items() if k.lower() == "content-type"), "")
+    is_form_body = "application/x-www-form-urlencoded" in content_type.lower()
+
+    def _encode_payload(raw: str) -> str:
+        """Encode a fuzzer payload for the position it's substituted into.
+
+        Marker substitution is a raw string replace — if the payload contains
+        a character that's syntactically meaningful in the body's format
+        (& = + % or space in a form body; " \\ in a JSON string), inserting it
+        unencoded corrupts every field after it. A real password that happens
+        to contain one of those characters would then 401 on every attempt,
+        even though it's correct — the app parses a truncated/garbled value.
+        """
+        if not raw:
+            return raw
+        if is_form_body:
+            return urllib.parse.quote_plus(raw, safe="")
+        if is_json_body:
+            return raw.replace("\\", "\\\\").replace('"', '\\"')
+        return raw
 
     grep_l = grep.lower() if grep else None
     results: List[Dict[str, Any]] = []
     for payload in payloads:
-        body = body_template.replace(marker, payload)
+        body = body_template.replace(marker, _encode_payload(payload))
         label = "(base request)" if base_request else payload
         r = zap_repeater_send(
             method=method,
