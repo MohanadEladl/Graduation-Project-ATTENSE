@@ -17,6 +17,7 @@ the pre-existing shared-org behaviour.
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import Optional
 
@@ -35,8 +36,9 @@ def resolve_room_hive_api_key(room_id: Optional[str]) -> Optional[str]:
     if not room_id or room_id == "system":
         return None
     try:
-        from core.room_manager import get_room  # embedded-only import
-    except ImportError:
+        _rm = importlib.import_module("core.room_manager")
+        get_room = _rm.get_room  # type: ignore[attr-defined]
+    except (ImportError, AttributeError):
         return None
     try:
         room = get_room(room_id)
