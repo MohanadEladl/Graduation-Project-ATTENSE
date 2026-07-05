@@ -43,6 +43,7 @@ export default function Missions() {
   const navigate = useNavigate()
   const [sessions, setSessions] = useState([])
   const [catMap,   setCatMap]   = useState({})
+  const [variantMap, setVariantMap] = useState({})  // module_id → { variant_id → {name,difficulty} }
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState(null)
   const [filter,   setFilter]   = useState('all')
@@ -52,12 +53,25 @@ export default function Missions() {
     Promise.all([
       api.sessions.list().catch(() => []),
       api.modules().catch(() => []),
-    ]).then(([s, mods]) => {
+    ]).then(async ([s, mods]) => {
       if (cancelled) return
-      setSessions(Array.isArray(s) ? s : [])
+      const list = Array.isArray(s) ? s : []
+      setSessions(list)
       const map = {}
       for (const m of (Array.isArray(mods) ? mods : [])) map[m.module_id] = m.category
       setCatMap(map)
+
+      // Resolve variant names for each module that has a launched session.
+      const moduleIds = [...new Set(list.map(x => x.module_id).filter(Boolean))]
+      const lists = await Promise.all(moduleIds.map(mid =>
+        api.variants(mid).then(r => r?.variants || r || []).catch(() => [])))
+      if (cancelled) return
+      const vmap = {}
+      moduleIds.forEach((mid, i) => {
+        vmap[mid] = {}
+        for (const v of (Array.isArray(lists[i]) ? lists[i] : [])) vmap[mid][v.variant_id] = v
+      })
+      setVariantMap(vmap)
       setLoading(false)
     }).catch(e => { if (!cancelled) { setError(e.message); setLoading(false) } })
     return () => { cancelled = true }
@@ -153,7 +167,9 @@ export default function Missions() {
         <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
           {sorted.map(s => {
             const color      = SEV_COLOR[s.severity]      || '#8b8faa'
-            const difficulty = SEV_DIFFICULTY[s.severity] || 'Fundamental'
+            const variant    = variantMap[s.module_id]?.[s.variant_id]
+            const variantName = variant?.name
+            const difficulty = variant?.difficulty || SEV_DIFFICULTY[s.severity] || 'Fundamental'
             const status     = s._status
             const meta       = STATUS_META[status]
             const StatusIcon = meta.Icon
@@ -214,6 +230,13 @@ export default function Missions() {
                   <div className="text-[15px] font-bold leading-snug text-attense-text transition-colors group-hover:text-white">
                     {s.module_name || s.module_id}
                   </div>
+                  {/* Variant — distinguishes two runs of the same module. */}
+                  {variantName && (
+                    <span className="inline-flex items-center gap-1.5 self-start mt-2 rounded-md px-2 py-0.5 font-mono text-[9.5px] font-semibold"
+                      style={{ background: color + '14', color, border: `1px solid ${color}33` }}>
+                      <span style={{ opacity: 0.7 }}>▸</span> {variantName}
+                    </span>
+                  )}
 
                   {/* footer meta */}
                   <div className="flex items-center gap-3 mt-auto pt-4 border-t border-white/[0.06]">
