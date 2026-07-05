@@ -23,6 +23,7 @@ from ..blueactions.alert_actions import (
     build_deny_alert_event,
 )
 from ..validation.alert_validator import (
+    validate_raise_alert,
     validate_investigate_alert,
     validate_deny_alert,
 )
