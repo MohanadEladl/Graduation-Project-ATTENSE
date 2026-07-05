@@ -243,6 +243,14 @@ function MissionSidebar({
                   <span className="font-mono text-[10.5px] text-attense-muted">Not triggered yet</span>
                 </div>
               )}
+              {/* Concrete, plain-language target so the student always knows
+                  what "goal" means for this module (log in? reflect XSS? etc.). */}
+              {briefing?.successCondition && !(isDone || progress?.goal_triggered) && (
+                <div className="mt-2.5 pt-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                  <span className="font-mono text-[8.5px] tracking-[0.28em]" style={{ color: '#ffb020' }}>YOUR TARGET</span>
+                  <div className="mt-1 text-[11px] leading-relaxed text-attense-text">{briefing.successCondition}</div>
+                </div>
+              )}
             </>
           ) : (
             <div className="font-mono text-[9px] tracking-[0.24em]" style={{ color: '#7dd3fc' }}>

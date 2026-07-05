@@ -39,7 +39,7 @@ export default function HomeHero({
             <img
               src="/logo.png"
               alt="ATTENSE"
-              style={{ height: 28, width: 'auto', filter: 'drop-shadow(0 0 10px rgba(255,21,53,0.55))' }}
+              style={{ height: 28, width: 'auto' }}
             />
             <span className="text-[20px] font-bold tracking-tight text-white">
               ATTENSE

@@ -151,14 +151,12 @@ def login():
             "path":      "/op/auth/login",
         },
     )
-    # Plain 200 (not 401) — Hydra's http-post-form module has a built-in
-    # heuristic that treats ANY 401/403 response as "this must be real HTTP
-    # Basic Auth, not a form" and refuses to evaluate the failure-condition
-    # string at all, looping on the same attempt forever regardless of
-    # wordlist or F= string. A 200 with the error rendered in the page body
-    # is functionally identical for a browser (no WWW-Authenticate challenge
-    # is sent either way) and lets Hydra's condition-string logic work.
-    return render_template_string(_LOGIN_PAGE, username=username, error=msg), 200
+    # Return a normal 401 on a denied login — this is realistic traffic, and in
+    # ZAP the signal stays clear (401 = wrong, 302 = the valid credential hit).
+    # NOTE: Hydra's http-post-form module treats a 401 as HTTP Basic Auth and
+    # will not evaluate the F=/S= condition string, so the Hydra path may loop.
+    # Use the ZAP Fuzzer (sort by status: 401 vs 302) for this backend.
+    return render_template_string(_LOGIN_PAGE, username=username, error=msg), 401
 
 
 @auth_op_bp.route("/logout")

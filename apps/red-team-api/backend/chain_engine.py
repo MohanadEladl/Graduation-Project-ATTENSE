@@ -2,7 +2,11 @@
 backend/chain_engine.py — Attack chain session management.
 
 An "attack chain" is a multi-step mission where each module must be completed
-(score >= threshold) before the next step unlocks.
+before the next step unlocks. Completion follows the authoritative goal-trigger
+model: a phase is done the instant its goal event fires on the operator target
+(``goal_triggered``/``success``), independent of the legacy ``progress_percent``
+task-ladder value (which stays 25–33% for a single goal event). ``threshold``
+is retained only for display/grading, not for advancement gating.
 """
 from __future__ import annotations
 
@@ -56,6 +60,35 @@ CHAINS: Dict[str, Dict[str, Any]] = {
 # ── In-memory chain session store ───────────────────────────────────────────
 
 _CHAIN_SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+
+# ── Completion helpers ───────────────────────────────────────────────────────
+
+def _step_complete(result: Dict[str, Any]) -> bool:
+    """Authoritative phase-completion check for the goal-trigger model.
+
+    A phase is complete when its goal event has fired. ``goal_triggered`` is the
+    canonical signal; ``success`` is its compatibility mirror. The legacy
+    ``progress_percent >= threshold`` test is intentionally NOT used — a single
+    goal event completes the mission while leaving task-ladder progress at
+    25–33%, so gating on it would strand a finished phase.
+    """
+    return bool(result.get("goal_triggered") or result.get("success"))
+
+
+def _reset_evidence() -> None:
+    """POST to the target-agent to clear lab evidence between phases.
+
+    Extracted so callers/tests can stub the network hop. Failures are swallowed
+    by the caller's context; here we raise on transport errors.
+    """
+    reset_url = TARGET_AGENT_URL + "/lab/events/reset"
+    req = urllib.request.Request(
+        reset_url, data=b"", method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=4):
+        pass
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -128,7 +161,7 @@ def check_step_complete(chain_session_id: str) -> bool:
       - variant_id = None  (chains always use default variant)
       - mission_started_at = chain session's started_at timestamp
 
-    Returns True if score >= step's threshold.
+    Returns True once the phase's goal event has fired (goal-trigger model).
     """
     if chain_session_id not in _CHAIN_SESSIONS:
         raise KeyError("Chain session not found: " + chain_session_id)
@@ -144,16 +177,15 @@ def check_step_complete(chain_session_id: str) -> bool:
 
     step = steps[idx]
     module_id = step["module_id"]
-    threshold = step["threshold"]
 
     from backend import lab_progress
     result = lab_progress.compute(
         module_id=module_id,
         mission_started_at=session["started_at"],
+        mode="lab",
         variant_id=None,
     )
-    score = int(result.get("progress_percent", 0))
-    return score >= threshold
+    return _step_complete(result)
 
 
 def advance_chain(chain_session_id: str) -> Dict[str, Any]:
@@ -182,7 +214,7 @@ def advance_chain(chain_session_id: str) -> Dict[str, Any]:
         step = chain["steps"][idx]
         raise ValueError(
             "Current step '" + step["label"] + "' is not yet complete. "
-            "Score must reach " + str(step["threshold"]) + "%."
+            "Trigger the phase goal to advance."
         )
 
     # Snapshot current phase result BEFORE wiping evidence
@@ -194,30 +226,35 @@ def advance_chain(chain_session_id: str) -> Dict[str, Any]:
     _result = _lp.compute(
         module_id=step["module_id"],
         mission_started_at=session["started_at"],
+        mode="lab",
         variant_id=None,
     )
-    _score = int(_result.get("progress_percent", 0))
     session["phase_results"][idx] = {
         "phase_index":       idx,
         "module_id":         step["module_id"],
         "label":             step["label"],
         "threshold":         step["threshold"],
-        "score":             _score,
-        "passed":            _score >= step["threshold"],
+        # Completion is goal-trigger based; score is now the methodology
+        # quality score (report-only), not the task-ladder percentage.
+        "score":             int(_result.get("quality_score", 0)),
+        "passed":            _step_complete(_result),
+        "goal_triggered":    bool(_result.get("goal_triggered")),
+        "status":            _result.get("status", "incomplete"),
+        "trigger_event":     _result.get("trigger_event"),
+        "trigger_reason":    _result.get("trigger_reason"),
+        "quality_score":     _result.get("quality_score"),
+        "quality_feedback":  _result.get("quality_feedback"),
+        "missing_methodology": _result.get("missing_methodology", []),
+        "observed_tools":    _result.get("observed_tools", []),
+        "progress_percent":  int(_result.get("progress_percent", 0)),
         "evidence":          _result.get("evidence", []),
         "completed_tasks":   _result.get("completed_tasks", []),
         "timestamp":         time.time(),
     }
 
     # Reset target-agent evidence — swallow any failure
-    reset_url = TARGET_AGENT_URL + "/lab/events/reset"
     try:
-        req = urllib.request.Request(
-            reset_url, data=b"", method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=4):
-            pass
+        _reset_evidence()
     except Exception as _exc:
         _log.warning("chain_engine: reset failed for chain session %s: %s", chain_session_id, _exc)
 
@@ -266,15 +303,17 @@ def get_chain_report(chain_session_id: str) -> Dict[str, Any]:
             result = lab_progress.compute(
                 module_id=step["module_id"],
                 mission_started_at=session["started_at"],
+                mode="lab",
                 variant_id=None,
             )
-            score = int(result.get("progress_percent", 0))
+            score = int(result.get("quality_score", 0))
             steps_out.append({
                 "module_id":       step["module_id"],
                 "label":           step["label"],
                 "threshold":       step["threshold"],
                 "score":           score,
-                "passed":          score >= step["threshold"],
+                "passed":          _step_complete(result),
+                "goal_triggered":  bool(result.get("goal_triggered")),
                 "evidence":        result.get("evidence", []),
                 "completed_tasks": result.get("completed_tasks", []),
             })

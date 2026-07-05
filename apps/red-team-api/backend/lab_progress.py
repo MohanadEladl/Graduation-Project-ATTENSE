@@ -596,11 +596,13 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                  "event_types": ["login_failed", "login_success"],
                  "min_count": 4,
                  "explain":     "Submit at least 4 different usernames with the same trial password."},
-                {"title": "Detect username enumeration leak",
+                {"title": "Confirm enumeration is blocked (harder backend)",
                  "event_types": ["login_failed"],
                  "min_count": 6,
-                 "explain":     "Send at least 6 failed logins, comparing the error message between "
-                                "known and unknown users — the wording leaks which accounts exist."},
+                 "explain":     "Send at least 6 failed logins across known and unknown usernames. "
+                                "The operator backend replies with the same generic 'Invalid credentials' "
+                                "401 either way — no wording leak here, so the spray has "
+                                "to rely on volume, not response differences."},
                 {"title": "Trigger pattern detection",
                  "event_types": ["brute_force_pattern"],
                  "explain":     "Make 3+ failed login attempts from your client — the brute-force "
@@ -630,7 +632,7 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {"title": "Confirm endpoint accepts repeated POSTs",
                  "event_types": ["login_failed"],
                  "min_count": 1,
-                 "explain":     "Send one POST to /auth/login to verify the form."},
+                 "explain":     "Send one POST to /op/auth/login to verify the form."},
                 {"title": "Stuff a known username with a leaked wordlist",
                  "event_types": ["login_failed"],
                  "min_count": 8,
@@ -648,8 +650,8 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                 "#   (Lab Tools → ZAP → Fuzzer.  Attack type: Sniper.  Route: /op/auth/login.)",
                 "#",
                 "# The operator backend gives an IDENTICAL generic 'Invalid credentials' 401",
-                "# for every wrong guess — there is no enumeration signal here, so a",
-                "# grep-match phase cannot distinguish a valid username. Instead:",
+                "# for every wrong guess — there is no enumeration signal here, so a grep-match",
+                "# phase cannot distinguish a valid username. Instead:",
                 "#",
                 "# STEP 1 — get the real payload list (built-in presets will NOT work):",
                 "#   AttackBox:  cat /lab/operator-passwords.txt",
@@ -674,7 +676,7 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {"title": "Inspect the login form structure",
                  "event_types": ["login_failed"],
                  "min_count": 1,
-                 "explain":     "GET /auth/login and identify the action URL + field names."},
+                 "explain":     "GET /op/auth/login and identify the action URL + field names."},
                 {"title": "Build a smart wordlist matched to the company",
                  "event_types": ["login_failed"],
                  "min_count": 10,
@@ -1211,20 +1213,24 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
             "sections": [
                 {
                     "what": "Before you can spray, you need a list of usernames that probably exist. "
-                            "Most apps leak this: predictable names (admin, operator, service) and "
-                            "different responses for valid vs invalid users.",
-                    "how":  "Submit a handful of likely usernames with a throwaway password and watch "
-                            "the response. In the lab browser, try logging in as admin, operator, guest, "
-                            "alice, bob, service — one wrong password each.",
-                    "look_for": "Each attempt is logged as a failed login. 4+ distinct usernames marks this step done.",
+                            "Most apps leak this via predictable names (admin, operator, service) or "
+                            "different responses for valid vs invalid users — though this target's "
+                            "operator backend deliberately hides that second signal (see next step).",
+                    "how":  "Submit a handful of likely usernames with a throwaway password through the "
+                            "lab browser — each POST to /op/auth/login shows up in ZAP Proxy History. "
+                            "Try admin, operator, guest, alice, bob, service — one wrong password each.",
+                    "look_for": "Each attempt is logged as a failed login (a normal 401 with a generic "
+                                "error body). 4+ distinct usernames marks this step done.",
                 },
                 {
-                    "what": "Username enumeration is a vulnerability on its own: if the app says "
-                            "'wrong password' for real users but 'no such account' for fake ones, "
-                            "it just told you which usernames are real.",
-                    "how":  "Compare the error message between a username you believe is real (admin) "
-                            "and an obviously fake one (zzqq). Note which message means 'this user exists'.",
-                    "look_for": "Two different error strings = the endpoint leaks valid accounts. 6+ attempts marks this done.",
+                    "what": "On many apps, different error wording between valid and invalid users "
+                            "leaks which accounts exist. This operator backend was hardened specifically "
+                            "to remove that leak.",
+                    "how":  "Compare the response across attempts for a username you believe is real "
+                            "(admin) and an obviously fake one (zzqq). Both return the identical generic "
+                            "'Invalid credentials' 401 — no enumeration channel here.",
+                    "look_for": "Same status and message on every attempt = enumeration is blocked. "
+                                "6+ attempts marks this done.",
                 },
                 {
                     "what": "Repeated failed logins from one source are exactly what a SOC watches for. "
@@ -1236,8 +1242,9 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {
                     "what": "The payoff: one of your sprayed users shares the common password. "
                             "That single 302 redirect is a full account takeover.",
-                    "how":  "When a sprayed username returns success (redirect to /profile/ instead of a "
-                            "401), you've found a live credential. The lab plants admin:password123.",
+                    "how":  "When a sprayed username returns success (redirect to /profile/ instead of the "
+                            "usual 401 'Invalid credentials' page), you've found a live credential. Only "
+                            "admin, operator, and service are real accounts on this backend.",
                     "look_for": "A 'Valid credential confirmed' card — you successfully logged in.",
                 },
             ],
@@ -1253,16 +1260,18 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {
                     "what": "First confirm the login endpoint accepts repeated automated POSTs with no "
                             "rate limit, CAPTCHA, or lockout — the precondition that makes stuffing viable.",
-                    "how":  "Send one login POST to /auth/login (any password) and confirm you get a clean "
-                            "401 back, not a block or challenge.",
+                    "how":  "Send one login POST to /op/auth/login (any password) through the lab browser "
+                            "or ZAP Repeater and confirm you get a clean 401 back with a "
+                            "generic 'Invalid credentials' body, not a block or challenge.",
                     "look_for": "A failed-login event is recorded — the endpoint is reachable and unprotected.",
                 },
                 {
                     "what": "Now replay a leaked password list against a known account. This is the heart of "
-                            "stuffing: a curated wordlist of real, previously-breached passwords.",
-                    "how":  "Run Hydra against username=admin with the local leaked list: "
-                            "`hydra -l admin -P /wordlists/rockyou-mini.txt target-agent "
-                            "http-post-form '/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 4 -f`",
+                            "stuffing: a curated wordlist of real, previously-breached passwords. The default "
+                            "wordlist presets won't hit here — this backend's passwords aren't in rockyou-mini.",
+                    "how":  "Get the real seed list on the AttackBox (`cat /lab/operator-passwords.txt`), then "
+                            "in ZAP Fuzzer: POSITIONS username=admin&password=§ → PAYLOADS paste that list → "
+                            "START ATTACK on /op/auth/login.",
                     "look_for": "8+ failed-login attempts recorded against admin marks this step done.",
                 },
                 {
@@ -1275,8 +1284,9 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {
                     "what": "If the reused password is anywhere in the leaked list, you're in — without ever "
                             "'guessing'. That's why password reuse is so dangerous.",
-                    "how":  "When one password in the list returns a 302 redirect, that's the hit. Confirm it "
-                            "by hand: `curl -i -d 'username=admin&password=password123' http://target-agent/auth/login`.",
+                    "how":  "Sort the Fuzzer results by STATUS — the 302 row is the hit. If admin doesn't hit, "
+                            "repeat with username=operator, then username=service (the only three valid "
+                            "accounts). Confirm the winner in Repeater: resend it → 302 redirect to /profile/.",
                     "look_for": "A 'Valid credential confirmed' card — the leaked password worked.",
                 },
             ],
@@ -1291,17 +1301,23 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
             "sections": [
                 {
                     "what": "Hydra needs to know exactly how the form works: the path it POSTs to, the field "
-                            "names, and the text that appears on a FAILED login (so it can tell success from failure).",
-                    "how":  "GET /auth/login and read the HTML form. Identify action=/auth/login, fields "
-                            "username & password, and the failure message ('Incorrect password').",
+                            "names, and the text that appears on a FAILED login (so it can tell success from "
+                            "failure). Note: this backend returns a normal 401 on a denied login. Hydra's "
+                            "http-post-form module can misread a 401 as HTTP Basic Auth and stop evaluating "
+                            "the failure string — if it loops, switch to the ZAP Fuzzer (sort by status: "
+                            "401 = wrong, 302 = the hit), which reads this backend cleanly.",
+                    "how":  "GET /op/auth/login and read the HTML form. Identify action=/op/auth/login, fields "
+                            "username & password, and the generic failure message ('Invalid credentials').",
                     "look_for": "One probe login is recorded — you've confirmed the form's shape.",
                 },
                 {
-                    "what": "A good wordlist beats a big one. Target the org: company name, year, season, "
-                            "'Welcome1', etc. Hydra will iterate this against your user list.",
-                    "how":  "Run Hydra with the http-post-form module: "
-                            "`hydra -L users.txt -P /wordlists/rockyou-mini.txt target-agent http-post-form "
-                            "'/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 8 -f`",
+                    "what": "The built-in wordlist presets won't work — this backend's passwords aren't in "
+                            "rockyou-mini. You need the real seed list mounted on the AttackBox.",
+                    "how":  "Get the list first (`cat /lab/operator-passwords.txt`), then run Hydra with the "
+                            "http-post-form module: "
+                            "`hydra -l admin -P /lab/operator-passwords.txt target-agent http-post-form "
+                            "'/op/auth/login:username=^USER^&password=^PASS^:Invalid credentials' -t 8 -f`. "
+                            "Repeat with -l operator, then -l service, if admin doesn't hit.",
                     "look_for": "10+ login attempts recorded as Hydra works through the list.",
                 },
                 {
@@ -1313,8 +1329,8 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {
                     "what": "With -f, Hydra halts on the first valid pair and prints it. That's your credential, "
                             "found automatically.",
-                    "how":  "Read Hydra's output line: [80][http-post-form] host: target-agent login: admin password: password123. "
-                            "Verify with a manual curl to be sure.",
+                    "how":  "Read Hydra's output line: [80][http-post-form] host: target-agent login: <user> "
+                            "password: <pass>. Verify it in ZAP Repeater on /op/auth/login → 302 to /profile/.",
                     "look_for": "A 'Valid credential confirmed' card — Hydra cracked the login.",
                 },
             ],

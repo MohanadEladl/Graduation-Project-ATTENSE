@@ -46,7 +46,7 @@ export default function Login() {
         transition={{ duration: 0.6 }}
       >
         <div className="flex items-center gap-2 mb-2">
-          <img src="/logo.png" alt="ATTENSE" style={{ height: 24, width: 'auto', filter: 'drop-shadow(0 0 10px rgba(255,21,53,0.55))' }} />
+          <img src="/logo.png" alt="ATTENSE" style={{ height: 24, width: 'auto' }} />
           <span className="font-display font-bold text-[22px] tracking-widest text-attense-text">
             ATTENSE
           </span>

@@ -64,7 +64,7 @@ export function RangeLayout() {
         >
           {/* Brand */}
           <button onClick={() => navigate('/dashboard')} className="flex items-center gap-3">
-            <img src="/logo.png" alt="ATTENSE" style={{ height: 28, width: 'auto', filter: 'drop-shadow(0 0 10px rgba(255,21,53,0.55))' }} />
+            <img src="/logo.png" alt="ATTENSE" style={{ height: 28, width: 'auto' }} />
             <span className="text-[20px] font-bold tracking-tight text-white">
               ATTENSE
             </span>

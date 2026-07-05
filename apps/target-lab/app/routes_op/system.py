@@ -65,7 +65,13 @@ def ping():
             extra={"host_param": raw[:200], "sanitized": host[:200], "backend": "operator"},
         )
 
-    output = os.popen(f"ping -c 2 {host} 2>&1").read()  # noqa: S605
+    # Quote the host so an injected subshell's multi-word output (e.g. `id` →
+    # "uid=0(root) gid=0(root) groups=0(root)") is passed to ping as ONE argument
+    # and echoed back whole. Unquoted, ping word-splits and reports only the last
+    # token ("groups=0(root)"), which hides the uid=/root: indicators the detector
+    # keys on — so a successful $(id)/$(cat /etc/passwd) injection went undetected.
+    # The subshell still executes (the vuln is intact); this only fixes reflection.
+    output = os.popen(f'ping -c 2 "{host}" 2>&1').read()  # noqa: S605
 
     INDICATORS = ("uid=", "root:", "/bin/", "/etc/", "drwx", "-rwx", "Linux ")
     if any(s in output for s in INDICATORS):

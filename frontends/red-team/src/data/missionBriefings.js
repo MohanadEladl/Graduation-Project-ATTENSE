@@ -122,7 +122,7 @@ export const MISSION_BRIEFINGS = {
       'A brute-force pattern alert appears after 3+ failures',
       'Successful login redirects to the profile page',
     ],
-    successCondition: 'Trigger the brute-force pattern detection and find a valid credential.',
+    successCondition: 'Find a valid username/password and log in — one successful login (302 redirect to the profile page) completes the lab. The brute-force alert is a bonus, not required.',
     learningGoals: [
       'Understand how credential stuffing works against web login forms',
       'Learn why rate limiting and account lockout are critical defenses',
@@ -142,12 +142,12 @@ export const MISSION_BRIEFINGS = {
     // guided hints above so guided enumeration help never leaks into Operator.
     operatorHints: [
       'Hint 1 - Methodology: Capture one failed login first, then use response differences to guide testing instead of guessing in the browser.',
-      'Hint 2 - Where to inspect: In Proxy History, send POST /op/auth/login to Repeater and verify the body fields and generic 401 response.',
-      "Hint 3 - Do NOT use the Fuzzer's built-in Common passwords / Common usernames / Leaked mini-list presets here — none of them contain the real value for this lab instance and every row will just come back 401.",
+      'Hint 2 - Where to inspect: In Proxy History, send POST /op/auth/login to Repeater and verify the body fields and generic response. A denied login returns a normal 401 with the same "Invalid credentials" body every time — no username enumeration signal.',
+      "Hint 3 - Do NOT use the Fuzzer's built-in Common passwords / Common usernames / Leaked mini-list presets here — none of them contain the real value for this lab instance and every row will just come back 401 with the same error body.",
       "Hint 4 - Get the real payloads: open the AttackBox terminal and run  cat /lab/operator-passwords.txt  — then copy those lines into the Fuzzer's payload box, replacing whatever preset is loaded.",
       'Hint 5 - The operator backend only accepts a small, fixed set of usernames: admin, operator, service. It gives an identical generic "Invalid credentials" 401 for every wrong guess, so you cannot tell which part (username or password) was wrong from the response alone.',
       'Hint 6 - Sniper only marks one field at a time, so run the Fuzzer once PER username: username=admin&password=§, then username=operator&password=§, then username=service&password=§ — each time with the real wordlist from Hint 4 as payloads. The row that returns 302 instead of 401 (and a different length) is the hit.',
-      'Hint 7 - Tool: ZAP Fuzzer (GUI) and Hydra (AttackBox CLI) are two ways to do the SAME thing — pick one, not both. Hydra also needs the real wordlist from Hint 4, not a built-in list.',
+      'Hint 7 - Tool: use the ZAP Fuzzer (GUI) for this backend — sort results by status, 401 = wrong and 302 = the hit. (Hydra’s http-post-form misreads the 401 as HTTP Basic Auth, so it is not the tool for this route.)',
     ],
   },
 

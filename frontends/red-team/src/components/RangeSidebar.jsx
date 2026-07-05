@@ -41,7 +41,7 @@ export default function RangeSidebar({
           <img
             src="/logo.png"
             alt="ATTENSE"
-            style={{ height: 18, width: 'auto', filter: 'drop-shadow(0 0 8px rgba(255,21,53,0.55))', flexShrink: 0 }}
+            style={{ height: 18, width: 'auto', flexShrink: 0 }}
           />
           <span className="whitespace-nowrap text-sm font-bold tracking-tight text-white">ATTENSE</span>
         </div>
@@ -50,7 +50,7 @@ export default function RangeSidebar({
           <img
             src="/logo.png"
             alt="ATTENSE"
-            style={{ height: 18, width: 'auto', filter: 'drop-shadow(0 0 8px rgba(255,21,53,0.55))', flexShrink: 0 }}
+            style={{ height: 18, width: 'auto', flexShrink: 0 }}
           />
         )}
 

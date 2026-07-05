@@ -17,7 +17,7 @@ export default function WhoAreYou() {
 
       {/* wordmark */}
       <div className="absolute top-5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2">
-        <img src="/logo.png" alt="ATTENSE" style={{ height: 18, width: 'auto', filter: 'drop-shadow(0 0 8px rgba(255,21,53,0.55))' }} />
+        <img src="/logo.png" alt="ATTENSE" style={{ height: 18, width: 'auto' }} />
         <span className="font-display font-bold text-[15px] tracking-widest text-attense-text">
           ATTENSE
         </span>
