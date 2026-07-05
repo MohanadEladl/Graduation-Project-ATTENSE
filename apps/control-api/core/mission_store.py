@@ -66,23 +66,23 @@ def _ensure_zero_day(cur) -> int:
     row = cur.fetchone()
     if row is not None:
         return row["zero_day_id"]
-        cur.execute(
-        '''
-        INSERT INTO "ZeroDayAttack" (name, description, severity, discovery_date)
-        VALUES (%s, %s, %s, CURRENT_DATE)
-        RETURNING zero_day_id
-        ''',
-        ("ATTENSE Training Event", "Synthetic cyber range activity", "training"),
-        )
-        return cur.fetchone()["zero_day_id"]
+    cur.execute(
+    '''
+    INSERT INTO "ZeroDayAttack" (name, description, severity, discovery_date)
+    VALUES (%s, %s, %s, CURRENT_DATE)
+    RETURNING zero_day_id
+    ''',
+    ("ATTENSE Training Event", "Synthetic cyber range activity", "training"),
+    )
+    return cur.fetchone()["zero_day_id"]
 
 
 def _user_id(cur, username: Optional[str]) -> Optional[int]:
     if not username:
         return None
-        cur.execute('SELECT user_id FROM "User" WHERE username = %s OR email = %s', (username, username))
-        row = cur.fetchone()
-        return row["user_id"] if row else None
+    cur.execute('SELECT user_id FROM "User" WHERE username = %s OR email = %s', (username, username))
+    row = cur.fetchone()
+    return row["user_id"] if row else None
 
 
 def _room_row(cur, *, room_key: Optional[str] = None, incident_id: Optional[str] = None) -> Optional[dict]:
@@ -91,15 +91,15 @@ def _room_row(cur, *, room_key: Optional[str] = None, incident_id: Optional[str]
         row = cur.fetchone()
         if row:
             return row
-            if incident_id:
-                cur.execute(
-                'SELECT room_id, room_key, metadata FROM "Room" WHERE incident_key = %s OR metadata @> %s::jsonb',
-                (incident_id, json.dumps({"incidents": [incident_id]})),
-                )
-                row = cur.fetchone()
-                if row:
-                    return row
-                    return None
+    if incident_id:
+        cur.execute(
+        'SELECT room_id, room_key, metadata FROM "Room" WHERE incident_key = %s OR metadata @> %s::jsonb',
+        (incident_id, json.dumps({"incidents": [incident_id]})),
+        )
+        row = cur.fetchone()
+        if row:
+            return row
+    return None
 
 
 def record_room_participant(
@@ -113,105 +113,105 @@ payload: Optional[dict] = None,
 ) -> None:
     if not room_key or not username:
         return
-        _ensure_schema()
-        payload = payload or {}
-        with connection() as conn, conn.cursor() as cur:
-            room = _room_row(cur, room_key=room_key)
-            uid = _user_id(cur, username)
-            cur.execute(
-            '''
-            INSERT INTO "RoomParticipant" (
-            room_id, room_key, user_id, username, team_role,
-            joined_at, completed_at, payload, updated_at
-            )
-            VALUES (%s, %s, %s, %s, %s, COALESCE(%s::timestamptz, now()), %s::timestamptz, %s::jsonb, now())
-            ON CONFLICT (room_key, username, team_role) DO UPDATE SET
-            room_id = COALESCE(EXCLUDED.room_id, "RoomParticipant".room_id),
-            user_id = COALESCE(EXCLUDED.user_id, "RoomParticipant".user_id),
-            completed_at = COALESCE(EXCLUDED.completed_at, "RoomParticipant".completed_at),
-            payload = "RoomParticipant".payload || EXCLUDED.payload,
-            updated_at = now()
-            ''',
-            (
-            room["room_id"] if room else None,
-            room_key,
-            uid,
-            username,
-            team_role,
-            joined_at,
-            completed_at,
-            json.dumps(payload),
-            ),
-            )
+    _ensure_schema()
+    payload = payload or {}
+    with connection() as conn, conn.cursor() as cur:
+        room = _room_row(cur, room_key=room_key)
+        uid = _user_id(cur, username)
+        cur.execute(
+        '''
+        INSERT INTO "RoomParticipant" (
+        room_id, room_key, user_id, username, team_role,
+        joined_at, completed_at, payload, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, COALESCE(%s::timestamptz, now()), %s::timestamptz, %s::jsonb, now())
+        ON CONFLICT (room_key, username, team_role) DO UPDATE SET
+        room_id = COALESCE(EXCLUDED.room_id, "RoomParticipant".room_id),
+        user_id = COALESCE(EXCLUDED.user_id, "RoomParticipant".user_id),
+        completed_at = COALESCE(EXCLUDED.completed_at, "RoomParticipant".completed_at),
+        payload = "RoomParticipant".payload || EXCLUDED.payload,
+        updated_at = now()
+        ''',
+        (
+        room["room_id"] if room else None,
+        room_key,
+        uid,
+        username,
+        team_role,
+        joined_at,
+        completed_at,
+        json.dumps(payload),
+        ),
+        )
 
 
 def record_mission_snapshot(snapshot: dict) -> None:
     session_key = snapshot.get("session_id") or snapshot.get("session_key")
     if not session_key:
         return
-        _ensure_schema()
-        username = snapshot.get("actor_id") or snapshot.get("username")
-        room_key = snapshot.get("room_id")
-        incident_id = snapshot.get("incident_id")
-        with connection() as conn, conn.cursor() as cur:
-            room = _room_row(cur, room_key=room_key, incident_id=incident_id)
-            if room and not room_key:
-                room_key = room["room_key"]
-                uid = _user_id(cur, username)
-                started_at = _epoch_to_timestamptz(snapshot.get("mission_started_at") or snapshot.get("created_at"))
-                completed_at = _epoch_to_timestamptz(snapshot.get("learning_completed_at"))
-                learning_success = bool(snapshot.get("learning_success"))
-                progress = int(snapshot.get("learning_progress_percent") or 0)
-                status = "completed" if learning_success else snapshot.get("learning_state") or snapshot.get("state") or "unknown"
-                cur.execute(
-                '''
-                INSERT INTO "MissionAttempt" (
-                session_key, room_id, room_key, user_id, username, team_role,
-                module_id, scenario_key, status, learning_success,
-                progress_percent, started_at, completed_at, payload, updated_at
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::timestamptz, %s::timestamptz, %s::jsonb, now())
-                ON CONFLICT (session_key) DO UPDATE SET
-                room_id = COALESCE(EXCLUDED.room_id, "MissionAttempt".room_id),
-                room_key = COALESCE(EXCLUDED.room_key, "MissionAttempt".room_key),
-                user_id = COALESCE(EXCLUDED.user_id, "MissionAttempt".user_id),
-                username = COALESCE(EXCLUDED.username, "MissionAttempt".username),
-                team_role = COALESCE(EXCLUDED.team_role, "MissionAttempt".team_role),
-                module_id = EXCLUDED.module_id,
-                scenario_key = EXCLUDED.scenario_key,
-                status = EXCLUDED.status,
-                learning_success = EXCLUDED.learning_success,
-                progress_percent = EXCLUDED.progress_percent,
-                started_at = COALESCE(EXCLUDED.started_at, "MissionAttempt".started_at),
-                completed_at = COALESCE(EXCLUDED.completed_at, "MissionAttempt".completed_at),
-                payload = EXCLUDED.payload,
-                updated_at = now()
-                ''',
-                (
-                session_key,
-                room["room_id"] if room else None,
-                room_key,
-                uid,
-                username,
-                snapshot.get("role") or "red_team",
-                snapshot.get("module_id"),
-                snapshot.get("scenario_id"),
-                status,
-                learning_success,
-                progress,
-                started_at,
-                completed_at,
-                json.dumps(snapshot),
-                ),
-                )
-                if room_key and username:
-                    record_room_participant(
-                    room_key,
-                    username,
-                    snapshot.get("role") or "red_team",
-                    completed_at=completed_at if learning_success else None,
-                    payload={"latest_mission_session": session_key, "latest_mission": snapshot},
-                    )
+    _ensure_schema()
+    username = snapshot.get("actor_id") or snapshot.get("username")
+    room_key = snapshot.get("room_id")
+    incident_id = snapshot.get("incident_id")
+    with connection() as conn, conn.cursor() as cur:
+        room = _room_row(cur, room_key=room_key, incident_id=incident_id)
+        if room and not room_key:
+            room_key = room["room_key"]
+        uid = _user_id(cur, username)
+        started_at = _epoch_to_timestamptz(snapshot.get("mission_started_at") or snapshot.get("created_at"))
+        completed_at = _epoch_to_timestamptz(snapshot.get("learning_completed_at"))
+        learning_success = bool(snapshot.get("learning_success"))
+        progress = int(snapshot.get("learning_progress_percent") or 0)
+        status = "completed" if learning_success else snapshot.get("learning_state") or snapshot.get("state") or "unknown"
+        cur.execute(
+        '''
+        INSERT INTO "MissionAttempt" (
+        session_key, room_id, room_key, user_id, username, team_role,
+        module_id, scenario_key, status, learning_success,
+        progress_percent, started_at, completed_at, payload, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::timestamptz, %s::timestamptz, %s::jsonb, now())
+        ON CONFLICT (session_key) DO UPDATE SET
+        room_id = COALESCE(EXCLUDED.room_id, "MissionAttempt".room_id),
+        room_key = COALESCE(EXCLUDED.room_key, "MissionAttempt".room_key),
+        user_id = COALESCE(EXCLUDED.user_id, "MissionAttempt".user_id),
+        username = COALESCE(EXCLUDED.username, "MissionAttempt".username),
+        team_role = COALESCE(EXCLUDED.team_role, "MissionAttempt".team_role),
+        module_id = EXCLUDED.module_id,
+        scenario_key = EXCLUDED.scenario_key,
+        status = EXCLUDED.status,
+        learning_success = EXCLUDED.learning_success,
+        progress_percent = EXCLUDED.progress_percent,
+        started_at = COALESCE(EXCLUDED.started_at, "MissionAttempt".started_at),
+        completed_at = COALESCE(EXCLUDED.completed_at, "MissionAttempt".completed_at),
+        payload = EXCLUDED.payload,
+        updated_at = now()
+        ''',
+        (
+        session_key,
+        room["room_id"] if room else None,
+        room_key,
+        uid,
+        username,
+        snapshot.get("role") or "red_team",
+        snapshot.get("module_id"),
+        snapshot.get("scenario_id"),
+        status,
+        learning_success,
+        progress,
+        started_at,
+        completed_at,
+        json.dumps(snapshot),
+        ),
+        )
+        if room_key and username:
+            record_room_participant(
+            room_key,
+            username,
+            snapshot.get("role") or "red_team",
+            completed_at=completed_at if learning_success else None,
+            payload={"latest_mission_session": session_key, "latest_mission": snapshot},
+            )
 
 
 def record_blue_action(record: dict, *, room_key: Optional[str] = None, incident_id: Optional[str] = None) -> None:
@@ -222,20 +222,20 @@ def record_blue_action(record: dict, *, room_key: Optional[str] = None, incident
         room = _room_row(cur, room_key=room_key, incident_id=incident_id)
         if room is None:
             return
-            zero_day_id = _ensure_zero_day(cur)
-            cur.execute(
-            '''
-            INSERT INTO "BlueTeamAction" (event_name, action_time, json_payload, zero_day_id, room_id)
-            VALUES (%s, COALESCE(%s::timestamptz, now()), %s::jsonb, %s, %s)
-            ''',
-            (
-            record.get("event_type") or record.get("event_name") or "blue_action",
-            _record_time(record),
-            json.dumps(record),
-            zero_day_id,
-            room["room_id"],
-            ),
-            )
+        zero_day_id = _ensure_zero_day(cur)
+        cur.execute(
+        '''
+        INSERT INTO "BlueTeamAction" (event_name, action_time, json_payload, zero_day_id, room_id)
+        VALUES (%s, COALESCE(%s::timestamptz, now()), %s::jsonb, %s, %s)
+        ''',
+        (
+        record.get("event_type") or record.get("event_name") or "blue_action",
+        _record_time(record),
+        json.dumps(record),
+        zero_day_id,
+        room["room_id"],
+        ),
+        )
 
 
 def record_red_action(record: dict, *, room_key: Optional[str] = None, incident_id: Optional[str] = None) -> None:
@@ -246,20 +246,20 @@ def record_red_action(record: dict, *, room_key: Optional[str] = None, incident_
         room = _room_row(cur, room_key=room_key, incident_id=incident_id)
         if room is None:
             return
-            zero_day_id = _ensure_zero_day(cur)
-            cur.execute(
-            '''
-            INSERT INTO "RedTeamAction" (technique, action_time, json_payload, zero_day_id, room_id)
-            VALUES (%s, COALESCE(%s::timestamptz, now()), %s::jsonb, %s, %s)
-            ''',
-            (
-            record.get("event_type") or record.get("technique") or record.get("module_id") or "red_action",
-            _record_time(record),
-            json.dumps(record),
-            zero_day_id,
-            room["room_id"],
-            ),
-            )
+        zero_day_id = _ensure_zero_day(cur)
+        cur.execute(
+        '''
+        INSERT INTO "RedTeamAction" (technique, action_time, json_payload, zero_day_id, room_id)
+        VALUES (%s, COALESCE(%s::timestamptz, now()), %s::jsonb, %s, %s)
+        ''',
+        (
+        record.get("event_type") or record.get("technique") or record.get("module_id") or "red_action",
+        _record_time(record),
+        json.dumps(record),
+        zero_day_id,
+        room["room_id"],
+        ),
+        )
 
 
 def list_missions_for_user(username: str, *, completed: Optional[bool] = None) -> list[dict]:
@@ -270,19 +270,19 @@ def list_missions_for_user(username: str, *, completed: Optional[bool] = None) -
         if completed is not None:
             where += ' AND ma.learning_success = %s'
             params.append(completed)
-            cur.execute(
-            f'''
-            SELECT ma.*, r.metadata AS room
-            FROM "MissionAttempt" ma
-            LEFT JOIN "User" u ON u.user_id = ma.user_id
-            LEFT JOIN "Room" r ON r.room_id = ma.room_id
-            {where}
-            ORDER BY COALESCE(ma.completed_at, ma.started_at, ma.updated_at) DESC
-            ''',
-            params,
-            )
-            rows = cur.fetchall()
-            return [_mission_from_row(row) for row in rows]
+        cur.execute(
+        f'''
+        SELECT ma.*, r.metadata AS room
+        FROM "MissionAttempt" ma
+        LEFT JOIN "User" u ON u.user_id = ma.user_id
+        LEFT JOIN "Room" r ON r.room_id = ma.room_id
+        {where}
+        ORDER BY COALESCE(ma.completed_at, ma.started_at, ma.updated_at) DESC
+        ''',
+        params,
+        )
+        rows = cur.fetchall()
+        return [_mission_from_row(row) for row in rows]
 
 
 def _mission_from_row(row: dict) -> dict:
@@ -295,15 +295,15 @@ def _mission_from_row(row: dict) -> dict:
     payload.setdefault("learning_progress_percent", row.get("progress_percent"))
     if row.get("room"):
         payload["room"] = dict(row["room"])
-        return payload
+    return payload
 
 
 def _epoch_to_timestamptz(value) -> Optional[str]:
     if value in (None, ""):
         return None
-        if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
-            return str(value)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
+    return str(value)
 
 
 def _record_time(record: dict) -> Optional[str]:

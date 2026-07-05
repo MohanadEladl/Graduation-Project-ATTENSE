@@ -42,7 +42,9 @@ def register(body: RegisterCompanyRequest, session: dict = Depends(require_sessi
 
 
 @router.post("/register-with-manager")
-def register_with_manager(body: RegisterCompanyWithManagerRequest):
+def register_with_manager(body: RegisterCompanyWithManagerRequest, session: dict = Depends(require_session)):
+    if session["role"] != "ciso":
+        raise HTTPException(status_code=403, detail="Only ciso can register a company with a manager")
     company = company_store.create_company(body.company_name, created_by=body.manager_username)
     try:
         manager = user_store.register_user(

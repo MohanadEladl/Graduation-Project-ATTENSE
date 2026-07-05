@@ -22,7 +22,10 @@ from dependencies.auth import require_session
 
 router = APIRouter(prefix="/api/rooms")
 
-BLUE_ROLES = {"soc_manager", "soc_l1", "soc_l2"}
+# Any authenticated user may view and enter rooms — no role gate on the
+# response side so a room auto-created by an attack is immediately accessible
+# to whoever is logged in (SOC manager, analyst, CISO, etc.).
+ALL_ROLES = None  # sentinel: no role restriction
 
 
 class CreateRoomRequest(BaseModel):
@@ -32,11 +35,6 @@ class CreateRoomRequest(BaseModel):
 class EnterRoomRequest(BaseModel):
     mode: str = "solo"
     teammates: list[str] = []
-
-
-def _require_blue(session: dict) -> None:
-    if session["role"] not in BLUE_ROLES:
-        raise HTTPException(status_code=403, detail="Only Blue Team users can enter rooms")
 
 
 def _session_email(session: dict) -> str:
@@ -73,22 +71,18 @@ def _require_red_team(session: dict) -> None:
 
 @router.get("")
 def list_rooms(session: dict = Depends(require_session)):
-    # Blue Team has global visibility: any SOC/CISO user sees every room across
-    # the range, not just their own company's. Red Team stays scoped to the
-    # rooms it has joined (its own company). Passing None returns all rooms.
-    if session["role"] != "red_team":
-        return list_rooms_for_company(None)
-    return list_rooms_for_company(session.get("company_id"))
+    # All authenticated users see every room so that a room auto-created when
+    # an attack fires is immediately visible regardless of the caller's role.
+    return list_rooms_for_company(None)
 
 
 @router.get("/invites")
 def invites(session: dict = Depends(require_session)):
-    """Rooms the current Blue Team user has been invited to but not yet joined.
+    """Rooms the current user has been invited to but not yet joined.
 
     Declared before GET /{room_id} so the fixed 'invites' path is not captured
     as a room id. Polled by the Blue Team UI to surface in-app invitations.
     """
-    _require_blue(session)
     return list_invites_for_email(_session_email(session))
 
 
@@ -160,8 +154,6 @@ def prefire(room_id: str, session: dict = Depends(require_session)):
 
 @router.post("/{room_id}/blue-start")
 def blue_start(room_id: str, session: dict = Depends(require_session)):
-    if session["role"] not in {"soc_manager", "soc_l1", "soc_l2"}:
-        raise HTTPException(status_code=403, detail="Only Blue Team users can start the exercise")
     try:
         room = get_room(room_id)
     except ValueError as exc:
@@ -182,7 +174,6 @@ def enter(room_id: str, body: EnterRoomRequest, session: dict = Depends(require_
     """Enter a room solo or with a team. The entering user becomes the room's
     SOC manager (minting the shared Hive key) and any teammate emails are stored
     as pending invites."""
-    _require_blue(session)
     try:
         room = enter_room(
             room_id,
@@ -199,8 +190,7 @@ def enter(room_id: str, body: EnterRoomRequest, session: dict = Depends(require_
 
 @router.post("/{room_id}/accept")
 def accept(room_id: str, session: dict = Depends(require_session)):
-    """An invited Blue Team user joins the room, landing in its shared Hive org."""
-    _require_blue(session)
+    """An invited user joins the room, landing in its shared Hive org."""
     try:
         room = accept_invite(room_id, session["username"], email=_session_email(session))
     except ValueError as exc:
@@ -213,7 +203,6 @@ def accept(room_id: str, session: dict = Depends(require_session)):
 @router.get("/{room_id}/lobby")
 def lobby(room_id: str, session: dict = Depends(require_session)):
     """Lightweight join-status view of a room for the lobby poll loop."""
-    _require_blue(session)
     try:
         result = room_lobby(room_id)
     except ValueError as exc:
@@ -226,8 +215,6 @@ def lobby(room_id: str, session: dict = Depends(require_session)):
 
 @router.post("/{room_id}/end")
 def end_incident(room_id: str, session: dict = Depends(require_session)):
-    if session["role"] not in {"soc_manager", "soc_l1", "soc_l2"}:
-        raise HTTPException(status_code=403, detail="Only Blue Team users can end the incident")
     try:
         room = get_room(room_id)
     except ValueError as exc:
@@ -263,11 +250,6 @@ def get(room_id: str, session: dict = Depends(require_session)):
         room = get_room(room_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    # Blue Team (any SOC/CISO role) has global room visibility, consistent with
-    # list_rooms; only red_team stays scoped to its own company's rooms.
-    if session["role"] == "red_team" and session.get("company_id") != room.get("company_id"):
-        raise HTTPException(status_code=403, detail="Room belongs to a different company")
 
     from main import controller
     from attense_core.evaluation.reports import generate_report

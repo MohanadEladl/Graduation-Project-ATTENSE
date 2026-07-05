@@ -244,11 +244,16 @@ def ensure_room_for_incident(incident_id: str, scenario_id: str) -> dict:
 
     Called when a red-team attack event is ingested without a pre-existing
     SOC-Manager-created room. If a room already carries this incident_id, it is
-    returned unchanged. Otherwise a room is created under the shared exercise
-    company so the whole (globally-visible) Blue Team sees it immediately.
+    activated (if still in a staging state) and returned. Otherwise a room is
+    created under the shared exercise company so the whole (globally-visible)
+    Blue Team sees it immediately.
     """
     existing = find_room_for_incident(incident_id)
     if existing is not None:
+        if existing.get("status") in {"created", "packaged", "prefiring"}:
+            existing["status"] = "active"
+            existing.setdefault("attack_started_at", _now_iso())
+            _save_room(existing)
         return existing
 
     company = company_store.ensure_exercise_company()
@@ -600,6 +605,9 @@ def record_incident_event(room_id: str, event_type: str, timestamp: str) -> dict
     if event_type == "malicious_action_executed":
         room["attack_started_at"] = room.get("attack_started_at") or timestamp
         room["attack_completed_at"] = timestamp
+        # Activate the room so the Blue Team can enter it now that an attack fired.
+        if room.get("status") in {"created", "packaged", "prefiring"}:
+            room["status"] = "active"
     elif event_type == "alert_raised":
         room["packaged_at"] = room.get("packaged_at") or timestamp
         if room.get("status") in {"created", "prefiring"}:
@@ -717,8 +725,8 @@ def spin_down_room(room_id: str) -> dict:
         room["closed_at"] = room.get("closed_at") or _now_iso()
         for member in room.get("red_team_members", []):
             _record_participant(room, member, "red_team", completed_at=room.get("closed_at"))
-            for member in room.get("blue_team_members", []):
-                _record_participant(room, member, "blue_team", completed_at=room.get("closed_at"))
+        for member in room.get("blue_team_members", []):
+            _record_participant(room, member, "blue_team", completed_at=room.get("closed_at"))
         _save_room(room)
         return room
 

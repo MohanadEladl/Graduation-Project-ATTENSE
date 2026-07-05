@@ -216,8 +216,8 @@ def register_user(
         if company_store.get_company(str(db_company_id)) is None:
             raise ValueError("Company does not exist")
 
-            if account_exists(username, email):
-                raise ValueError(f"Account already exists for {username}")
+    if account_exists(username, email):
+        raise ValueError(f"Account already exists for {username}")
 
     if role not in HIVE_KEY_ROLES:
         hive_key = None

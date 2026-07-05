@@ -51,10 +51,11 @@ function roomDate(room) {
 
 function roomStatus(room) {
  if (!room) return 'Pending'
- if (room.portal_demo || room.blue_started_at || String(room.status || '').toLowerCase() === 'active') return 'Active'
- if (room.packaged_at || room.attack_completed_at || room.prefired_at || String(room.status || '').toLowerCase() === 'pending') return 'Pending'
- if (String(room.status || '').toLowerCase() === 'closed') return 'Closed'
- return room.status || 'Pending'
+ const s = String(room.status || '').toLowerCase()
+ if (room.portal_demo || room.blue_started_at || s === 'active' || s === 'blue_active') return 'Active'
+ if (room.packaged_at || room.attack_completed_at || room.prefired_at || s === 'pending' || s === 'packaged') return 'Pending'
+ if (s === 'closed') return 'Closed'
+ return 'Pending'
 }
 
 function roomDescription(room) {
