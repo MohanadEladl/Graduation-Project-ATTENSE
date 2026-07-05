@@ -29,12 +29,15 @@ export default function App() {
         {/* ── Standalone ZAP desktop workspace (opened in its own window) ── */}
         <Route path="/zap-workspace" element={<ZapWorkspace />} />
 
+        {/* ── Full-screen lab — no global top nav; the workspace renders its
+             own toolbar with a top-left exit (goes back to the previous page). ── */}
+        <Route path="/workspace/:sid"        element={<Workspace />}      />
+
         {/* ── Authenticated app (new-UI top nav, no sidebar) ── */}
         <Route element={<RangeLayout />}>
           <Route path="/missions"              element={<Missions />}       />
           <Route path="/modules"               element={<Modules />}        />
           <Route path="/mission/:moduleId"     element={<Mission />}        />
-          <Route path="/workspace/:sid"        element={<Workspace />}      />
           <Route path="/reports"               element={<Reports />}        />
           <Route path="/settings"              element={<Settings />}       />
           <Route path="/report/:sid"           element={<MissionReport />}  />

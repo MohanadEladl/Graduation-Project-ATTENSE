@@ -1674,7 +1674,7 @@ export default function Workspace() {
   const mutationQuery = search.get('mutation') === '1'
   const mutationIntensityParam = search.get('intensity') || 'single'
 
-  const { snapshot, logs, running, start, reset } = useSession(sid, { replay })
+  const { snapshot, logs, running, start } = useSession(sid, { replay })
 
   const [module, setModule] = useState(null)
   const [error,  setError]  = useState(null)
@@ -1776,6 +1776,13 @@ export default function Workspace() {
   // Active attack variant. Hydrated from session snapshot once available.
   const [variantId, setVariantId] = useState(null)
   const toolsVisible = mode === 'lab' || isMutationRun
+  // Once the lab tools (terminal/ZAP) have been shown, keep them MOUNTED even
+  // after switching to Guided Mode — unmounting them wipes the terminal history
+  // and ZAP state, so returning to Operator Mode felt like a fresh restart.
+  // They stay in the DOM (hidden via CSS with the rest of the operator tree)
+  // and are revealed again on switch-back with all state intact.
+  const [labToolsMounted, setLabToolsMounted] = useState(false)
+  useEffect(() => { if (toolsVisible) setLabToolsMounted(true) }, [toolsVisible])
   const activeMutation = activeMutations[activeMutations.length - 1] || null
 
   useEffect(() => {
@@ -1945,11 +1952,13 @@ export default function Workspace() {
     finally { setIsCheckingProgress(false) }
   }
 
-  const handleExit = async () => {
+  // Top-left EXIT — just leave the lab and return to the previous page (usually
+  // the mission briefing), without resetting the attempt so it can be resumed.
+  // Falls back to the missions list if the lab was opened via a direct link.
+  const handleBack = () => {
     stopTimer()
-    if (replay) { navigate('/'); return }
-    try { await reset() } catch {}
-    navigate('/')
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/missions')
   }
 
   // P0-4: Restart Mission — creates a fresh attempt
@@ -2023,9 +2032,10 @@ export default function Workspace() {
         className="shrink-0 flex flex-wrap items-center gap-3 px-5 py-3"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <Link to="/"
-          className="font-mono text-[9.5px] tracking-[0.22em] text-attense-dim hover:text-attense-red transition-colors shrink-0"
-        >← EXIT MISSION</Link>
+        <button onClick={handleBack}
+          className="font-mono text-[10.5px] font-bold tracking-[0.16em] px-4 py-2 rounded-lg transition-all duration-150 shrink-0"
+          style={{ background: 'linear-gradient(135deg,#ff1535,#cc0020)', color: 'white', boxShadow: '0 0 14px rgba(255,21,53,0.35)' }}
+        >← EXIT</button>
 
         {/* Mission title + status + timer */}
         <div className="flex items-center gap-2.5 min-w-0">
@@ -2113,16 +2123,16 @@ export default function Workspace() {
             style={{ background: 'linear-gradient(135deg,#7dd3fc,#0ea5e9)', color: '#0c0f16', cursor: isCheckingProgress ? 'wait' : 'pointer' }}
           >{isCheckingProgress ? 'CHECKING…' : 'CHECK PROGRESS ↻'}</button>
         )}
-        <button onClick={handleExit}
-          className="font-mono text-[10.5px] tracking-[0.14em] px-3 py-2 rounded-lg text-attense-muted transition-colors shrink-0"
-          style={{ border: '1px solid rgba(255,255,255,0.08)' }}
-        >{replay ? 'CLOSE' : 'EXIT'}</button>
       </div>
 
-      {/* Body: Guided Mode = full-width room · Operator Mode = 3-column lab */}
-      {guided ? (
-        <GuidedRoom snapshot={snapshot} variantId={variantId} />
-      ) : (
+      {/* Body: Guided Mode = full-width room · Operator Mode = 3-column lab.
+          The operator tree stays MOUNTED while Guided is showing (hidden via
+          CSS, display:contents when active) so switching Guided→Operator never
+          reloads the target iframe or resets the terminal/ZAP panels — it just
+          reveals the same live session again. GuidedRoom is cheap to remount
+          (its state is localStorage-backed), so it mounts only when active. */}
+      {guided && <GuidedRoom snapshot={snapshot} variantId={variantId} />}
+      <div className={guided ? 'hidden' : 'contents'}>
       <>
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <MissionSidebar
@@ -2187,7 +2197,7 @@ export default function Workspace() {
               isMutating={Boolean(shapeshiftEvent)}
             />
           </div>
-          {toolsVisible && (
+          {labToolsMounted && (
             <motion.div
               className="shrink-0 overflow-hidden"
               animate={{ height: labPanelMinimized ? 42 : 320 }}
@@ -2279,7 +2289,7 @@ export default function Workspace() {
         )}
       </AnimatePresence>
       </>
-      )}
+      </div>
     </div>
   )
 }
