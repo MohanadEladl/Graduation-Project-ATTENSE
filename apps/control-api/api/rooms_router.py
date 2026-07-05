@@ -73,6 +73,14 @@ def _require_red_team(session: dict) -> None:
         raise HTTPException(status_code=403, detail="Only red_team can join rooms")
 
 
+BLUE_ROLES = {"soc_manager", "soc_l1", "soc_l2", "ciso"}
+
+
+def _require_blue(session: dict) -> None:
+    if session["role"] not in BLUE_ROLES:
+        raise HTTPException(status_code=403, detail="Only blue team members can access this endpoint")
+
+
 @router.get("")
 def list_rooms(session: dict = Depends(require_session)):
     # All authenticated users see every room so that a room auto-created when
