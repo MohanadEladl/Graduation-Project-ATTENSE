@@ -1519,14 +1519,6 @@ function GuidedRoom({ snapshot, variantId }) {
   const doneCount = sections.reduce((acc, _s, i) => acc + (doneSet.has(i) ? 1 : 0), 0)
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0
 
-  // unique MITRE technique chips for the header
-  const headerTechs = []
-  const seen = new Set()
-  sections.forEach(s => {
-    const m = parseMitre(s.mitre)
-    if (m && !seen.has(m.id)) { seen.add(m.id); headerTechs.push(m) }
-  })
-
   const icon = CATEGORY_ICON?.[snapshot?.category] || CATEGORY_ICON?.[snapshot?.module_category] || '▪'
 
   return (
@@ -1577,23 +1569,6 @@ function GuidedRoom({ snapshot, variantId }) {
                     )}
                   </div>
                 </div>
-
-                {/* MITRE technique chips */}
-                {headerTechs.length > 0 && (
-                  <div className="mt-4">
-                    <div className="font-mono text-[8.5px] tracking-[0.26em] text-attense-dim mb-2">MITRE ATT&CK TECHNIQUES</div>
-                    <div className="flex flex-wrap gap-2">
-                      {headerTechs.map(m => (
-                        <a key={m.id} href={m.url} target="_blank" rel="noreferrer" title={m.name}
-                          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[10px] transition-colors"
-                          style={{ background: 'rgba(255,21,53,0.05)', border: '1px solid rgba(255,21,53,0.28)', color: '#e6e8ee' }}>
-                          <span className="font-bold" style={{ color: '#ff6b81' }}>{m.id}</span>
-                          <span className="text-attense-muted truncate max-w-[180px]">{m.name}</span>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {Array.isArray(wt?.database_refs) && wt.database_refs.length > 0 && (
                   <div className="mt-4">
