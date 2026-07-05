@@ -7,9 +7,10 @@ file_upload, csrf) via lab_progress._event_counts_for_mode:
 
   Lab / Operator mode — an event only completes the mission when it hit the
   /op/ operator surface (backend=operator) through an approved local tool
-  (attackbox / zap_repeater / zap_fuzzer). Browser-only and via=unknown traffic
-  is visible but never completes. Guided-surface evidence never completes
-  operator mode.
+  (attackbox / zap_repeater / zap_fuzzer). Browser objective proof is accepted
+  only for browser-natural objectives (XSS and CSRF). via=unknown traffic is
+  visible but never completes. Guided-surface evidence never completes operator
+  mode.
 
   Tutorial / Guided mode — READING-ONLY (see
   docs/redteam-guided-mode-reading-only.md). compute() short-circuits to a
@@ -44,9 +45,9 @@ from backend import lab_progress  # noqa: E402
 # Modules that now share the generalized operator contract (NOT brute_force).
 GATED_MODULES = ["recon", "xss", "cmd_injection", "dir_traversal", "file_upload", "csrf"]
 APPROVED_TOOLS = ["attackbox", "zap_repeater", "zap_fuzzer"]
-# CSRF's objective is genuinely browser-driven (the local lure), so browser is an
-# approved completion channel for CSRF ONLY. Tool-only modules exclude it.
-TOOL_ONLY_MODULES = [m for m in GATED_MODULES if m != "csrf"]
+# XSS and CSRF objectives are genuinely browser-driven, so browser can complete
+# only those high-confidence objective events. Tool-only modules exclude them.
+TOOL_ONLY_MODULES = [m for m in GATED_MODULES if m not in {"xss", "csrf"}]
 
 # Canonical operator + guided route for each module's success events.
 OP_PATH = {
@@ -108,6 +109,12 @@ def test_operator_browser_only_does_not_complete(monkeypatch, module_id):
     assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is False
 
 
+def test_xss_browser_objective_proof_completes_on_operator_route(monkeypatch):
+    events = _events("xss", path="/op/search", backend="operator", via="browser")
+    _patch(monkeypatch, events)
+    assert lab_progress.compute("xss", 0.0, mode="lab")["success"] is True
+
+
 @pytest.mark.parametrize("module_id", GATED_MODULES)
 def test_operator_unknown_via_does_not_complete(monkeypatch, module_id):
     events = _events(module_id, path=OP_PATH[module_id], backend="operator", via="unknown")
@@ -156,6 +163,15 @@ def test_browser_operator_evidence_is_visible_but_not_counted(monkeypatch, modul
     result = lab_progress.compute(module_id, 0.0, mode="lab")
     assert result["evidence"], "browser operator traffic must still be visible as cards"
     assert all(card["counts"] is False for card in result["evidence"])
+
+
+def test_xss_browser_operator_evidence_counts_for_completion_not_quality(monkeypatch):
+    events = _events("xss", path="/op/search", backend="operator", via="browser")
+    _patch(monkeypatch, events)
+    result = lab_progress.compute("xss", 0.0, mode="lab")
+    assert result["evidence"], "browser operator proof must be visible as cards"
+    assert all(card["counts_for_completion"] is True for card in result["evidence"])
+    assert all(card["counts_for_quality"] is False for card in result["evidence"])
 
 
 # ── CSRF browser exception — real but tightly gated ──────────────────────────

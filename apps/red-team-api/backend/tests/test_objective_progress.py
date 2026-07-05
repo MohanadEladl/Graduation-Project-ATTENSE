@@ -7,7 +7,7 @@ learning QUALITY (methodology) is scored separately and never blocks completion.
 Covers Part 8 of the objective-based-progress change:
   1. A completion event set alone marks the mission successful.
   2. Missing quality events reduce quality_score but do NOT block success.
-  3. Browser-only objective evidence does not complete Operator Mode.
+  3. Browser objective proof completes only for high-confidence objective events.
   4. Guided /auth-style path does not complete Operator Mode.
   5. Correct /op/ objective evidence completes Operator Mode.
   6. The API response exposes success + completion_score + quality_score +
@@ -94,9 +94,10 @@ def test_missing_quality_does_not_block_success(monkeypatch, module_id):
     assert all(m.get("recommendation") for m in r["missing_quality"])
 
 
-# 3. Browser-only objective evidence does not complete Operator Mode
-#    (every module EXCEPT CSRF, whose objective is genuinely browser-driven).
-TOOL_ONLY_MODULES = [m for m in GATED_MODULES if m != "csrf"]
+# 3. Browser-only objective evidence does not complete Operator Mode for modules
+#    whose proof must come from a tool. XSS and CSRF are exceptions: browser proof
+#    is the objective evidence when it is still on the operator surface.
+TOOL_ONLY_MODULES = [m for m in GATED_MODULES if m not in {"xss", "csrf"}]
 
 
 @pytest.mark.parametrize("module_id", TOOL_ONLY_MODULES)
@@ -119,6 +120,28 @@ def test_csrf_objective_completes_via_browser_lure(monkeypatch):
     assert r["completion_score"] == 100
 
 
+def test_xss_browser_operator_objective_proof_completes_with_lower_quality(monkeypatch):
+    events = [
+        {"event_type": "search_used", "path": "/op/search", "method": "GET",
+         "via": "browser", "ts": 1.0, "module_id": "xss",
+         "extra": {"backend": "operator", "path": "/op/search"}},
+        {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
+         "via": "browser", "ts": 2.0, "module_id": "xss",
+         "extra": {"backend": "operator", "path": "/op/search"}},
+        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+         "via": "browser", "ts": 3.0, "module_id": "xss",
+         "extra": {"backend": "operator", "path": "/op/search"}},
+    ]
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("xss", 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["completion_score"] == 100
+    assert r["quality_score"] < 100
+    reflected = next(c for c in r["evidence"] if c["event_type"] == "reflected_input_detected")
+    assert reflected["counts_for_completion"] is True
+    assert reflected["counts_for_quality"] is False
+
+
 # 4. Guided-surface objective evidence does not complete Operator Mode.
 @pytest.mark.parametrize("module_id", GATED_MODULES)
 def test_guided_surface_objective_does_not_complete_operator(monkeypatch, module_id):
@@ -127,12 +150,31 @@ def test_guided_surface_objective_does_not_complete_operator(monkeypatch, module
     assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is False
 
 
+def test_guided_browser_search_does_not_complete_operator_xss(monkeypatch):
+    events = _completion_events("xss", path="/search", backend="guided", via="browser")
+    _patch(monkeypatch, events)
+    assert lab_progress.compute("xss", 0.0, mode="lab")["success"] is False
+
+
 # via=unknown never completes Operator Mode.
 @pytest.mark.parametrize("module_id", GATED_MODULES)
 def test_unknown_via_does_not_complete(monkeypatch, module_id):
     events = _completion_events(module_id, path=OP_PATH[module_id], backend="operator", via="unknown")
     _patch(monkeypatch, events)
     assert lab_progress.compute(module_id, 0.0, mode="lab")["success"] is False
+
+
+def test_wrong_module_id_does_not_complete_xss(monkeypatch):
+    events = [
+        {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
+         "via": "zap_repeater", "ts": 1.0, "module_id": "recon",
+         "extra": {"backend": "operator", "path": "/op/search"}},
+        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+         "via": "zap_repeater", "ts": 2.0, "module_id": "recon",
+         "extra": {"backend": "operator", "path": "/op/search"}},
+    ]
+    _patch(monkeypatch, events)
+    assert lab_progress.compute("xss", 0.0, mode="lab")["success"] is False
 
 
 # XSS worked example from the spec: one payload + reflection via Repeater →
@@ -168,10 +210,9 @@ def test_quality_scored_independently_of_completion(monkeypatch):
     assert r["quality_score"] > 0, "baseline + repeater usage should earn methodology credit"
 
 
-# Brute force keeps its stricter completion but is now also quality-scored.
-# Completion requires a DISTINCT manual confirmation via Repeater — a bulk
-# tool (Fuzzer/Hydra) finding the credential mid-sweep is not enough on its own.
-def test_brute_force_keeps_strict_completion(monkeypatch):
+# Brute force still requires tool-driven failures, but the final credential
+# proof can come from a tool or browser. Repeater confirmation is quality.
+def test_brute_force_tool_credential_completes_without_repeater_but_lowers_quality(monkeypatch):
     def ev(t, ts, via="zap_fuzzer"):
         return {"event_type": t, "path": "/op/auth/login", "method": "POST",
                 "via": via, "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
@@ -182,12 +223,16 @@ def test_brute_force_keeps_strict_completion(monkeypatch):
     assert r["success"] is True
     assert r["completion_score"] == 100
 
-    # Found during the bulk sweep itself (via=zap_fuzzer) but never confirmed
-    # by hand via Repeater — must NOT complete.
-    events_unconfirmed = [*[ev("login_failed", i) for i in range(6)], ev("credential_found", 9)]
-    _patch(monkeypatch, events_unconfirmed)
-    r_unconfirmed = lab_progress.compute("brute_force", 0.0, mode="lab")
-    assert r_unconfirmed["success"] is False
+    # Found during the bulk sweep itself (via=zap_fuzzer) completes the
+    # objective after enough failures, but loses Repeater quality.
+    events_without_repeater = [*[ev("login_failed", i) for i in range(6)], ev("credential_found", 9)]
+    _patch(monkeypatch, events_without_repeater)
+    r_without_repeater = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert r_without_repeater["success"] is True
+    assert r_without_repeater["completion_score"] == 100
+    assert r_without_repeater["quality_score"] < 100
+    assert any("Repeater" in m["label"] or "Repeater" in m["recommendation"]
+               for m in r_without_repeater["missing_quality"])
 
     # 3 failures alone: not complete, but partial completion score.
     events_few = [ev("login_failed", i) for i in range(3)]
@@ -195,6 +240,92 @@ def test_brute_force_keeps_strict_completion(monkeypatch):
     r2 = lab_progress.compute("brute_force", 0.0, mode="lab")
     assert r2["success"] is False
     assert 0 < r2["completion_score"] < 100
+
+
+# A browser login as admin proves the credential was discovered and completes
+# after enough tool-driven failures; Repeater remains a quality recommendation.
+def test_brute_force_browser_login_completes_after_tool_failures(monkeypatch):
+    def ev(t, ts, via):
+        return {"event_type": t, "path": "/op/auth/login", "method": "POST",
+                "via": via, "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
+    # Six tool-driven failures + a browser login that emits both success events
+    # (auth.py records login_success AND credential_found on a valid login).
+    events = [*[ev("login_failed", i, "zap_fuzzer") for i in range(6)],
+              ev("login_success", 9, "browser"),
+              ev("credential_found", 9, "browser")]
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["completion_score"] == 100
+    assert r["quality_score"] < 100
+    assert "Repeater" in (r["next_recommended_action"] or ""), "must nudge toward Repeater quality"
+
+    # Re-sending that exact credential through Repeater improves quality.
+    events_confirmed = [*events, ev("credential_found", 12, "zap_repeater")]
+    _patch(monkeypatch, events_confirmed)
+    r2 = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert r2["success"] is True
+    assert r2["completion_score"] == 100
+    assert r2["quality_score"] > r["quality_score"]
+
+
+def test_brute_force_browser_login_after_tool_pattern_completes_with_lower_quality(monkeypatch):
+    def ev(t, ts, via="zap_fuzzer"):
+        return {"event_type": t, "path": "/op/auth/login", "method": "POST",
+                "via": via, "ts": ts, "module_id": "brute_force",
+                "extra": {"backend": "operator", "path": "/op/auth/login"}}
+
+    events = [
+        *[ev("login_failed", float(i)) for i in range(6)],
+        ev("brute_force_pattern", 7.0),
+        ev("login_success", 8.0, via="browser"),
+        ev("credential_found", 9.0, via="browser"),
+    ]
+    _patch(monkeypatch, events)
+    r = lab_progress.compute("brute_force", 0.0, mode="lab")
+    assert r["success"] is True
+    assert r["completion_score"] == 100
+    assert r["quality_score"] < 100
+    assert any("Repeater" in m["label"] or "Repeater" in m["recommendation"]
+               for m in r["missing_quality"])
+    credential = next(c for c in r["evidence"] if c["event_type"] == "credential_found")
+    assert credential["counts_for_completion"] is True
+    assert credential["counts_for_quality"] is False
+
+
+def test_brute_force_guided_browser_login_does_not_complete_operator(monkeypatch):
+    events = [
+        {"event_type": "brute_force_pattern", "path": "/auth/login", "method": "POST",
+         "via": "browser", "ts": 1.0, "module_id": "brute_force",
+         "extra": {"backend": "guided", "path": "/auth/login"}},
+        {"event_type": "login_success", "path": "/auth/login", "method": "POST",
+         "via": "browser", "ts": 2.0, "module_id": "brute_force",
+         "extra": {"backend": "guided", "path": "/auth/login"}},
+        {"event_type": "credential_found", "path": "/auth/login", "method": "POST",
+         "via": "browser", "ts": 3.0, "module_id": "brute_force",
+         "extra": {"backend": "guided", "path": "/auth/login"}},
+    ]
+    _patch(monkeypatch, events)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
+
+
+def test_brute_force_unknown_via_does_not_complete(monkeypatch):
+    events = [
+        {"event_type": "login_failed", "path": "/op/auth/login", "method": "POST",
+         "via": "unknown", "ts": float(i), "module_id": "brute_force",
+         "extra": {"backend": "operator", "path": "/op/auth/login"}}
+        for i in range(6)
+    ]
+    events.extend([
+        {"event_type": "brute_force_pattern", "path": "/op/auth/login", "method": "POST",
+         "via": "unknown", "ts": 7.0, "module_id": "brute_force",
+         "extra": {"backend": "operator", "path": "/op/auth/login"}},
+        {"event_type": "credential_found", "path": "/op/auth/login", "method": "POST",
+         "via": "unknown", "ts": 8.0, "module_id": "brute_force",
+         "extra": {"backend": "operator", "path": "/op/auth/login"}},
+    ])
+    _patch(monkeypatch, events)
+    assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
 
 
 # ── API shape (Part 8, item D) ───────────────────────────────────────────────
@@ -225,9 +356,10 @@ def test_compute_returns_full_api_shape(monkeypatch, module_id):
 
 
 def test_ignored_diagnostics_classify_wrong_channel(monkeypatch):
-    # Objective-shaped XSS evidence on the wrong channel is ignored + explained.
+    # Low-level browser evidence, guided objective evidence, and unknown-channel
+    # objective evidence are ignored + explained.
     events = [
-        {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
+        {"event_type": "search_used", "path": "/op/search", "method": "GET",
          "via": "browser", "ts": 1.0, "extra": {"backend": "operator", "path": "/op/search"}},
         {"event_type": "reflected_input_detected", "path": "/search", "method": "GET",
          "via": "zap_repeater", "ts": 2.0, "extra": {"backend": "guided", "path": "/search"}},
@@ -240,7 +372,7 @@ def test_ignored_diagnostics_classify_wrong_channel(monkeypatch):
     assert r["raw_event_count"] == 3
     assert r["counted_event_count"] == 0
     assert r["ignored_event_count"] == 3
-    assert r["ignored_reasons"]["ignored_wrong_via"] >= 1     # browser + unknown on /op/
+    assert r["ignored_reasons"]["ignored_wrong_via"] >= 1     # unknown on /op/
     assert r["ignored_reasons"]["ignored_wrong_backend"] >= 1  # guided-surface event
     assert r["last_observed_events"], "diagnostics should list recently observed events"
 

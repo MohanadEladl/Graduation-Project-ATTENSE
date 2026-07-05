@@ -311,9 +311,8 @@ def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
         # still be a deliberate, single Repeater send to actually complete.
         ev("credential_found", "/op/auth/login", "operator", via="zap_repeater", ts=9),
     ]
-    # Found during a bulk sweep but never confirmed by hand via Repeater — must
-    # NOT complete, even though discovery + the credential itself are both via
-    # an approved tool. This is the core "no single-pattern auto-complete" rule.
+    # Found during a bulk sweep now completes after enough tool-driven failures,
+    # but it still misses Repeater confirmation quality.
     found_but_not_confirmed = [
         *[ev("login_failed", "/op/auth/login", "operator", ts=i) for i in range(6)],
         ev("credential_found", "/op/auth/login", "operator", via="zap_fuzzer", ts=9),
@@ -355,10 +354,13 @@ def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
 
     monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: found_but_not_confirmed)
     progress = lab_progress.compute("brute_force", 0.0, mode="lab")
-    assert progress["success"] is False
+    assert progress["success"] is True
+    assert progress["completion_score"] == 100
+    assert progress["quality_score"] < 100
     assert progress["brute_force_activity"]["credential_found"] is True
     assert progress["brute_force_activity"]["credential_confirmed_via_repeater"] is False
-    assert "Repeater" in progress["next_recommended_action"]
+    assert any("Repeater" in m["label"] or "Repeater" in m["recommendation"]
+               for m in progress["missing_quality"])
 
     monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: legacy_zap_complete)
     assert lab_progress.compute("brute_force", 0.0, mode="lab")["success"] is False
@@ -373,8 +375,7 @@ def test_operator_brute_force_requires_op_path_and_six_failures(monkeypatch):
 @pytest.mark.parametrize("via", ["attackbox", "zap_repeater", "zap_fuzzer"])
 def test_operator_completes_via_each_approved_tool_for_discovery(monkeypatch, via):
     """Discovery (the 6+ failed attempts) can come from any approved local
-    tool channel — but the confirming credential must still be a deliberate,
-    single ZAP Repeater send (see test_confirmation_must_be_via_repeater)."""
+    tool channel; Repeater confirmation remains the highest-quality finish."""
     def ev(event_type, ts, confirm_via=None):
         return {"event_type": event_type, "path": "/op/auth/login", "method": "POST",
                 "via": confirm_via or via, "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
@@ -388,20 +389,22 @@ def test_operator_completes_via_each_approved_tool_for_discovery(monkeypatch, vi
 
 
 @pytest.mark.parametrize("via", ["attackbox", "zap_fuzzer"])
-def test_confirmation_must_be_via_repeater_not_bulk_tool(monkeypatch, via):
+def test_bulk_tool_credential_completes_but_misses_repeater_quality(monkeypatch, via):
     """A credential found mid-sweep by a bulk tool (Fuzzer/Hydra via AttackBox)
-    does NOT complete the mission on its own — only a deliberate Repeater send
-    of that exact credential does. This is the "no single-pattern auto-complete"
-    rule: discovery and confirmation are two distinct, required steps."""
+    completes after enough failed attempts, but does not earn Repeater quality."""
     def ev(event_type, ts, this_via=via):
         return {"event_type": event_type, "path": "/op/auth/login", "method": "POST",
                 "via": this_via, "ts": ts, "extra": {"backend": "operator", "path": "/op/auth/login"}}
     events = [*[ev("login_failed", i) for i in range(6)], ev("credential_found", 9)]
     monkeypatch.setattr(lab_progress, "fetch_events", lambda since=0.0, limit=500: events)
     progress = lab_progress.compute("brute_force", 0.0, mode="lab")
-    assert progress["success"] is False
+    assert progress["success"] is True
+    assert progress["completion_score"] == 100
+    assert progress["quality_score"] < 100
     assert progress["brute_force_activity"]["credential_found"] is True
     assert progress["brute_force_activity"]["credential_confirmed_via_repeater"] is False
+    assert any("Repeater" in m["label"] or "Repeater" in m["recommendation"]
+               for m in progress["missing_quality"])
 
 
 def test_operator_login_success_also_completes(monkeypatch):

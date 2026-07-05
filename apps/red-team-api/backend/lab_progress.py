@@ -80,55 +80,86 @@ def _is_operator_tool_event(e: Dict[str, Any]) -> bool:
 DERIVED_EVENT_TYPES = {"brute_force_pattern", "recon_sequence_observed"}
 
 
-# CSRF is the one module whose objective is genuinely browser-driven: the local
-# lure page (/op/evil/csrf-demo) auto-submits the state-changing request from the
-# ZAP-routed browser (via=browser), which is the whole point of a cross-site
-# forgery. For CSRF ONLY, via=browser is an approved completion channel — but
-# still tightly gated (operator route + backend=operator). This exception is NOT
-# generalized to any other module.
-BROWSER_COMPLETABLE_MODULES = {"csrf"}
+# Some objectives are naturally proven in the browser, but only when the event
+# itself is high-confidence proof of the objective. Low-level methodology events
+# such as search_used or login_failed still require tool-quality evidence.
+BROWSER_COMPLETION_EVENT_TYPES = {
+    "csrf": {"profile_changed_without_csrf"},
+    "xss": {"xss_payload_observed", "reflected_input_detected", "stored_payload_observed"},
+}
+BROWSER_COMPLETABLE_MODULES = set(BROWSER_COMPLETION_EVENT_TYPES)
 
 
 def _allowed_via_for(module_id: Optional[str]) -> set:
-    """Approved operator `via` channels for a module. Local attack tools always
-    count; CSRF additionally accepts the browser lure (see above)."""
+    """Approved operator `via` channels for objective completion."""
     if module_id in BROWSER_COMPLETABLE_MODULES:
         return OPERATOR_TOOL_VIA | {"browser"}
     return set(OPERATOR_TOOL_VIA)
 
 
-def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool,
-                           module_id: Optional[str] = None) -> bool:
-    """Generalized evidence gate shared by every module EXCEPT brute_force
-    (which keeps its dedicated failure-count logic in
-    ``_is_brute_force_event_for_mode``).  This is the same operator/guided
-    contract the brute-force module proved out, applied uniformly to recon,
-    xss, cmd_injection, dir_traversal, file_upload and csrf.
+def _event_module_matches(e: Dict[str, Any], module_id: Optional[str]) -> bool:
+    """Explicitly wrong module tags must not complete another module.
 
-    Lab / Operator mode — an event only counts toward mission progress when it
-    was produced by an approved channel against the operator surface:
-      • via ∈ {attackbox, zap_repeater, zap_fuzzer}  (+ browser for CSRF only)
-      • backend == "operator"
-      • path starts with "/op/"  (derived events are exempt — they inherit
-        backend/via but carry no /op/ path of their own)
-    Direct hits (via=unknown) — and browser traffic for every module except
-    CSRF — stay visible in the evidence panel but never complete the mission.
-
-    Tutorial / Guided mode — reading-only, no evidence-based completion at
-    all. ``compute()`` short-circuits to a static reading_only response before
-    it ever calls this function for mode="tutorial", so this branch is a
-    defense-in-depth guarantee, not the live code path: nothing counts.
+    Older tests and a few synthetic/tool events omit module_id, so absence is
+    treated as unscoped legacy evidence. A present module_id is authoritative.
     """
+    if not module_id:
+        return True
+    event_module = e.get("module_id")
+    return not event_module or event_module == module_id
+
+
+def _event_has_operator_scope(e: Dict[str, Any], *, is_lab: bool,
+                              module_id: Optional[str]) -> bool:
     if not is_lab:
         return False
-    backend = _event_backend(e)
-    if str(e.get("via") or "") not in _allowed_via_for(module_id):
+    if not _event_module_matches(e, module_id):
         return False
+    backend = _event_backend(e)
     if backend != "operator":
         return False
     if e.get("event_type") in DERIVED_EVENT_TYPES:
         return True
     return _event_path(e).startswith("/op/")
+
+
+def _event_counts_for_completion(e: Dict[str, Any], *, is_lab: bool,
+                                 module_id: Optional[str] = None) -> bool:
+    """Gate objective completion evidence.
+
+    Completion always requires Operator Mode, backend=operator, and /op/* (with
+    existing derived-event inheritance preserved). Tool channels always count.
+    Browser only counts for high-confidence objective events declared in
+    BROWSER_COMPLETION_EVENT_TYPES; via=unknown never counts.
+    """
+    if not _event_has_operator_scope(e, is_lab=is_lab, module_id=module_id):
+        return False
+    via = str(e.get("via") or "")
+    if via in OPERATOR_TOOL_VIA:
+        return True
+    if via != "browser":
+        return False
+    return e.get("event_type") in BROWSER_COMPLETION_EVENT_TYPES.get(module_id or "", set())
+
+
+def _event_counts_for_quality(e: Dict[str, Any], *, is_lab: bool,
+                              module_id: Optional[str] = None) -> bool:
+    """Gate methodology/quality evidence.
+
+    Quality remains stricter than completion: only local AttackBox/ZAP tool
+    channels count as high-quality evidence. Browser completion can finish a
+    mission, but it will not satisfy methodology tasks.
+    """
+    return (
+        _event_has_operator_scope(e, is_lab=is_lab, module_id=module_id)
+        and _is_operator_tool_event(e)
+    )
+
+
+def _event_counts_for_mode(e: Dict[str, Any], *, is_lab: bool,
+                           module_id: Optional[str] = None) -> bool:
+    """Backward-compatible alias for objective completion gating."""
+    return _event_counts_for_completion(e, is_lab=is_lab, module_id=module_id)
 
 
 # Diagnostic reason buckets for events that were observed but NOT counted.
@@ -151,9 +182,9 @@ def _ignore_reason(e: Dict[str, Any], *, module_id: str, is_lab: bool,
         return None
 
     if module_id == "brute_force":
-        counted = _is_brute_force_event_for_mode(e, is_lab=is_lab)
+        counted = _is_brute_force_event_for_completion(e, is_lab=is_lab)
     else:
-        counted = _event_counts_for_mode(e, is_lab=is_lab, module_id=module_id)
+        counted = _event_counts_for_completion(e, is_lab=is_lab, module_id=module_id)
     if counted:
         return None
 
@@ -168,7 +199,7 @@ def _ignore_reason(e: Dict[str, Any], *, module_id: str, is_lab: bool,
         return "ignored_wrong_backend" if backend == "operator" else "ignored_unknown_reason"
 
     # Lab-mode diagnostics, most-specific first.
-    if e.get("module_id") and e.get("module_id") != module_id and et not in module_known_types:
+    if e.get("module_id") and e.get("module_id") != module_id:
         return "ignored_wrong_module"
     if backend != "operator":
         return "ignored_wrong_backend"
@@ -195,32 +226,75 @@ def _is_brute_force_event_for_mode(e: Dict[str, Any], *, is_lab: bool) -> bool:
     return path == "/auth/login" and backend != "operator"
 
 
+def _is_brute_force_event_for_completion(e: Dict[str, Any], *, is_lab: bool) -> bool:
+    if e.get("event_type") in {"login_success", "credential_found"}:
+        return _is_brute_force_discovery_event(e, is_lab=is_lab)
+    return _is_brute_force_event_for_mode(e, is_lab=is_lab)
+
+
+def _is_brute_force_event_for_quality(e: Dict[str, Any], *, is_lab: bool) -> bool:
+    return _is_brute_force_event_for_mode(e, is_lab=is_lab)
+
+
+def _is_brute_force_discovery_event(e: Dict[str, Any], *, is_lab: bool) -> bool:
+    """Recognize that a valid credential was FOUND, on any channel — including
+    the in-lab browser.
+
+    Unlike _is_brute_force_event_for_mode (which gates failures/pattern to the
+    approved bulk tools), this accepts a browser login on the operator route as
+    proof of discovery. A student who logs in as admin through the browser has
+    clearly found the credential. Completion still requires prior tool-driven
+    brute-force evidence from the same mission window; Repeater confirmation is
+    scored as higher-quality methodology.
+    """
+    if e.get("event_type") not in {"login_success", "credential_found"}:
+        return False
+    path = _event_path(e)
+    backend = _event_backend(e)
+    if is_lab:
+        via = str(e.get("via") or "")
+        return (
+            path == "/op/auth/login"
+            and backend == "operator"
+            and (via in OPERATOR_TOOL_VIA or via == "browser")
+        )
+    return path == "/auth/login" and backend != "operator"
+
+
 def _brute_force_activity(events: List[Dict[str, Any]], *, is_lab: bool) -> Dict[str, Any]:
     scoped = [e for e in events if _is_brute_force_event_for_mode(e, is_lab=is_lab)]
     failures = [e for e in scoped if e.get("event_type") == "login_failed"]
-    credentials = [e for e in scoped if e.get("event_type") == "credential_found"]
-    successes = [e for e in scoped if e.get("event_type") == "login_success"]
-    # Discovery (bulk failures/pattern) can come from any approved tool — Fuzzer,
-    # Hydra/AttackBox, or Repeater used repeatedly. But the CONFIRMING hit must be
-    # a single, deliberate Repeater "Send" — Repeater is architecturally the only
-    # tool that is always one request at a time, never part of an automated bulk
-    # sweep. This stops a bulk tool's own lucky hit mid-sweep from silently
-    # completing the mission; the student must enter the discovered username +
-    # password themselves and observe the 302 to finish.
+    patterns = [e for e in scoped if e.get("event_type") == "brute_force_pattern"]
+    # Credential DISCOVERY is recognized on a wider scope than failures/pattern —
+    # a browser login as admin also proves the student found the credential (it
+    # just doesn't complete the mission on its own). See _is_brute_force_discovery_event.
+    discovery = [e for e in events if _is_brute_force_discovery_event(e, is_lab=is_lab)]
+    credentials = [e for e in discovery if e.get("event_type") == "credential_found"]
+    successes = [e for e in discovery if e.get("event_type") == "login_success"]
+    # Discovery (bulk failures/pattern, or a browser login) can come from any
+    # approved completion channel. Repeater confirmation is tracked separately
+    # because it improves methodology quality, but it no longer blocks mission
+    # completion after real brute-force evidence exists.
     confirmed = [e for e in (credentials + successes) if str(e.get("via") or "") == "zap_repeater"]
+    browser_confirmed = [e for e in (credentials + successes) if str(e.get("via") or "") == "browser"]
     paths = sorted({_event_path(e) for e in scoped if _event_path(e)})
     tools = sorted({str(e.get("via")) for e in scoped if str(e.get("via") or "") in OPERATOR_TOOL_VIA})
     return {
         "failed_attempt_count": len(failures),
+        "brute_force_pattern_observed": bool(patterns),
         "credential_found": bool(credentials),
+        "credential_confirmed": bool(credentials or successes),
         "credential_confirmed_via_repeater": bool(confirmed),
+        "credential_confirmed_via_browser": bool(browser_confirmed),
         "required_failed_attempts": BRUTE_FORCE_MIN_FAILURES,
         "path": "/op/auth/login" if is_lab else "/auth/login",
         "paths_observed": paths,
         "tools_observed": tools,
         "first_failed_at": failures[0].get("ts") if failures else None,
+        "pattern_observed_at": patterns[-1].get("ts") if patterns else None,
         "credential_found_at": credentials[-1].get("ts") if credentials else None,
-        "confirmed_at": confirmed[-1].get("ts") if confirmed else None,
+        "confirmed_at": (credentials + successes)[-1].get("ts") if (credentials or successes) else None,
+        "repeater_confirmed_at": confirmed[-1].get("ts") if confirmed else None,
     }
 
 
@@ -310,12 +384,12 @@ PROGRESS_SPECS: Dict[str, Dict[str, Any]] = {
                 "title": "Submit at least 2 XSS-shaped payloads",
                 "event_types": ["xss_payload_observed"],
                 "min_count": 2,
-                "explain": "Use ZAP Repeater/Fuzzer for proof payloads. They are HTTP parameter values, not AttackBox shell commands.",
+                "explain": "Use ZAP Repeater/Fuzzer for event-handler or SVG/IMG payloads. Script tags are stripped on the operator route.",
             },
             {
                 "title": "Confirm unescaped reflection",
                 "event_types": ["reflected_input_detected"],
-                "explain": "Verify the proof payload is reflected unescaped in the Repeater/Fuzzer response body.",
+                "explain": "Verify a non-script-tag proof payload is reflected unescaped in the response or browser proof.",
             },
         ],
         "success_lab":      ["xss_payload_observed", "reflected_input_detected"],
@@ -576,25 +650,25 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "name":        "Reflected XSS",
             "description": "Single-request injection — payload bounces back in the response.",
             "difficulty":  "Easy",
-            "techniques":  ["reflection", "script-tag", "url-parameter"],
+            "techniques":  ["reflection", "event-handler", "url-parameter"],
             "tasks": [
                 {"title": "Submit a benign query to confirm reflection",
                  "event_types": ["search_used"], "min_count": 1,
                  "explain": "GET /search?q=hello — confirm 'hello' appears in the response body."},
-                {"title": "Inject a script-style payload",
+                {"title": "Inject an event-handler payload",
                  "event_types": ["xss_payload_observed"], "min_count": 1,
-                 "explain": "Try <script>alert(1)</script>"},
+                 "explain": "Try <img src=x onerror=alert(1)> or <svg onload=alert(1)>; script tags are stripped."},
                 {"title": "Confirm the payload renders unescaped",
                  "event_types": ["reflected_input_detected"],
-                 "explain": "The response includes the raw script tag — verbatim."},
+                 "explain": "The response or browser proof shows the event-handler/SVG payload survived."},
             ],
             "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
             "ideal_commands": [
                 "# Capture: submit a query in Operator Mode, then open ZAP Proxy History.",
                 "# Baseline (AttackBox-safe — no shell metacharacters):",
                 "curl -s -G --data-urlencode 'q=hello' http://target-agent/op/search",
-                "# ZAP Repeater: set q=<script>alert(1)</script> and resend on /op/search.",
-                "# Confirm: the tag is reflected verbatim (unescaped) in the response body.",
+                "# ZAP Repeater: set q=<img src=x onerror=alert(1)> and resend on /op/search.",
+                "# Confirm: the event-handler payload is reflected unescaped or fires in the browser.",
             ],
         },
         "alternate_context": {
@@ -611,7 +685,7 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                  "explain": "<img onerror>, <svg onload>, javascript: URL — each is a different filter bypass."},
                 {"title": "Confirm at least one unescaped reflection",
                  "event_types": ["reflected_input_detected"],
-                 "explain": "If <script> is filtered, event handlers often slip through."},
+                 "explain": "Script tags are filtered here; event handlers and SVG/IMG contexts are the bypass."},
             ],
             "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
             "ideal_commands": [
@@ -636,7 +710,7 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
                  "explain": "POST /auth/login with valid credentials."},
                 {"title": "Submit a payload through the profile bio",
                  "event_types": ["xss_payload_observed", "profile_update_used"], "min_count": 2,
-                 "explain": "POST /profile/update with email or bio containing a script tag."},
+                 "explain": "POST /profile/update with email or bio containing a harmless event-handler payload."},
                 {"title": "Verify the payload reflects on a SECOND request",
                  "event_types": ["reflected_input_detected"],
                  "explain": "Reload /profile/ and confirm the payload is still there."},
@@ -644,7 +718,7 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
             "ideal_commands": [
                 "# 1. Authenticate on the operator surface (use the lab-provided credential).",
-                "# 2. ZAP Repeater: POST /op/profile/update with a script payload in the email field.",
+                "# 2. ZAP Repeater: POST /op/profile/update with a harmless event-handler payload in the email field.",
                 "# 3. Re-request /op/profile/ in Repeater and confirm the payload persists unescaped.",
             ],
         },
@@ -1197,9 +1271,9 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
             "overview": (
                 "Reflected XSS happens when an app takes input from the request (like a search "
                 "query) and writes it straight back into the HTML response without escaping it. "
-                "If you can get your text into the page verbatim, you can get a <script> tag into "
-                "the page too — and the victim's browser will run it. It's 'reflected' because the "
-                "payload bounces back in the same single response."
+                "The operator route strips script tags, so the useful proof is an alternate browser "
+                "execution context such as an image error handler or SVG onload. It's 'reflected' "
+                "because the payload bounces back in the same single response."
             ),
             "sections": [
                 {
@@ -1210,17 +1284,17 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                     "look_for": "Your marker appears in the page — input is reflected. (search_used event)",
                 },
                 {
-                    "what": "Now test whether HTML is escaped. If you send a script tag and it comes back as "
-                            "raw markup (not &lt;script&gt;), the app is injectable.",
-                    "how":  "Submit a script payload: /search?q=<script>alert(1)</script> "
-                            "(URL-encode if typing in a terminal).",
-                    "look_for": "An 'XSS-shaped payload submitted' card — the app received your script.",
+                    "what": "Now test whether HTML/event-handler markup survives the filter. A raw script tag "
+                            "is stripped here, so use a browser execution context the filter misses.",
+                    "how":  "Submit an event-handler payload such as /search?q=<img src=x onerror=alert(1)> "
+                            "or /search?q=<svg onload=alert(1)> (URL-encode if typing in a terminal).",
+                    "look_for": "An 'XSS-shaped payload submitted' card — the app received your proof payload.",
                 },
                 {
                     "what": "Confirmation: the payload is reflected unescaped, meaning a real browser would "
                             "execute it. That's a working reflected XSS.",
-                    "how":  "Check the response body contains your <script> tag verbatim — character for "
-                            "character, no entity encoding.",
+                    "how":  "Check the response body or browser proof shows the event-handler/SVG payload "
+                            "survived sanitization without entity encoding.",
                     "look_for": "A 'Reflected input observed' card — the payload rendered unescaped.",
                 },
             ],
@@ -1243,7 +1317,7 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                     "what": "Try several different execution contexts. Each is a distinct filter bypass: "
                             "an <img> with onerror, an <svg> with onload, and a breakout from an attribute.",
                     "how":  "Submit three payloads: <img src=x onerror=alert(1)>, <svg onload=alert(1)>, "
-                            "and \"><script>alert(1)</script> — one at a time.",
+                            "and <a href=javascript:alert(1)>x</a> — one at a time.",
                     "look_for": "3 'XSS-shaped payload submitted' cards — you tested multiple vectors.",
                 },
                 {
@@ -1273,8 +1347,8 @@ WALKTHROUGH: Dict[str, Dict[str, Dict[str, Any]]] = {
                 {
                     "what": "Inject the payload into a field that gets saved and re-displayed, like the profile "
                             "email/bio — not just a transient search box.",
-                    "how":  "POST /profile/update with a script payload in the email/bio field, e.g. "
-                            "email=<script>alert(1)</script>@evil.lab.",
+                    "how":  "POST /profile/update with a harmless event-handler payload in the email/bio field, e.g. "
+                            "bio=<img src=x onerror=alert(1)>.",
                     "look_for": "Both a payload-submitted and profile-update event (2 events) mark this done.",
                 },
                 {
@@ -2018,12 +2092,12 @@ def list_variants(module_id: str) -> List[Dict[str, Any]]:
 #                         reached. One correct action can satisfy several groups.
 #    quality_tasks      — recommended methodology signals used for scoring and
 #                         report coaching. Each: id, label, recommendation, and a
-#                         matcher (event_types and/or via). Matched against ALL
-#                         module events (any channel) so e.g. inspecting in the
-#                         browser still earns methodology credit.
+#                         matcher (event_types and/or via). Matched only against
+#                         high-quality local-tool evidence so browser proof can
+#                         complete objectives without inflating methodology.
 #
-#  brute_force keeps its dedicated failure-count completion (unchanged); its
-#  quality tasks are scored the same way as every other module.
+#  brute_force keeps its dedicated failure-count completion; its quality tasks
+#  are scored the same way as every other module.
 # ═══════════════════════════════════════════════════════════════════════════
 _CAP_VIA = ["browser", "zap_repeater", "zap_fuzzer"]   # request visible in ZAP history
 
@@ -2138,9 +2212,8 @@ OBJECTIVE_SPECS: Dict[str, Dict[str, Any]] = {
     "brute_force": {
         "objective": (
             "Discover a valid credential on /op/auth/login (6+ failed attempts, "
-            "detector triggered), then manually confirm it through ZAP Repeater "
-            "and watch for the 302 redirect — that manual confirmation is what "
-            "completes the mission, not the bulk sweep itself."
+            "detector triggered), then confirm the valid login on the operator "
+            "surface. Repeater confirmation improves methodology quality."
         ),
         # Completion is computed by the dedicated brute_force_activity logic, not
         # these groups; they are kept for documentation/report labelling.
@@ -2153,11 +2226,10 @@ OBJECTIVE_SPECS: Dict[str, Dict[str, Any]] = {
             {"id": "fuzzer_used", "label": "Automate with the Fuzzer", "via": ["zap_fuzzer"],
              "recommendation": "Use the Fuzzer with the local wordlist and compare status/length between attempts."},
             {"id": "credential_confirmed", "label": "Confirm the credential by hand in Repeater",
-             "event_types": ["credential_found", "login_success"],
+             "event_types": ["credential_found", "login_success"], "via": ["zap_repeater"],
              "recommendation": (
-                 "Discovery (Fuzzer/Hydra) only finds a candidate. Send that exact "
-                 "username and password through ZAP Repeater yourself — the 302 "
-                 "you see there is what completes the mission."
+                 "Send the discovered username and password through ZAP Repeater "
+                 "yourself and compare the 302/profile redirect against failed attempts."
              )},
         ],
     },
@@ -2211,6 +2283,10 @@ def _quality_task_matched(qt: Dict[str, Any], module_events: List[Dict[str, Any]
     ets = set(qt.get("event_types", []))
     vias = set(qt.get("via", []))
     for e in module_events:
+        if ets and vias:
+            if e.get("event_type") in ets and str(e.get("via") or "") in vias:
+                return True
+            continue
         if ets and e.get("event_type") in ets:
             return True
         if vias and str(e.get("via") or "") in vias:
@@ -2399,22 +2475,34 @@ def compute(module_id: str,
     raw_events = fetch_events(since=mission_started_at, limit=500)
 
     if module_id == "brute_force":
-        events_for_progress = [
+        events_for_completion = [
             e for e in raw_events
-            if _is_brute_force_event_for_mode(e, is_lab=is_lab)
+            if _is_brute_force_event_for_completion(e, is_lab=is_lab)
+        ]
+        events_for_quality = [
+            e for e in raw_events
+            if _is_brute_force_event_for_quality(e, is_lab=is_lab)
         ]
     else:
-        # Every other module now uses the SAME operator/guided contract the
-        # brute-force module proved out: in lab mode an event only counts when it
-        # hit the /op/ operator surface (backend=operator) through an approved
-        # local tool; in tutorial mode operator-surface events are excluded so the
-        # two modes never cross-complete. Browser-driven operator traffic still
-        # appears in cards (so the learner can see what they did) but does NOT
-        # count toward task completion.
-        events_for_progress = [
+        events_for_completion = [
             e for e in raw_events
-            if _event_counts_for_mode(e, is_lab=is_lab, module_id=module_id)
+            if _event_counts_for_completion(e, is_lab=is_lab, module_id=module_id)
         ]
+        events_for_quality = [
+            e for e in raw_events
+            if _event_counts_for_quality(e, is_lab=is_lab, module_id=module_id)
+        ]
+
+    # Legacy task progress may include either objective-completion evidence or
+    # high-quality methodology evidence. The typed objective/quality sections
+    # below remain the authoritative model for success and quality_score.
+    events_for_progress: List[Dict[str, Any]] = []
+    _seen_event_ids: set = set()
+    for _ev in [*events_for_quality, *events_for_completion]:
+        _eid = id(_ev)
+        if _eid not in _seen_event_ids:
+            events_for_progress.append(_ev)
+            _seen_event_ids.add(_eid)
 
     # Teaching content (TryHackMe-style) for this (module, variant), if any.
     walkthrough = get_walkthrough(module_id, variant_id_out)
@@ -2469,6 +2557,20 @@ def compute(module_id: str,
     # Build evidence cards (one per event_type, keep latest occurrence).
     # We use raw_events here (not the gated set) so a learner who clicked
     # in the browser still sees their actions — they just don't count.
+    def _counts_for_completion(ev: Dict[str, Any]) -> bool:
+        return (
+            _is_brute_force_event_for_completion(ev, is_lab=is_lab)
+            if module_id == "brute_force"
+            else _event_counts_for_completion(ev, is_lab=is_lab, module_id=module_id)
+        )
+
+    def _counts_for_quality(ev: Dict[str, Any]) -> bool:
+        return (
+            _is_brute_force_event_for_quality(ev, is_lab=is_lab)
+            if module_id == "brute_force"
+            else _event_counts_for_quality(ev, is_lab=is_lab, module_id=module_id)
+        )
+
     seen_types: set = set()
     cards: List[Dict[str, Any]] = []
     for e in reversed(raw_events):
@@ -2478,6 +2580,11 @@ def compute(module_id: str,
         if et in seen_types:
             continue
         seen_types.add(et)
+        counts_for_completion = _counts_for_completion(e)
+        counts_for_quality = _counts_for_quality(e)
+        reason = None
+        if counts_for_completion and not counts_for_quality:
+            reason = "completed_objective_but_missing_tool_confirmation"
         cards.append({
             "title":       _evidence_title(et),
             "description": e.get("learner_message") or "",
@@ -2486,11 +2593,10 @@ def compute(module_id: str,
             "severity":    e.get("severity", "info"),
             "module_id":   e.get("module_id"),
             "via":         e.get("via", "unknown"),
-            "counts":      (
-                _is_brute_force_event_for_mode(e, is_lab=is_lab)
-                if module_id == "brute_force"
-                else _event_counts_for_mode(e, is_lab=is_lab, module_id=module_id)
-            ),
+            "counts":      counts_for_completion,
+            "counts_for_completion": counts_for_completion,
+            "counts_for_quality": counts_for_quality,
+            "reason":      reason,
             "extra":       e.get("extra", {}),
         })
     cards.sort(key=lambda c: c.get("timestamp") or 0, reverse=True)
@@ -2517,6 +2623,9 @@ def compute(module_id: str,
                 "module_id":   te.get("module_id"),
                 "via":         te.get("via") or "attackbox",
                 "counts":      True,
+                "counts_for_completion": True,
+                "counts_for_quality": True,
+                "reason":      None,
                 "extra":       {
                     "tool": te.get("tool"),
                     "command": te.get("command", "")[:80],
@@ -2532,11 +2641,16 @@ def compute(module_id: str,
     # channel, NOT on finishing the recommended methodology ladder.
     brute_force_activity = None
     if module_id == "brute_force":
-        # Keep the stricter, already-verified brute-force completion.
-        brute_force_activity = _brute_force_activity(events_for_progress, is_lab=is_lab)
-        success = (
+        # Completion still requires real brute-force methodology evidence, but
+        # the final valid credential may be confirmed in the operator browser.
+        brute_force_activity = _brute_force_activity(raw_events, is_lab=is_lab)
+        brute_force_method_observed = (
             brute_force_activity["failed_attempt_count"] >= BRUTE_FORCE_MIN_FAILURES
-            and brute_force_activity["credential_confirmed_via_repeater"]
+            or brute_force_activity["brute_force_pattern_observed"]
+        )
+        success = (
+            brute_force_method_observed
+            and brute_force_activity["credential_confirmed"]
         )
         # Discovery-only progress (found a hit mid-sweep, not yet confirmed by
         # hand) still earns partial completion_score so the panel doesn't look
@@ -2550,17 +2664,17 @@ def compute(module_id: str,
                 90 if brute_force_activity["credential_found"] else discovery_score
             ),
             "completed_required": (
-                [_evidence_title("brute_force_pattern"), "Credential confirmed via Repeater"]
+                [_evidence_title("brute_force_pattern"), _evidence_title("credential_found")]
                 if success else []
             ),
         }
     else:
-        completion = _completion_report(module_id, events_for_progress)
+        completion = _completion_report(module_id, events_for_completion)
         success = completion["reached"]
 
     # ── Learning QUALITY (methodology) — scored, never blocks completion ─────
-    # Matched against ALL module events (any channel) so browser-based inspection
-    # still earns methodology credit.
+    # Matched against high-quality tool events only; browser objective proof can
+    # complete a mission, but it does not satisfy methodology tasks.
     quality_event_types: set = set()
     for qt in OBJECTIVE_SPECS.get(module_id, {}).get("quality_tasks", []):
         quality_event_types.update(qt.get("event_types", []))
@@ -2568,17 +2682,15 @@ def compute(module_id: str,
         quality_event_types.update(g)
     module_known_types = spec_event_types | quality_event_types
     module_events = [e for e in raw_events if e.get("event_type") in module_known_types]
-    quality = _quality_report(module_id, module_events)
+    quality_event_ids = {id(e) for e in events_for_quality}
+    module_quality_events = [e for e in module_events if id(e) in quality_event_ids]
+    quality = _quality_report(module_id, module_quality_events)
 
     # ── Ignored-event diagnostics ────────────────────────────────────────────
     # Explain, per event, why in-scope evidence did NOT count. This makes the
     # strict operator gate transparent to students and instructors.
     def _counted(ev: Dict[str, Any]) -> bool:
-        return (
-            _is_brute_force_event_for_mode(ev, is_lab=is_lab)
-            if module_id == "brute_force"
-            else _event_counts_for_mode(ev, is_lab=is_lab, module_id=module_id)
-        )
+        return _counts_for_completion(ev)
 
     def _brief(ev: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -2600,7 +2712,7 @@ def compute(module_id: str,
         if reason:
             ignored_reasons[reason] += 1
             ignored_total += 1
-    counted_events = [e for e in events_for_progress]
+    counted_events = [e for e in events_for_completion]
     last_observed_events = [_brief(e) for e in sorted(
         module_events, key=lambda x: x.get("ts") or 0, reverse=True)[:8]]
     last_counted_events = [_brief(e) for e in sorted(
@@ -2610,7 +2722,7 @@ def compute(module_id: str,
     warnings: List[str] = []
     if is_lab:
         objective_types = {t for g in OBJECTIVE_SPECS.get(module_id, {}).get("completion_groups", []) for t in g}
-        counted_ids = {id(e) for e in events_for_progress}
+        counted_ids = {id(e) for e in events_for_completion}
         uncounted_objective = [
             e for e in module_events
             if e.get("event_type") in objective_types and id(e) not in counted_ids
@@ -2633,15 +2745,12 @@ def compute(module_id: str,
         module_id == "brute_force" and not success
         and brute_force_activity is not None
         and brute_force_activity["credential_found"]
-        and not brute_force_activity["credential_confirmed_via_repeater"]
     ):
-        # Found a hit during a bulk sweep (Fuzzer/Hydra) but haven't confirmed
-        # it by hand yet — that manual step is what completes the mission.
         next_action = (
-            "A credential was found during your sweep, but it hasn't been "
-            "confirmed yet. Send that exact username and password through "
-            "ZAP Repeater and check for a 302 redirect — that's what completes "
-            "the mission."
+            "A valid credential was observed, but the mission still needs "
+            "tool-driven brute-force evidence in this run. Generate enough "
+            "failed /op/auth/login attempts with ZAP Fuzzer or the AttackBox, "
+            "then confirm the credential on the operator surface."
         )
     elif quality["missing"]:
         next_action = quality["missing"][0]["recommendation"]
@@ -2756,7 +2865,7 @@ def compute(module_id: str,
         # Transparency into the strict Operator gate: how many events were seen,
         # how many counted, and why the rest were ignored.
         "raw_event_count":       len(raw_events),
-        "counted_event_count":   len(events_for_progress),
+        "counted_event_count":   len(events_for_completion),
         "ignored_event_count":   ignored_total,
         "ignored_reasons":       ignored_reasons,
         "last_observed_events":  last_observed_events,
