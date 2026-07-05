@@ -18,9 +18,8 @@ h1, h2, h3, p { margin: 0; }
 .dc-shell { display: flex; min-height: 100vh; background: #060810; color: #f7f8ff; }
 .dc-sidebar { width: 220px; flex-shrink: 0; background: #030509; border-right: 1px solid rgba(255,255,255,.07); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
 .dc-brand-block { padding: 22px 20px 18px; border-bottom: 1px solid rgba(255,255,255,.06); }
-.dc-brand-row { display: flex; align-items: center; gap: 9px; margin-bottom: 5px; }
-.dc-brand-row img { width: 26px; height: 26px; object-fit: contain; mix-blend-mode: screen; filter: drop-shadow(0 0 8px rgba(83,184,255,.5)); }
-.dc-brand-row span { font-size: 15px; font-weight: 900; letter-spacing: -.025em; background: linear-gradient(90deg,#22d3ee,#a78bfa 50%,#3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.dc-brand-row { display: flex; align-items: center; margin-bottom: 5px; }
+.dc-brand-row span { font-size: 20px; font-weight: 900; letter-spacing: -.025em; background: linear-gradient(90deg,#22d3ee,#a78bfa 50%,#3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .dc-brand-sub { font-size: 10px; color: #6f7689; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
 .dc-nav { padding: 14px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .dc-nav button { display: flex; align-items: center; gap: 10px; padding: 9px 12px; min-height: 38px; border-radius: 9px; border: 1px solid transparent; background: transparent; color: #6f7689; text-align: left; font-size: 13px; font-weight: 600; }
@@ -181,6 +180,7 @@ h1, h2, h3, p { margin: 0; }
 .dc-skills.compact { padding: 14px; gap: 10px; margin-bottom: 10px; }
 .dc-expanded p { font-size: 12px; color: #9ca3b7; line-height: 1.7; padding: 14px; border-radius: 10px; background: rgba(74,134,232,.04); border: 1px solid rgba(74,134,232,.12); }
 .dc-loading, .dc-error-panel { border-radius: 16px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.02); padding: 24px; color: #9ca3b7; }
+.dc-empty { margin: 14px 22px; padding: 44px 20px; border-radius: 12px; border: 1px dashed rgba(255,255,255,.09); background: rgba(255,255,255,.015); color: #6f7689; font-size: 13px; line-height: 1.6; text-align: center; }
 .dc-error, .dc-error-panel { color: #ff8da0; }
 .dc-login-shell { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: #060810; }
 .dc-login-card { width: min(100%, 460px); display: grid; gap: 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,.09); background: linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.01)); padding: 34px; }

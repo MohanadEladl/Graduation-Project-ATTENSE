@@ -260,7 +260,7 @@ function Sidebar({ view, setView, user, logout }) {
  return (
  <aside className="dc-sidebar">
  <div className="dc-brand-block">
- <div className="dc-brand-row"><img src="/assets/ATTENSELOGO.png" alt="" /><span>ATTENSE</span></div>
+ <div className="dc-brand-row"><span>ATTENSE</span></div>
  <div className="dc-brand-sub">Blue Team Portal</div>
  </div>
  <nav className="dc-nav">
@@ -275,7 +275,7 @@ function Sidebar({ view, setView, user, logout }) {
  </button>
  ))}
  <div className="dc-nav-rule" />
- <button type="button" onClick={() => window.history.back()}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7689" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg><span>Go Back</span></button>
+ <button type="button" onClick={() => { window.location.href = `${window.location.protocol}//${window.location.hostname}:5173/fortress-viewer.html` }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7689" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg><span>Main Menu</span></button>
  </nav>
  <div className="dc-sidebar-bottom">
  <div className="dc-user-card">
