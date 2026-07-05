@@ -332,4 +332,4 @@ Write a markdown report with these exact sections:
     md = _call_gemini(prompt)
     if md:
         return md.strip()
-        return _plain_report(report, events, member_id=member_id)
+    return _plain_report(report, events, member_id=member_id)
