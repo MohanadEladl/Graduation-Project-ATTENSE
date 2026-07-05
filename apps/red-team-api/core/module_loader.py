@@ -1,5 +1,5 @@
 """
-core/module_loader.py - Dynamic module discovery and loading.
+core/module_loader.py — Dynamic module discovery and loading.
 
 Scans the modules/ directory for Python files, imports each one, finds
 the class that subclasses BaseModule, and registers it.

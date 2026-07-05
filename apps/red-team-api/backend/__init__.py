@@ -1,1 +1,1 @@
-"""backend/ - FastAPI server exposing the ATTENSE interactive shell."""
+"""backend/ — FastAPI server exposing the ATTENSE interactive shell."""

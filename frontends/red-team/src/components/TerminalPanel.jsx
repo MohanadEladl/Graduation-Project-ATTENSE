@@ -16,7 +16,7 @@ const STATUS_STYLES = {
   checking:{ color: '#7dd3fc', bg: 'rgba(125,211,252,0.06)', bd: 'rgba(125,211,252,0.25)' },
 }
 
-const TOOLS = ['nmap', 'hydra', 'curl', 'ffuf', 'gobuster', 'jq', 'python3', 'nc']
+const TOOLS = ['nmap', 'hydra', 'curl', 'wget', 'ffuf', 'gobuster', 'nc', 'jq', 'grep', 'cat']
 
 const WELCOME_LINES = [
   { tag: 'info',    text: '┌─────────────────────────────────────────────┐' },
@@ -30,7 +30,7 @@ const WELCOME_LINES = [
   { tag: 'dim',     text: '' },
 ]
 
-export default function TerminalPanel({ minimized, onToggleMinimize }) {
+export default function TerminalPanel({ minimized, onToggleMinimize, sessionId, moduleId }) {
   const [status, setStatus] = useState('checking')
   const [statusDetail, setStatusDetail] = useState('')
   const [lines, setLines] = useState(WELCOME_LINES)
@@ -71,7 +71,7 @@ export default function TerminalPanel({ minimized, onToggleMinimize }) {
     setRunning(true)
 
     try {
-      const result = await api.attackbox.exec(trimmed)
+      const result = await api.attackbox.exec(trimmed, moduleId, sessionId)
       if (result.status === 'blocked') {
         addLine('error', `⛔ ${result.output}`)
       } else if (result.status === 'ok') {
@@ -135,7 +135,14 @@ export default function TerminalPanel({ minimized, onToggleMinimize }) {
     <div
       className="h-full w-full flex flex-col overflow-hidden"
       style={{ background: '#0a0d13', borderTop: '1px solid rgba(255,255,255,0.06)' }}
-      onClick={() => inputRef.current?.focus()}
+      onClick={() => {
+        // Don't steal focus if the student just click-dragged to select output
+        // text (e.g. to copy a wordlist) — focusing the input would collapse
+        // that selection right as they release the mouse.
+        const sel = window.getSelection?.()
+        if (sel && sel.toString().length > 0) return
+        inputRef.current?.focus()
+      }}
     >
       {/* Header bar */}
       <div

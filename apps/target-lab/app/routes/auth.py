@@ -1,12 +1,12 @@
 """
-auth.py - Sign-in / sign-out flow.
+auth.py — Sign-in / sign-out flow.
 
 Vulnerabilities (intentional, lab):
-  • APP-06 / no rate limit <- brute-force friendly
-  • APP-06 / username enumeration <- distinct error messages
-  • APP-08 / weak password set <- admin / password123 etc
+  • APP-06 / no rate limit                  ← brute-force friendly
+  • APP-06 / username enumeration            ← distinct error messages
+  • APP-08 / weak password set               ← admin / password123 etc
   • APP-06 / no account lockout
-  • APP-12 / session fixation <- session.user set on login
+  • APP-12 / session fixation                ← session.user set on login
 
 Templates use {{ lab_url('/path') }} so links/forms work both at the bare
 target-agent host AND through the lab-browser proxy at /target/...
@@ -21,12 +21,12 @@ logger = logging.getLogger("target.auth")
 auth_bp = Blueprint("auth", __name__)
 
 _USERS = {
-    "admin": "password123",
+    "admin":    "password123",
     "operator": "lab2024",
-    "guest": "guest",
-    "alice": "alice123",
-    "bob": "qwerty",
-    "service": "service",
+    "guest":    "guest",
+    "alice":    "alice123",
+    "bob":      "qwerty",
+    "service":  "service",
 }
 
 _LOGIN_PAGE = """<!DOCTYPE html>
@@ -82,7 +82,7 @@ def login():
     username = request.form.get("username", "")
     password = request.form.get("password", "")
 
-    # [VULN] No rate limiting - brute force freely
+    # [VULN] No rate limiting — brute force freely
     if _USERS.get(username) == password:
         session["user"] = username
         logger.info(json.dumps({
@@ -99,7 +99,7 @@ def login():
             path="/auth/login", method="POST",
             source_ip=request.remote_addr,
         via=current_app.detect_via(),
-            extra={"username": username},
+            extra={"username": username, "backend": "guided", "path": "/auth/login"},
         )
         # Mark a credential pair as found (the success criterion)
         evidence.record(
@@ -110,7 +110,7 @@ def login():
         via=current_app.detect_via(),
             severity="high",
             learner_message=f"Valid credential confirmed: {username} / (correct password).",
-            extra={"username": username},
+            extra={"username": username, "backend": "guided", "path": "/auth/login"},
         )
         return redirect(current_app.lab_url("/profile/"))
     else:
@@ -135,7 +135,12 @@ def login():
             path="/auth/login", method="POST",
             source_ip=request.remote_addr,
         via=current_app.detect_via(),
-            extra={"username": username, "known_user": username in _USERS},
+            extra={
+                "username": username,
+                "known_user": username in _USERS,
+                "backend": "guided",
+                "path": "/auth/login",
+            },
         )
         return render_template_string(
             _LOGIN_PAGE, username=username, error=msg

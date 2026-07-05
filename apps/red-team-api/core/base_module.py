@@ -1,5 +1,5 @@
 """
-core/base_module.py - Abstract base class for all attack modules.
+core/base_module.py — Abstract base class for all attack modules.
 
 Every module in modules/ must subclass BaseModule and implement execute().
 The engine calls execute() and receives an AttackResult.
@@ -25,12 +25,12 @@ from core.models import (
 class BaseModule(ABC):
     """Contract that every attack module must satisfy."""
 
-    # -- Module metadata (override in subclass) --------------------------------
+    # ── Module metadata (override in subclass) ────────────────────────────────
     module_id: str = ""
     name: str = ""
     description: str = ""
     category: Category = Category.RECON
-    scenario_id: str = "" # maps to ATTENSE APP-XX
+    scenario_id: str = ""          # maps to ATTENSE APP-XX
     severity: Severity = Severity.INFO
 
     def __init__(self) -> None:
@@ -39,13 +39,13 @@ class BaseModule(ABC):
             "User-Agent": "ATTENSE-RedTeam/2.0 (lab-internal)",
         })
 
-    # -- Options each module can declare ----------------------------------------
+    # ── Options each module can declare ────────────────────────────────────────
     @abstractmethod
     def options(self) -> list[ModuleOption]:
         """Return the configurable options for this module."""
         ...
 
-    # -- Validation -------------------------------------------------------------
+    # ── Validation ─────────────────────────────────────────────────────────────
     def validate(self, opts: dict, target: TargetConfig) -> str | None:
         """Return an error string if options are invalid, else None."""
         for opt in self.options():
@@ -53,7 +53,7 @@ class BaseModule(ABC):
                 return f"Missing required option: {opt.display_name}"
         return None
 
-    # -- Execution --------------------------------------------------------------
+    # ── Execution ──────────────────────────────────────────────────────────────
     @abstractmethod
     def execute(
         self,
@@ -65,16 +65,16 @@ class BaseModule(ABC):
         Run the attack module.
 
         Args:
-            target: Global target configuration.
-            opts: Dict of option values keyed by ModuleOption.name.
-            log_fn: Callable(str) to emit live log lines to the GUI.
+            target:  Global target configuration.
+            opts:    Dict of option values keyed by ModuleOption.name.
+            log_fn:  Callable(str) to emit live log lines to the GUI.
 
         Returns:
             AttackResult with all steps and summary.
         """
         ...
 
-    # -- Helpers available to all modules ---------------------------------------
+    # ── Helpers available to all modules ───────────────────────────────────────
 
     def _log(self, log_fn, msg: str) -> None:
         if log_fn:

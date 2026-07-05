@@ -1,4 +1,4 @@
-"""engine/ - interactive attack session framework."""
+"""engine/ — interactive attack session framework."""
 from engine.session import AttackSession
 from engine.timer import Timer
 

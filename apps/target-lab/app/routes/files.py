@@ -1,9 +1,9 @@
 """
-routes/files.py - File read and upload endpoints.
+routes/files.py – File read and upload endpoints.
 
-[VULN APP-03] Directory traversal - `path` concatenated to base dir, no
+[VULN APP-03] Directory traversal — `path` concatenated to base dir, no
               normalization.
-[VULN APP-04] Unrestricted file upload - any filename, any content. Files
+[VULN APP-04] Unrestricted file upload — any filename, any content. Files
               are stored only (NOT executed by Flask). Educational copy
               should call this "Unrestricted dangerous file upload", not
               "RCE", because we do not pipe these files to a runtime.
@@ -13,21 +13,15 @@ import logging
 import os
 
 from flask import Blueprint, request, render_template_string, current_app
-from werkzeug.utils import secure_filename # noqa: F401 (kept for future use)
+from werkzeug.utils import secure_filename  # noqa: F401  (kept for future use)
 
 import containment
-from route_security import (
-GUIDED_DANGEROUS_UPLOAD_EXTENSIONS,
-has_extension,
-has_sensitive_file_content,
-has_traversal_pattern,
-)
 
-logger = logging.getLogger("target.files")
+logger   = logging.getLogger("target.files")
 files_bp = Blueprint("files", __name__)
 
-BASE_DIR = "/app/static/"
-UPLOAD_DIR = "/app/static/uploads/"
+BASE_DIR    = "/app/static/"
+UPLOAD_DIR  = "/app/static/uploads/"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 _README = os.path.join(BASE_DIR, "readme.txt")
@@ -36,10 +30,10 @@ if not os.path.exists(_README):
         f.write("ATTENSE Lab Target - static readme\n")
 
 
-# -- Directory Traversal page ------------------------------------------------
+# ── Directory Traversal page ────────────────────────────────────────────────
 _READ_PAGE = """
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
-<title>Document Viewer - AcmeCorp</title>
+<title>Document Viewer — AcmeCorp</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#c8cdd8;min-height:100vh;}
@@ -123,7 +117,9 @@ def read_file():
         extra={"path_param": path},
     )
     # Detect traversal attempts
-    if has_traversal_pattern(path):
+    low = path.lower()
+    if (".." in path) or "%2e%2e" in low or path.startswith("/etc/") \
+            or path.startswith("/proc/") or "passwd" in low or "shadow" in low:
         evidence.record(
             "traversal_pattern_observed",
             module_id="dir_traversal",
@@ -146,7 +142,7 @@ def read_file():
             content="[BLOCKED] This path is denied by an active containment rule.",
         ), 403
 
-    full_path = BASE_DIR + path # [VULN until block_path containment is applied]
+    full_path = BASE_DIR + path  # [VULN until block_path containment is applied]
     try:
         with open(full_path, "r", errors="replace") as f:
             content = f.read(4096)
@@ -155,7 +151,8 @@ def read_file():
             "resolved_path": full_path,
         }))
         # If file content looks like /etc/passwd or similar sensitive material
-        if has_sensitive_file_content(content):
+        SENSITIVE = ("root:", "/bin/bash", "/bin/sh", "daemon:", "nobody:")
+        if any(s in content for s in SENSITIVE):
             evidence.record(
                 "sensitive_file_disclosed",
                 module_id="dir_traversal",
@@ -175,10 +172,10 @@ def read_file():
     return render_template_string(_READ_PAGE, path=path, content=content)
 
 
-# -- File upload page --------------------------------------------------------
+# ── File upload page ────────────────────────────────────────────────────────
 _UPLOAD_PAGE = """
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
-<title>File Upload - AcmeCorp Support</title>
+<title>File Upload — AcmeCorp Support</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#c8cdd8;min-height:100vh;}
@@ -259,7 +256,7 @@ def upload_file():
             message='<div class="error-msg">No file selected.</div>',
         )
 
-    filename = file.filename # [VULN] original filename used as-is
+    filename = file.filename  # [VULN] original filename used as-is
     save_path = os.path.join(UPLOAD_DIR, filename)
 
     logger.info(json.dumps({
@@ -289,7 +286,11 @@ def upload_file():
         via=current_app.detect_via(),
         extra={"filename": filename, "content_type": file.content_type or ""},
     )
-    if has_extension(filename, GUIDED_DANGEROUS_UPLOAD_EXTENSIONS):
+    DANGEROUS_EXT = (".php", ".phtml", ".jsp", ".jspx", ".asp", ".aspx",
+                     ".sh", ".py", ".pl", ".cgi", ".html", ".htm", ".svg",
+                     ".js", ".exe")
+    fn_lower = filename.lower()
+    if any(fn_lower.endswith(ext) for ext in DANGEROUS_EXT):
         evidence.record(
             "dangerous_extension_accepted",
             module_id="file_upload",

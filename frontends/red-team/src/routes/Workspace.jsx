@@ -75,6 +75,9 @@ function LabModePanel({ moduleId, briefing }) {
   const tools = requiredToolsFor(moduleId)
   const [hintsRevealed, setHintsRevealed] = useState(0)
   const hints = useMemo(() => {
+    // Operator Mode uses its own staged hints (no guided enumeration / credential
+    // leak). Fall back to tip + watchFor for modules without operator hints.
+    if (briefing?.operatorHints?.length) return briefing.operatorHints
     const h = []
     if (briefing?.tip) h.push(briefing.tip)
     if (briefing?.watchFor) briefing.watchFor.forEach(w => h.push(w))
@@ -135,10 +138,6 @@ function MissionSidebar({
   variantId,
   collapsed, onToggle,
 }) {
-  const tasks = progress?.tasks || []
-  const completedCount = (progress?.completed_tasks || []).length
-  const totalTasks     = tasks.length || 3
-  const pct = totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0
   const isLab = mode === 'lab'
 
   return (
@@ -210,7 +209,8 @@ function MissionSidebar({
           </div>
         </div>
 
-        {/* Timer + progress */}
+        {/* Timer + progress — Operator Mode only shows attack-completion
+            tracking; Guided Mode is reading-only and never claims progress. */}
         <div
           className="rounded-xl p-4 mb-4"
           style={{
@@ -218,27 +218,37 @@ function MissionSidebar({
             border: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-[9px] tracking-[0.32em] text-attense-dim">PROGRESS</span>
-            <span className="font-mono text-[10px] text-attense-text tabular-nums">
-              {completedCount}/{totalTasks}
-            </span>
-          </div>
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
-            <div
-              className="h-full rounded-full transition-all duration-700"
-              style={{
-                width: pct + '%',
-                background: isDone || progress?.success
-                  ? '#2ee39a'
-                  : pct > 0
-                    ? 'linear-gradient(90deg,#ff1535,#ff6b00)'
-                    : '#3a4060',
-                boxShadow: pct > 0 && !(isDone || progress?.success)
-                  ? '0 0 6px rgba(255,21,53,0.5)' : 'none',
-              }}
-            />
-          </div>
+          {isLab ? (
+            <>
+              {/* Goal-trigger status — the mission completes the instant the
+                  goal event fires on the target; no task ladder or percentage. */}
+              <span className="font-mono text-[9px] tracking-[0.32em] text-attense-dim">GOAL STATUS</span>
+              {(isDone || progress?.goal_triggered) ? (
+                <div className="mt-2 flex items-start gap-2">
+                  <span className="text-[13px] leading-none" style={{ color: '#2ee39a' }}>●</span>
+                  <div>
+                    <div className="font-mono text-[10.5px] font-semibold" style={{ color: '#2ee39a' }}>
+                      Goal triggered — mission complete
+                    </div>
+                    {progress?.trigger_event && (
+                      <div className="font-mono text-[8.5px] text-attense-dim mt-0.5">
+                        Trigger: {progress.trigger_event}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[13px] leading-none" style={{ color: '#5a6580' }}>○</span>
+                  <span className="font-mono text-[10.5px] text-attense-muted">Not triggered yet</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="font-mono text-[9px] tracking-[0.24em]" style={{ color: '#7dd3fc' }}>
+              GUIDED MODE · READING-ONLY
+            </div>
+          )}
           <div
             className="flex items-center justify-between mt-3 pt-3"
             style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
@@ -372,10 +382,13 @@ function LabBrowser({ moduleId, missionStarted, onNavigate, mode = 'tutorial', s
     if (p.startsWith('http://') || p.startsWith('https://')) return null // block external
     if (!p.startsWith('/')) p = '/' + p
     // Re-prefix to whichever proxy this mode owns. Strip an existing prefix
-    // first so toggling modes converts paths cleanly.
-    if (p.startsWith('/target-op')) p = p.slice('/target-op'.length) || '/'
+    // first so toggling modes converts paths cleanly. Check the longer,
+    // more-specific prefixes before the bare /target.
+    if (p.startsWith('/target-zap')) p = p.slice('/target-zap'.length) || '/'
+    else if (p.startsWith('/target-op')) p = p.slice('/target-op'.length) || '/'
     else if (p.startsWith('/target')) p = p.slice('/target'.length) || '/'
-    const proxy = (mode === 'lab') ? '/target-op' : '/target'
+    // Lab mode routes the browser through ZAP (/target-zap); tutorial stays direct.
+    const proxy = (mode === 'lab') ? '/target-zap' : '/target'
     return `${proxy}${p === '/' ? '/' : p}`
   }
 
@@ -565,52 +578,10 @@ function EvidenceCard({ card }) {
 }
 
 // ── Mission complete summary ────────────────────────────────────────────────
-const DEFENSE_DETAILS = {
-  brute_force: {
-    what: 'Discovered valid credentials by trying multiple passwords on a form with no lockout.',
-    why: 'The login endpoint has no rate limiting, no CAPTCHA, and no account lockout.',
-    fixes: ['Rate limiting (e.g. 5 attempts per minute)', 'Account lockout after N failures', 'Multi-factor authentication (MFA)', 'Login attempt monitoring and alerting'],
-  },
-  xss: {
-    what: 'Injected script-like payloads that reflected unescaped in the HTML response.',
-    why: 'User input is rendered directly into the page without HTML-encoding.',
-    fixes: ['Output encoding (HTML entities)', 'Content Security Policy (CSP) headers', 'Input validation and sanitization', 'Template auto-escaping (Jinja2, React JSX)'],
-  },
-  cmd_injection: {
-    what: 'Chained OS commands via the ping form using shell metacharacters.',
-    why: 'The host parameter is passed directly to os.popen() with no sanitization.',
-    fixes: ['Never pass user input to shell commands', 'Use subprocess with shell=False and argument lists', 'Validate against a strict allowlist of hostnames', 'Principle of least privilege for the web process'],
-  },
-  dir_traversal: {
-    what: 'Read sensitive system files by escaping the web root with ../ sequences.',
-    why: 'The file path is concatenated without normalization or directory restriction.',
-    fixes: ['Normalize paths with os.path.realpath()', 'Verify resolved path stays inside base directory', 'Use allowlisted file IDs instead of raw paths', 'Chroot or container-level path isolation'],
-  },
-  file_upload: {
-    what: 'Uploaded files with dangerous extensions that were accepted and stored.',
-    why: 'No extension validation, no MIME check, and files keep their original name.',
-    fixes: ['Extension allowlist (only .jpg, .png, .pdf, etc.)', 'Rename files to random hashes on save', 'Store uploads outside executable paths', 'Scan uploads with antivirus/ClamAV'],
-  },
-  csrf: {
-    what: 'A simulated attacker page changed profile data without the user\'s consent.',
-    why: 'The profile update form has no CSRF token and doesn\'t check Origin/Referer.',
-    fixes: ['CSRF tokens on every state-changing form', 'SameSite=Strict cookie attribute', 'Origin/Referer header validation', 'Re-authentication for sensitive actions'],
-  },
-  recon: {
-    what: 'Mapped the attack surface by discovering hidden routes and internal info.',
-    why: 'The app exposes too many internal details: version strings, debug comments, robots.txt.',
-    fixes: ['Remove debug comments from production HTML', 'Minimize server version disclosure', 'Restrict robots.txt to only necessary entries', 'Monitor and alert on rapid endpoint enumeration'],
-  },
-}
-
 function MissionCompleteSummary({ snapshot, briefing, progress, elapsed }) {
-  const moduleId = snapshot?.module_id
   const sid = snapshot?.session_id
-  const legacyDefense = DEFENSE_DETAILS[moduleId] || {}
   const defense = briefing?.defenseBreakdown || {}
-  const mitigations = Array.isArray(defense.mitigations) && defense.mitigations.length > 0
-    ? defense.mitigations
-    : (legacyDefense.fixes || []).map(f => ({ name: f, implementation: '', verify: '' }))
+  const mitigations = Array.isArray(defense.mitigations) ? defense.mitigations : []
   return (
     <div className="rounded-xl p-4 mb-4"
       style={{ background: 'rgba(46,227,154,0.06)', border: '1px solid rgba(46,227,154,0.3)' }}>
@@ -636,16 +607,6 @@ function MissionCompleteSummary({ snapshot, briefing, progress, elapsed }) {
       <div className="text-[13.5px] font-semibold text-attense-text mb-2">
         Vulnerability demonstrated successfully.
       </div>
-      {legacyDefense.what && (
-        <div className="text-[11.5px] text-attense-muted leading-relaxed mb-2">
-          <strong style={{ color: '#c0c5db' }}>What you did:</strong> {legacyDefense.what}
-        </div>
-      )}
-      {legacyDefense.why && (
-        <div className="text-[11.5px] text-attense-muted leading-relaxed mb-3">
-          <strong style={{ color: '#c0c5db' }}>Why it worked:</strong> {legacyDefense.why}
-        </div>
-      )}
       <div className="flex items-center gap-3 mb-3">
         <span className="font-mono text-[10px] text-attense-dim">TIME:</span>
         <span className="font-mono text-[12px] font-semibold tabular-nums" style={{ color: '#2ee39a' }}>
@@ -749,107 +710,14 @@ function WSection({ label, color, mono, children }) {
   )
 }
 
-// ── A single TryHackMe-style walkthrough task ───────────────────────────────
-function WalkthroughTask({ index, task, isOpen, onToggle, missionStarted }) {
-  const complete = !!task.complete
-  const matchCount = task.match_count ?? 0
-  const minCount   = task.min_count ?? 1
-  return (
-    <div
-      className="rounded-xl overflow-hidden mb-2 transition-colors"
-      style={{
-        border: `1px solid ${complete ? 'rgba(46,227,154,0.32)' : isOpen ? 'rgba(255,21,53,0.32)' : 'rgba(255,255,255,0.08)'}`,
-        background: complete ? 'rgba(46,227,154,0.045)' : isOpen ? 'rgba(255,21,53,0.03)' : 'rgba(255,255,255,0.02)',
-      }}
-    >
-      <button onClick={onToggle} className="w-full flex items-center gap-3 px-3.5 py-3 text-left">
-        <span
-          className="shrink-0 grid place-items-center rounded-full transition-all"
-          style={{
-            width: 22, height: 22,
-            border: `2px solid ${complete ? '#2ee39a' : 'rgba(255,255,255,0.2)'}`,
-            background: complete ? '#2ee39a' : 'transparent',
-          }}
-        >
-          {complete ? (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04130c" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 6L9 17l-5-5" />
-            </svg>
-          ) : (
-            <span className="font-mono text-[10px]" style={{ color: '#8b93ad' }}>{index + 1}</span>
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="font-mono text-[8px] tracking-[0.22em] mb-0.5" style={{ color: complete ? '#2ee39a' : '#7a8194' }}>
-            TASK {index + 1}{complete ? ' · COMPLETE' : ''}
-          </div>
-          <div className="text-[12.5px] font-semibold leading-snug text-attense-text">
-            {task.title}
-          </div>
-        </div>
-        <span className="text-attense-dim text-sm transition-transform shrink-0" style={{ transform: isOpen ? 'rotate(180deg)' : '' }}>
-          ▾
-        </span>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="px-3.5 pb-3.5 pt-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-              <WSection label="WHAT IS THIS" color="#7dd3fc">{task.what}</WSection>
-              <WSection label="HOW IT'S DONE" color="#ff6b81" mono>{task.how}</WSection>
-              <WSection label="WHAT TO LOOK FOR" color="#9be8c5">{task.look_for}</WSection>
-
-              {/* live auto-tracking status */}
-              <div
-                className="mt-1 flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-mono text-[9.5px]"
-                style={{
-                  background: complete ? 'rgba(46,227,154,0.07)' : 'rgba(255,255,255,0.025)',
-                  border: `1px solid ${complete ? 'rgba(46,227,154,0.25)' : 'rgba(255,255,255,0.07)'}`,
-                }}
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: complete ? '#2ee39a' : missionStarted ? '#fbbf24' : '#4a5280' }}
-                />
-                <span style={{ color: complete ? '#2ee39a' : '#9aa0c0' }}>
-                  {complete
-                    ? 'Detected — step complete'
-                    : missionStarted
-                      ? `Auto-tracking… ${matchCount}/${minCount} detected`
-                      : 'Press START, then act on the target'}
-                </span>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-// ── Guided walkthrough (overview + progress + task sections) ─────────────────
-function GuidedWalkthrough({ progress, missionStarted, briefing }) {
-  const tasks = progress?.tasks || []
-  const completedCount = (progress?.completed_tasks || []).length
-  const total = tasks.length
-  const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0
+// ── Guided walkthrough (reading-only overview — no attack tracking) ─────────
+// Guided/Tutorial Mode is reading-only: the backend never fetches or scores
+// evidence for it (lab_progress.compute() short-circuits to a static
+// reading_only response), so this renders concept content only — no
+// progress bar, no per-task auto-tracking, no "attack complete" state.
+function GuidedWalkthrough({ progress, briefing }) {
   const overview = progress?.variant_overview
     || briefing?.objective || briefing?.background || ''
-
-  // Auto-open the first incomplete task; collapse all when finished.
-  const firstIncomplete = tasks.findIndex(t => !t.complete)
-  const [openTask, setOpenTask] = useState(0)
-  const [userTouched, setUserTouched] = useState(false)
-  useEffect(() => {
-    if (!userTouched) setOpenTask(firstIncomplete)
-  }, [firstIncomplete, userTouched])
 
   return (
     <div className="mb-4">
@@ -864,7 +732,7 @@ function GuidedWalkthrough({ progress, missionStarted, briefing }) {
         >
           <div className="flex items-center gap-2 mb-2">
             <div className="font-mono text-[9px] tracking-[0.26em]" style={{ color: '#ff6b81' }}>
-              {progress?.variant_name ? progress.variant_name.toUpperCase() : 'OVERVIEW'}
+              {progress?.variant_name ? progress.variant_name.toUpperCase() : 'CONCEPT OVERVIEW'}
             </div>
             {progress?.variant_difficulty && (
               <span className="ml-auto font-mono text-[8px] font-bold tracking-[0.14em] px-1.5 py-0.5 rounded uppercase"
@@ -877,48 +745,20 @@ function GuidedWalkthrough({ progress, missionStarted, briefing }) {
         </div>
       )}
 
-      {/* Progress bar — TryHackMe room completion */}
-      {total > 0 && (
-        <div className="rounded-xl p-3.5 mb-3" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-[9px] tracking-[0.28em] text-attense-dim">WALKTHROUGH</span>
-            <span className="font-mono text-[10px] tabular-nums" style={{ color: pct === 100 ? '#2ee39a' : '#cfd6e8' }}>
-              {completedCount}/{total} · {pct}%
-            </span>
-          </div>
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
-            <motion.div
-              className="h-full rounded-full"
-              animate={{ width: pct + '%' }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-              style={{
-                background: pct === 100 ? '#2ee39a' : 'linear-gradient(90deg,#ff1535,#ff6b00)',
-                boxShadow: pct > 0 && pct < 100 ? '0 0 6px rgba(255,21,53,0.5)' : 'none',
-              }}
-            />
-          </div>
+      {/* Reading-only notice — Guided Mode never tracks or scores an attack */}
+      <div
+        className="rounded-xl p-4 text-center"
+        style={{ background: 'rgba(125,211,252,0.04)', border: '1px dashed rgba(125,211,252,0.22)' }}
+      >
+        <div className="font-mono text-[9px] tracking-[0.24em] mb-1.5" style={{ color: '#7dd3fc' }}>
+          READING-ONLY
         </div>
-      )}
-
-      {/* Task sections */}
-      {total > 0 ? (
-        tasks.map((t, i) => (
-          <WalkthroughTask
-            key={i}
-            index={i}
-            task={t}
-            isOpen={openTask === i}
-            onToggle={() => { setUserTouched(true); setOpenTask(openTask === i ? -1 : i) }}
-            missionStarted={missionStarted}
-          />
-        ))
-      ) : (
-        <div className="rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)' }}>
-          <div className="font-mono text-[10px] text-attense-dim leading-relaxed">
-            {missionStarted ? 'Loading walkthrough…' : 'Press START to load the guided walkthrough.'}
-          </div>
+        <div className="text-[11px] text-attense-dim leading-relaxed">
+          Guided Mode explains the concept — it does not track or score an attack.
+          Switch to <span style={{ color: '#7dd3fc' }} className="font-semibold">OPERATOR MODE</span> above
+          when you're ready to practice hands-on and receive a report.
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -950,13 +790,16 @@ function LearningPanel({
   const requiredTools = isLab ? requiredToolsFor(moduleId) : []
   const [hintsRevealed, setHintsRevealed] = useState(0)
 
-  // Build hint tiers from briefing
+  // Build hint tiers from briefing. In Lab/Operator Mode use the dedicated
+  // staged operatorHints (no guided enumeration/credential leak); Guided Mode
+  // keeps tip + watchFor.
   const hints = useMemo(() => {
+    if (isLab && briefing?.operatorHints?.length) return briefing.operatorHints
     const h = []
     if (briefing?.tip) h.push(briefing.tip)
     if (briefing?.watchFor) briefing.watchFor.forEach(w => h.push(w))
     return h
-  }, [briefing])
+  }, [briefing, isLab])
 
   return (
     <motion.aside
@@ -1005,11 +848,10 @@ function LearningPanel({
           />
         )}
 
-        {/* Guided walkthrough — TryHackMe-style task sections (tutorial mode) */}
+        {/* Guided walkthrough — reading-only concept overview (tutorial mode) */}
         {!isLab && !activeMutation && (
           <GuidedWalkthrough
             progress={progress}
-            missionStarted={missionStarted}
             briefing={briefing}
           />
         )}
@@ -1054,6 +896,77 @@ function LearningPanel({
             </div>
           )}
         </motion.div>
+        )}
+
+        {/* Objective-based progress — required objective vs recommended methodology.
+            Completion is objective-based; methodology is advisory (never blocks). */}
+        {isLab && (progress?.objective || progress?.missing_quality?.length || progress?.next_recommended_action) && (
+          <div
+            className="rounded-xl p-4 mb-4"
+            style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <div className="font-mono text-[9px] tracking-[0.28em] mb-2" style={{ color: '#2ee39a' }}>
+              REQUIRED OBJECTIVE
+            </div>
+            {progress?.objective && (
+              <div className="text-[12px] text-attense-text leading-relaxed mb-2">{progress.objective}</div>
+            )}
+
+            {progress?.success ? (
+              <div
+                className="rounded-lg p-3 mb-1 text-[11.5px] leading-relaxed"
+                style={{ background: 'rgba(46,227,154,0.08)', border: '1px solid rgba(46,227,154,0.3)', color: '#bff3dd' }}
+              >
+                {progress?.missing_quality?.length
+                  ? `Attack objective reached. You can view the report now, or keep improving your methodology score (currently ${progress?.quality_score ?? 0}%).`
+                  : 'Attack objective reached with strong methodology. View your report.'}
+              </div>
+            ) : (
+              progress?.next_recommended_action && (
+                <div
+                  className="rounded-lg p-3 mb-1 text-[11.5px] leading-relaxed"
+                  style={{ background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.22)', color: '#cfe8ff' }}
+                >
+                  <span className="font-mono text-[9px] tracking-[0.24em] block mb-1" style={{ color: '#7dd3fc' }}>
+                    NEXT RECOMMENDED
+                  </span>
+                  {progress.next_recommended_action}
+                </div>
+              )
+            )}
+
+            {progress?.missing_quality?.length > 0 && (
+              <div className="mt-3">
+                <div className="font-mono text-[9px] tracking-[0.24em] text-attense-dim mb-1.5">
+                  RECOMMENDED METHODOLOGY
+                </div>
+                <ul className="space-y-1">
+                  {progress.missing_quality.map((q) => (
+                    <li key={q.id} className="flex gap-2 text-[11px] text-attense-dim leading-snug">
+                      <span style={{ color: '#7dd3fc' }}>○</span>
+                      <span>{q.recommendation || q.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(progress?.completed_quality?.length > 0 || progress?.quality_score != null) && (
+              <div className="mt-3 font-mono text-[9px] tracking-[0.2em] text-attense-dim">
+                REPORT QUALITY SIGNAL · METHODOLOGY {progress?.quality_score ?? 0}%
+              </div>
+            )}
+
+            {progress?.warnings?.map((w, i) => (
+              <div
+                key={i}
+                className="mt-2 rounded-lg p-2.5 text-[11px] leading-snug"
+                style={{ background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.28)', color: '#ffd48a' }}
+              >
+                ⚠ {w}
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Required tools — Lab Mode only */}
@@ -1127,28 +1040,19 @@ function LearningPanel({
           </div>
         )}
 
-        {/* Check Progress button */}
-        <button
-          onClick={onCheckProgress}
-          disabled={!missionStarted || isCheckingProgress}
-          className="w-full font-mono text-[10.5px] font-bold tracking-[0.16em] px-4 py-2.5 rounded-lg transition-all duration-150 mb-4 flex items-center justify-center gap-2"
+        {/* Goal status — auto-detected; no manual "Check Progress" step. */}
+        <div
+          className="w-full font-mono text-[10px] tracking-[0.14em] px-4 py-2.5 rounded-lg mb-4 flex items-center justify-center gap-2"
           style={{
-            background: !missionStarted
-              ? 'rgba(255,255,255,0.04)'
-              : isCheckingProgress
-                ? 'rgba(255,255,255,0.04)'
-                : 'linear-gradient(135deg, #7dd3fc, #0ea5e9)',
-            color: !missionStarted || isCheckingProgress ? '#3a4060' : '#0c0f16',
-            border: !missionStarted ? '1px solid rgba(255,255,255,0.08)' : 'none',
-            cursor: !missionStarted || isCheckingProgress ? 'not-allowed' : 'pointer',
+            background: success ? 'rgba(46,227,154,0.08)' : 'rgba(255,255,255,0.03)',
+            color: success ? '#2ee39a' : '#7dd3fc',
+            border: `1px solid ${success ? 'rgba(46,227,154,0.3)' : 'rgba(125,211,252,0.22)'}`,
           }}
         >
-          {!missionStarted
-            ? 'PRESS START FIRST'
-            : isCheckingProgress
-              ? 'CHECKING…'
-              : 'CHECK PROGRESS ↻'}
-        </button>
+          {!missionStarted ? 'PRESS START FIRST'
+            : success ? '● GOAL TRIGGERED — COMPLETE'
+              : (<><span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#7dd3fc' }} /> WATCHING FOR GOAL</>)}
+        </div>
 
         {/* Evidence cards */}
         <div className="mb-4">
@@ -1169,7 +1073,7 @@ function LearningPanel({
               <div className="font-mono text-[10px] text-attense-dim leading-relaxed">
                 {!missionStarted
                   ? 'Press START to begin tracking evidence.'
-                  : 'Interact with the target page on the left, then click CHECK PROGRESS.'}
+                  : 'Interact with the target on the left — evidence appears here automatically as the goal fires.'}
               </div>
             </div>
           ) : (
@@ -1244,9 +1148,13 @@ function LearningPanel({
 // ── Advanced collapsed strip (bottom) ───────────────────────────────────────
 // Only visible when the user opts in via the LearningPanel toggle. Holds
 // the optional "Run Automated Scan" affordance for instructor demos.
-function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
+function AdvancedTools({ open, snapshot, sid, onExecute, executing, autoAttacksEnabled }) {
   if (!open) return null
+  const instructor =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('instructor') === '1'
   const attackDone = snapshot?.state === 'completed' || snapshot?.state === 'error'
+  const canAutoRun = instructor && autoAttacksEnabled
   return (
     <div
       className="shrink-0"
@@ -1260,35 +1168,43 @@ function AdvancedTools({ open, snapshot, sid, onExecute, executing }) {
         <div className="font-mono text-[9px] tracking-[0.28em] text-attense-dim">
           ADVANCED
         </div>
-        <button
-          onClick={onExecute}
-          disabled={executing}
-          className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
-          style={{
-            background: executing ? 'rgba(255,255,255,0.04)' : 'rgba(245,196,0,0.06)',
-            border: '1px solid rgba(245,196,0,0.25)',
-            color: executing ? '#3a4060' : '#fbbf24',
-            cursor: executing ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {executing ? 'RUNNING…' : 'RUN AUTOMATED SCAN'}
-        </button>
-        {attackDone && (
-          <Link
-            to={`/attack-report/${sid}`}
-            className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
-            style={{
-              background: 'rgba(255,64,96,0.07)',
-              border: '1px solid rgba(255,64,96,0.3)',
-              color: '#ff4060',
-            }}
-          >
-            VIEW ATTACK REPORT →
-          </Link>
-        )}
-        {!attackDone && (
+        {canAutoRun ? (
+          <>
+            <button
+              onClick={onExecute}
+              disabled={executing}
+              className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
+              style={{
+                background: executing ? 'rgba(255,255,255,0.04)' : 'rgba(245,196,0,0.06)',
+                border: '1px solid rgba(245,196,0,0.25)',
+                color: executing ? '#3a4060' : '#fbbf24',
+                cursor: executing ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {executing ? 'RUNNING…' : 'RUN AUTOMATED SCAN'}
+            </button>
+            {attackDone && (
+              <Link
+                to={`/report/${sid}`}
+                className="font-mono text-[10px] tracking-[0.14em] px-3 py-1.5 rounded transition-colors"
+                style={{
+                  background: 'rgba(46,227,154,0.08)',
+                  border: '1px solid rgba(46,227,154,0.3)',
+                  color: '#2ee39a',
+                }}
+              >
+                VIEW MISSION REPORT →
+              </Link>
+            )}
+            {!attackDone && (
+              <span className="font-mono text-[9.5px] text-attense-dim">
+                (runs the instructor-only backend scanner; review results in the mission report)
+              </span>
+            )}
+          </>
+        ) : (
           <span className="font-mono text-[9.5px] text-attense-dim">
-            (runs the backend scanner — an attack report will be available after)
+            Hands-on lab — drive the attack yourself from the Terminal or ZAP, then Check Progress.
           </span>
         )}
       </div>
@@ -1592,14 +1508,6 @@ function GuidedRoom({ snapshot, variantId }) {
   const doneCount = sections.reduce((acc, _s, i) => acc + (doneSet.has(i) ? 1 : 0), 0)
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0
 
-  // unique MITRE technique chips for the header
-  const headerTechs = []
-  const seen = new Set()
-  sections.forEach(s => {
-    const m = parseMitre(s.mitre)
-    if (m && !seen.has(m.id)) { seen.add(m.id); headerTechs.push(m) }
-  })
-
   const icon = CATEGORY_ICON?.[snapshot?.category] || CATEGORY_ICON?.[snapshot?.module_category] || '▪'
 
   return (
@@ -1650,23 +1558,6 @@ function GuidedRoom({ snapshot, variantId }) {
                     )}
                   </div>
                 </div>
-
-                {/* MITRE technique chips */}
-                {headerTechs.length > 0 && (
-                  <div className="mt-4">
-                    <div className="font-mono text-[8.5px] tracking-[0.26em] text-attense-dim mb-2">MITRE ATT&CK TECHNIQUES</div>
-                    <div className="flex flex-wrap gap-2">
-                      {headerTechs.map(m => (
-                        <a key={m.id} href={m.url} target="_blank" rel="noreferrer" title={m.name}
-                          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[10px] transition-colors"
-                          style={{ background: 'rgba(255,21,53,0.05)', border: '1px solid rgba(255,21,53,0.28)', color: '#e6e8ee' }}>
-                          <span className="font-bold" style={{ color: '#ff6b81' }}>{m.id}</span>
-                          <span className="text-attense-muted truncate max-w-[180px]">{m.name}</span>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {Array.isArray(wt?.database_refs) && wt.database_refs.length > 0 && (
                   <div className="mt-4">
@@ -1772,7 +1663,7 @@ export default function Workspace() {
   const mutationQuery = search.get('mutation') === '1'
   const mutationIntensityParam = search.get('intensity') || 'single'
 
-  const { snapshot, logs, running, start, reset } = useSession(sid, { replay })
+  const { snapshot, logs, running, start } = useSession(sid, { replay })
 
   const [module, setModule] = useState(null)
   const [error,  setError]  = useState(null)
@@ -1781,6 +1672,7 @@ export default function Workspace() {
   const [missionStarted, setMissionStarted] = useState(false)
   const [showAdvanced, setShowAdvanced]     = useState(false)
   const [executing, setExecuting]           = useState(false)
+  const [autoAttacksEnabled, setAutoAttacksEnabled] = useState(false)
   const [labPanelMinimized, setLabPanelMinimized] = useState(false)
   const [leftCollapsed, setLeftCollapsed]   = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
@@ -1873,7 +1765,26 @@ export default function Workspace() {
   // Active attack variant. Hydrated from session snapshot once available.
   const [variantId, setVariantId] = useState(null)
   const toolsVisible = mode === 'lab' || isMutationRun
+  // Once the lab tools (terminal/ZAP) have been shown, keep them MOUNTED even
+  // after switching to Guided Mode — unmounting them wipes the terminal history
+  // and ZAP state, so returning to Operator Mode felt like a fresh restart.
+  // They stay in the DOM (hidden via CSS with the rest of the operator tree)
+  // and are revealed again on switch-back with all state intact.
+  const [labToolsMounted, setLabToolsMounted] = useState(false)
+  useEffect(() => { if (toolsVisible) setLabToolsMounted(true) }, [toolsVisible])
   const activeMutation = activeMutations[activeMutations.length - 1] || null
+
+  useEffect(() => {
+    let cancelled = false
+    api.config()
+      .then(cfg => {
+        if (!cancelled) setAutoAttacksEnabled(Boolean(cfg.enable_auto_attacks))
+      })
+      .catch(() => {
+        if (!cancelled) setAutoAttacksEnabled(false)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     if (!modeHydratedRef.current && snapshot?.mode) {
@@ -2030,11 +1941,13 @@ export default function Workspace() {
     finally { setIsCheckingProgress(false) }
   }
 
-  const handleExit = async () => {
+  // Top-left EXIT — just leave the lab and return to the previous page (usually
+  // the mission briefing), without resetting the attempt so it can be resumed.
+  // Falls back to the missions list if the lab was opened via a direct link.
+  const handleBack = () => {
     stopTimer()
-    if (replay) { navigate('/'); return }
-    try { await reset() } catch {}
-    navigate('/')
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/missions')
   }
 
   // P0-4: Restart Mission — creates a fresh attempt
@@ -2108,9 +2021,10 @@ export default function Workspace() {
         className="shrink-0 flex flex-wrap items-center gap-3 px-5 py-3"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <Link to="/"
-          className="font-mono text-[9.5px] tracking-[0.22em] text-attense-dim hover:text-attense-red transition-colors shrink-0"
-        >← EXIT MISSION</Link>
+        <button onClick={handleBack}
+          className="font-mono text-[10.5px] font-bold tracking-[0.16em] px-4 py-2 rounded-lg transition-all duration-150 shrink-0"
+          style={{ background: 'linear-gradient(135deg,#ff1535,#cc0020)', color: 'white', boxShadow: '0 0 14px rgba(255,21,53,0.35)' }}
+        >← EXIT</button>
 
         {/* Mission title + status + timer */}
         <div className="flex items-center gap-2.5 min-w-0">
@@ -2192,22 +2106,31 @@ export default function Workspace() {
             style={{ background: 'linear-gradient(135deg,#ff1535,#cc0020)', color: 'white', boxShadow: '0 0 14px rgba(255,21,53,0.35)' }}
           >START ▸</button>
         )}
+        {/* No manual "Check Progress" — the app watches the target automatically
+            and flips to complete the instant the goal event fires. */}
         {!replay && !guided && missionStarted && !isDone && (
-          <button onClick={handleCheckProgress} disabled={isCheckingProgress}
-            className="font-mono text-[10.5px] font-bold tracking-[0.14em] px-4 py-2 rounded-lg transition-all duration-150 shrink-0"
-            style={{ background: 'linear-gradient(135deg,#7dd3fc,#0ea5e9)', color: '#0c0f16', cursor: isCheckingProgress ? 'wait' : 'pointer' }}
-          >{isCheckingProgress ? 'CHECKING…' : 'CHECK PROGRESS ↻'}</button>
+          <span className="font-mono text-[9px] tracking-[0.16em] px-3 py-2 rounded-lg shrink-0 flex items-center gap-2"
+            style={{ border: '1px solid rgba(125,211,252,0.25)', color: '#7dd3fc', background: 'rgba(125,211,252,0.06)' }}>
+            <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#7dd3fc' }} />
+            WATCHING FOR GOAL
+          </span>
         )}
-        <button onClick={handleExit}
-          className="font-mono text-[10.5px] tracking-[0.14em] px-3 py-2 rounded-lg text-attense-muted transition-colors shrink-0"
-          style={{ border: '1px solid rgba(255,255,255,0.08)' }}
-        >{replay ? 'CLOSE' : 'EXIT'}</button>
+        {!replay && !guided && isDone && (
+          <Link to={`/report/${sid}`}
+            className="font-mono text-[10.5px] font-bold tracking-[0.14em] px-4 py-2 rounded-lg transition-all duration-150 shrink-0"
+            style={{ background: 'linear-gradient(135deg,#2ee39a,#0ea572)', color: '#04120c', boxShadow: '0 0 14px rgba(46,227,154,0.3)' }}
+          >GENERATE REPORT →</Link>
+        )}
       </div>
 
-      {/* Body: Guided Mode = full-width room · Operator Mode = 3-column lab */}
-      {guided ? (
-        <GuidedRoom snapshot={snapshot} variantId={variantId} />
-      ) : (
+      {/* Body: Guided Mode = full-width room · Operator Mode = 3-column lab.
+          The operator tree stays MOUNTED while Guided is showing (hidden via
+          CSS, display:contents when active) so switching Guided→Operator never
+          reloads the target iframe or resets the terminal/ZAP panels — it just
+          reveals the same live session again. GuidedRoom is cheap to remount
+          (its state is localStorage-backed), so it mounts only when active. */}
+      {guided && <GuidedRoom snapshot={snapshot} variantId={variantId} />}
+      <div className={guided ? 'hidden' : 'contents'}>
       <>
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <MissionSidebar
@@ -2272,7 +2195,7 @@ export default function Workspace() {
               isMutating={Boolean(shapeshiftEvent)}
             />
           </div>
-          {toolsVisible && (
+          {labToolsMounted && (
             <motion.div
               className="shrink-0 overflow-hidden"
               animate={{ height: labPanelMinimized ? 42 : 320 }}
@@ -2282,6 +2205,9 @@ export default function Workspace() {
                 selectedTool={selectedLabTool}
                 minimized={labPanelMinimized}
                 onToggleMinimize={() => setLabPanelMinimized(v => !v)}
+                sessionId={sid}
+                moduleId={snapshot.module_id}
+                mode={mode}
               />
             </motion.div>
           )}
@@ -2306,6 +2232,7 @@ export default function Workspace() {
       <AdvancedTools
         open={showAdvanced} snapshot={snapshot} sid={sid}
         onExecute={handleAdvancedExecute} executing={executing}
+        autoAttacksEnabled={autoAttacksEnabled}
       />
 
       <ShapeshiftOverlay
@@ -2360,7 +2287,7 @@ export default function Workspace() {
         )}
       </AnimatePresence>
       </>
-      )}
+      </div>
     </div>
   )
 }
