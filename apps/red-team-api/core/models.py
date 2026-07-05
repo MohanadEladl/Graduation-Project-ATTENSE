@@ -1,5 +1,5 @@
 """
-core/models.py - Data models for the Red Team framework.
+core/models.py — Data models for the Red Team framework.
 
 Defines the contract between modules, engine, and UI.
 All modules return AttackResult. All modules declare ModuleOption.
@@ -38,13 +38,13 @@ class ModuleOption:
     description: str
     default: Any = ""
     required: bool = False
-    option_type: str = "str" # str, int, bool, choice, file
+    option_type: str = "str"      # str, int, bool, choice, file
     choices: list[str] | None = None
 
 
 @dataclass
 class TargetConfig:
-    """Global target configuration - shared across all modules."""
+    """Global target configuration — shared across all modules."""
     host: str = "target-agent"
     port: int = 80
     timeout: int = 10

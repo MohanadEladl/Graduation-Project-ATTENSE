@@ -254,7 +254,7 @@ function Sidebar({ view, setView, user, logout }) {
  return (
  <aside className="dc-sidebar">
  <div className="dc-brand-block">
- <div className="dc-brand-row"><img src="/assets/ATTENSELOGO.png" alt="" /><span>ATTENSE</span></div>
+ <div className="dc-brand-row"><span>ATTENSE</span></div>
  <div className="dc-brand-sub">Blue Team Portal</div>
  </div>
  <nav className="dc-nav">
@@ -269,7 +269,7 @@ function Sidebar({ view, setView, user, logout }) {
  </button>
  ))}
  <div className="dc-nav-rule" />
- <button type="button" onClick={() => window.history.back()}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7689" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg><span>Go Back</span></button>
+ <button type="button" onClick={() => { window.location.href = `${window.location.protocol}//${window.location.hostname}:5173/fortress-viewer.html` }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7689" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg><span>Main Menu</span></button>
  </nav>
  <div className="dc-sidebar-bottom">
  <div className="dc-user-card">
@@ -329,9 +329,13 @@ function DashboardView({ user, rooms, setView, selectRoom, showFallback }) {
  )
 }
 
-function RoomsView({ rooms, activeRoomId, enterRoom, endRoom, showFallback }) {
+function RoomsView({ rooms, activeRoomId, enterRoom, endRoom, openRoomInHive, selectRoom, setView, showFallback }) {
  const shownRooms = rooms.length ? rooms : (showFallback ? fallbackRooms : [])
  const activeCount = shownRooms.filter((room) => roomStatus(room) === 'Active').length
+ function viewReport(room) {
+ selectRoom(room.room_id)
+ setView('reports')
+ }
  return (
  <main className="dc-main">
  <section className="dc-header room-header"><div><p>Training Rooms</p><h1>Room Lobby</h1><span>Browse available incident response scenarios. Enter any active room to begin your training exercise.</span></div><div className="dc-active-now"><strong>{activeCount} Active Now</strong><small>{shownRooms.length} rooms total</small></div></section>
@@ -340,10 +344,11 @@ function RoomsView({ rooms, activeRoomId, enterRoom, endRoom, showFallback }) {
  const status = roomStatus(room)
  const active = status === 'Active'
  const pending = status === 'Pending'
- return <article className={'dc-room-card ' + status.toLowerCase()} key={room.room_id || room.id} data-selected={room.room_id === activeRoomId}><div className="dc-room-top"><span><i />{status}</span><small>{room.room_id || room.id}</small></div><h3>{roomName(room)}</h3><p>{roomDescription(room)}</p><div className="dc-room-actions"><button type="button" disabled={!active} onClick={() => enterRoom(room)}>{active ? 'Enter Room' : pending ? 'Not Yet Active' : 'Room Closed'}</button>{active && <button className="danger" type="button" onClick={() => endRoom(room)}>End Incident & Report</button>}</div></article>
+ const closed = status === 'Closed'
+ return <article className={'dc-room-card ' + status.toLowerCase()} key={room.room_id || room.id} data-selected={room.room_id === activeRoomId}><div className="dc-room-top"><span><i />{status}</span><small>{room.room_id || room.id}</small></div><h3>{roomName(room)}</h3><p>{roomDescription(room)}</p><div className="dc-room-actions">{active && <button type="button" onClick={() => enterRoom(room)}>Enter Room</button>}{closed && <button type="button" onClick={() => openRoomInHive(room)}>Open in TheHive</button>}{pending && <button type="button" disabled>Not Yet Active</button>}<button type="button" className="ghost" onClick={() => viewReport(room)}>View Report</button>{active && <button className="danger" type="button" onClick={() => endRoom(room)}>End Incident & Report</button>}</div></article>
  }) : <div className="dc-empty">No rooms are available yet.</div>}
  </section>
- <section className="dc-note">Pending rooms open when activated by a SOC Manager. Closed rooms are available for retrospective review only.</section>
+ <section className="dc-note">Pending rooms open when activated by a SOC Manager. Closed rooms stay open for retrospective review - reopen them in TheHive or view their report anytime.</section>
  </main>
  )
 }
@@ -359,6 +364,76 @@ function ruleStatusLabel(status) {
  if (status === 'triggered') return { text: 'FAIL', color: '#ef5350' }
  if (status === 'passed') return { text: 'PASS', color: '#43d39f' }
  return { text: 'N/A', color: '#888' }
+}
+
+function ZeroDaySection({ alerts }) {
+ const detected = alerts.filter((a) => a.classification === 'TRUE_ZERO_DAY' || a.classification === 'ZERO_DAY_VARIANT')
+ const hasDetection = detected.length > 0
+ const primary = detected[0] || alerts[0] || null
+
+ const severityColor = (s) => {
+  if (s === 'CRITICAL') return '#ff3b3b'
+  if (s === 'HIGH') return '#ff7043'
+  if (s === 'MEDIUM') return '#ffa726'
+  return '#4a86e8'
+ }
+
+ if (!hasDetection) {
+  return (
+   <section className="dc-zeroday-report">
+    <div className="dc-zeroday-clear">
+     <div className="dc-zeroday-icon safe" />
+     <h2>No Zero-Day Activity Detected</h2>
+     <p>The zero-day detection agent found no novel or unclassified attack behavior during this exercise. All observed activity matched known MITRE ATT&CK techniques.</p>
+     {alerts.length > 0 && <p className="dc-zeroday-note">Scanned {alerts.length} alert event(s) — all classified as known attack patterns.</p>}
+    </div>
+   </section>
+  )
+ }
+
+ return (
+  <section className="dc-zeroday-report">
+   <div className="dc-zeroday-alert-banner">
+    <div className="dc-zeroday-icon threat" />
+    <div>
+     <h2>Zero-Day Activity Detected</h2>
+     <p>{detected.length} zero-day alert{detected.length > 1 ? 's' : ''} flagged during this exercise.</p>
+    </div>
+    <span className="dc-zeroday-badge" style={{ background: severityColor(primary?.severity) + '22', color: severityColor(primary?.severity), borderColor: severityColor(primary?.severity) + '55' }}>{primary?.classification?.replace(/_/g, ' ')}</span>
+   </div>
+   {detected.map((alert, i) => (
+    <div key={i} className="dc-zeroday-card">
+     <header>
+      <h3>Detection {i + 1}</h3>
+      <div className="dc-zeroday-pills">
+       <span style={{ background: severityColor(alert.severity) + '22', color: severityColor(alert.severity) }}>Severity: {alert.severity}</span>
+       <span>Confidence: {alert.confidence}</span>
+       <span>Kill Chain: {alert.kill_chain_stage}</span>
+      </div>
+     </header>
+     <div className="dc-zeroday-grid">
+      <article>
+       <span>MITRE Technique</span>
+       <strong>[{alert.closest_mitre_id}] {alert.closest_mitre_name}</strong>
+       <p>Match level: {alert.match_level}</p>
+      </article>
+      <article>
+       <span>Attack Vector</span>
+       <strong>{alert.attack_vector}</strong>
+      </article>
+      <article>
+       <span>Affected Containers</span>
+       <strong>{(alert.affected_containers || []).join(', ') || 'Unknown'}</strong>
+      </article>
+      <article>
+       <span>Detected At</span>
+       <strong>{alert.timestamp ? new Date(alert.timestamp).toLocaleTimeString() : '--'}</strong>
+      </article>
+     </div>
+    </div>
+   ))}
+  </section>
+ )
 }
 
 function ReportView({ user, room }) {
@@ -526,6 +601,7 @@ function ReportView({ user, room }) {
     <div className="dc-toggle">
      <button className={mode === 'analyst' ? 'active' : ''} onClick={() => setMode('analyst')}>Analyst View</button>
      <button className={mode === 'manager' ? 'active manager' : ''} onClick={() => setMode('manager')}>SOC Manager</button>
+     <button className={mode === 'zeroday' ? 'active zeroday' : ''} onClick={() => setMode('zeroday')}>Zero Day</button>
      <button className={mode === 'ai' ? 'active' : ''} onClick={() => { setMode('ai'); loadMarkdown() }}>AI Report</button>
      {scoredReport && <button onClick={downloadWord} style={{ background: '#1a3a5c', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: '0.85em' }}>Download .docx</button>}
     </div>
@@ -734,6 +810,8 @@ function ReportView({ user, room }) {
      {markdown && <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.85em', lineHeight: 1.6 }}>{markdown}</pre>}
     </section>
    )}
+
+   {mode === 'zeroday' && <ZeroDaySection alerts={room?.incidents_detail?.[0]?.zero_day_alerts || []} />}
   </main>
  )
 }
@@ -890,9 +968,9 @@ function HiveSessionBar({ room, onReopen, onFinish }) {
  // Shown while a TheHive investigation is in progress but the launch panel is
  // dismissed, so the analyst always has a way back to TheHive and the report.
  return (
- <div className="dc-hive-bar">
- <div><i /><strong>Investigating {roomName(room)}</strong><span>TheHive session in progress</span></div>
- <div className="dc-hive-bar-actions">
+ <div className="dc-hive-session-bar">
+ <div className="dc-hive-session-info"><i /><div><strong>Investigating {roomName(room)}</strong><span>TheHive session in progress</span></div></div>
+ <div className="dc-hive-session-actions">
  <button type="button" onClick={onReopen}>Return to TheHive</button>
  <button type="button" className="finish" onClick={onFinish}>Finish Incident &amp; View Report</button>
  </div>
@@ -1060,9 +1138,37 @@ export default function App() {
  return [...extras, ...listed]
  }
 
- function startHiveSession(room) {
- setHiveRoom(room)
+ // Re-push the room's stored detections into TheHive whenever we open it, so
+ // the alerts appear even for a past/closed room whose original delivery never
+ // happened. Fire-and-forget and idempotent (the backend forces re-delivery and
+ // TheHive dedups by sourceRef, so no duplicate alerts).
+ function resyncAlerts(room) {
+ if (!room || !getToken() || room.portal_demo) return
+ api.rooms.replayAlerts(room.room_id).catch(() => {})
+ }
+
+ async function startHiveSession(room) {
+ resyncAlerts(room)
+ // Make sure the launch panel has the shared TheHive login to show. Rooms that
+ // come straight from the list (e.g. a closed room opened for re-view) carry no
+ // credentials; GET /rooms/{id} returns the shared-analyst login + password for
+ // Blue Team users, so fetch the full room when the creds are missing - without
+ // it the user opens TheHive with a blank sign-in and can't log in.
+ let full = room
+ if (getToken() && !room.portal_demo && !(room.thehive && room.thehive.login)) {
+ try { full = await api.rooms.get(room.room_id) } catch (_) { full = room }
+ }
+ setHiveRoom(full)
  setHiveMinimized(false)
+ }
+
+ // Open TheHive for a room without going through the enter flow - used for
+ // closed/past rooms that can't be re-entered but whose alerts we still re-push.
+ function openRoomInHive(room) {
+ setError('')
+ setActiveRoomId(room.room_id)
+ setActiveRoom(room)
+ startHiveSession(room)
  }
 
  function enterRoom(room) {
@@ -1165,7 +1271,7 @@ export default function App() {
  {loading && <main className="dc-main"><section className="dc-loading">Loading workspace...</section></main>}
  {error && !loading && <main className="dc-main"><section className="dc-error-panel">{error}</section></main>}
  {!loading && !error && view === 'dashboard' && <DashboardView user={user} rooms={rooms} setView={setView} selectRoom={selectRoom} showFallback={false} />}
- {!loading && !error && view === 'rooms' && <RoomsView rooms={rooms} activeRoomId={activeRoomId} enterRoom={enterRoom} endRoom={endRoom} showFallback={false} />}
+ {!loading && !error && view === 'rooms' && <RoomsView rooms={rooms} activeRoomId={activeRoomId} enterRoom={enterRoom} endRoom={endRoom} openRoomInHive={openRoomInHive} selectRoom={selectRoom} setView={setView} showFallback={false} />}
  {!loading && !error && view === 'reports' && <ReportView user={user} room={activeRoom} />}
  {!loading && !error && view === 'notifications' && <NotificationsView rooms={rooms} showFallback={false} setView={setView} selectRoom={selectRoom} enterRoom={enterRoom} />}
  {entryModalRoom && <EntryModal room={entryModalRoom} busy={entering} onConfirm={confirmEnter} onCancel={() => setEntryModalRoom(null)} />}

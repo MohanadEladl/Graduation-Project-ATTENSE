@@ -5,6 +5,7 @@ from core import user_store
 from core.room_manager import (
     accept_invite,
     enter_room,
+    ensure_member_hive_access,
     get_room,
     create_room,
     hive_credentials,
@@ -12,6 +13,7 @@ from core.room_manager import (
     list_invites_for_email,
     list_rooms_for_company,
     prefire_room,
+    resync_room_alerts,
     room_lobby,
     spin_down_room,
     spin_up_blueteam,
@@ -51,8 +53,10 @@ def _thehive_envelope(room: dict, room_id: str, session: dict | None = None) -> 
         "room_id": room_id,
     }
     if session is not None:
-        # The requesting analyst's own TheHive web-login credentials, so the UI
-        # can show how to sign in to the incident inside the iframe.
+        # The requesting analyst's own (dynamic, per-user) TheHive web-login
+        # credentials. Provision on demand: the caller may be viewing this room
+        # via Blue Team's global visibility without ever having entered it.
+        ensure_member_hive_access(session["username"])
         creds = hive_credentials(session["username"])
         thehive["login"] = creds["login"]
         thehive["password"] = creds["password"]
@@ -200,6 +204,24 @@ def accept(room_id: str, session: dict = Depends(require_session)):
     return _thehive_envelope(room, room_id, session)
 
 
+@router.post("/{room_id}/replay-alerts")
+def replay_alerts(room_id: str, session: dict = Depends(require_session)):
+    """Re-push a room's stored detections into TheHive so its alerts appear.
+
+    Called by the Blue Team UI whenever a room is opened - including a closed /
+    past room - so the analyst sees the room's alerts in TheHive even if the
+    original delivery never happened. Idempotent: TheHive dedups by sourceRef.
+    """
+    _require_blue(session)
+    try:
+        result = resync_room_alerts(room_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"room_id": room_id, **(result or {})}
+
+
 @router.get("/{room_id}/lobby")
 def lobby(room_id: str, session: dict = Depends(require_session)):
     """Lightweight join-status view of a room for the lobby poll loop."""
@@ -207,6 +229,7 @@ def lobby(room_id: str, session: dict = Depends(require_session)):
         result = room_lobby(room_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    ensure_member_hive_access(session["username"])
     creds = hive_credentials(session["username"])
     result["thehive_login"] = creds["login"]
     result["thehive_password"] = creds["password"]
@@ -274,11 +297,33 @@ def get(room_id: str, session: dict = Depends(require_session)):
         else:
             report = generate_report(incident)
             report["room_timing"] = room_timing
+            zero_day_alerts = [
+                {
+                    "classification": (e.metadata or {}).get("classification", "UNKNOWN"),
+                    "severity": (e.metadata or {}).get("severity", "UNKNOWN"),
+                    "confidence": (e.metadata or {}).get("confidence", "UNKNOWN"),
+                    "kill_chain_stage": (e.metadata or {}).get("kill_chain_stage", "Unknown"),
+                    "closest_mitre_id": (e.metadata or {}).get("closest_mitre_id", "?"),
+                    "closest_mitre_name": (e.metadata or {}).get("closest_mitre_name", "?"),
+                    "match_level": (e.metadata or {}).get("match_level", "?"),
+                    "attack_vector": (e.metadata or {}).get("attack_vector", "Unknown"),
+                    "affected_containers": (e.metadata or {}).get("affected_containers", []),
+                    "timestamp": e.timestamp.isoformat() if hasattr(e.timestamp, "isoformat") else str(e.timestamp),
+                }
+                for e in getattr(incident, "events", [])
+                if e.event_type == "alert_raised" and e.actor_id == "zeroday-agent"
+            ]
             detail.append({
                 "incident_id": incident_id,
                 "status": incident.status,
                 "report": _serialize_report(report),
+                "zero_day_alerts": zero_day_alerts,
             })
     room["incidents_detail"] = detail
+    # Blue Team users get the shared TheHive login creds + launch url on every
+    # GET, so the UI can open TheHive for ANY room it shows - including a closed /
+    # past room that was never entered this session (needed to re-view its alerts).
+    if session["role"] in BLUE_ROLES:
+        return _thehive_envelope(room, room_id, session)
     return room
 

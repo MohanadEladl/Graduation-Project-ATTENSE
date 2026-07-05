@@ -1,5 +1,5 @@
 """
-modules/recon.py - Reconnaissance / Target Fingerprinting.
+modules/recon.py — Reconnaissance / Target Fingerprinting.
 
 Probes the target for HTTP headers, server version, reachable routes,
 and response timings. This is always the first module an operator runs.
@@ -27,7 +27,7 @@ class ReconModule(BaseModule):
     category = Category.RECON
     scenario_id = "PRE-ATTACK"
     severity = Severity.INFO
-    # MITRE ATT&CK mapping - Reconnaissance precedes every other module.
+    # MITRE ATT&CK mapping — Reconnaissance precedes every other module.
     mitre = {
         "tactics": ["TA0043 Reconnaissance"],
         "techniques": [
@@ -42,7 +42,7 @@ class ReconModule(BaseModule):
         "story": (
             "Before attacking, you need to map the target. Fingerprint the web "
             "stack, enumerate which routes are exposed, and turn that into a "
-            "route->vulnerability map that drives every later module."
+            "route→vulnerability map that drives every later module."
         ),
         "learner_steps": [
             {"action": "Banner-grab the server to fingerprint the web stack.",
@@ -55,16 +55,16 @@ class ReconModule(BaseModule):
              "expected": "Routes such as /search, /auth/login, /system/ping, /files/read, /profile/ are discovered."},
             {"action": "Probe every route and record status code + latency.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
-             "command": "for p in / /search /auth/login /system/ping /files/read /profile/; do curl -s -o /dev/null -w \"%{http_code} $p\\n\" http://target-agent$p; done",
+             "command": "for p in / /search /auth/login /system/ping /files/read /profile/; do curl -s -o /dev/null -w \"%{http_code}  $p\\n\" http://target-agent$p; done",
              "expected": "A status/latency map of every reachable endpoint."},
             {"action": "Read the HTML source for comments and version leaks.",
              "technique": "T1592.002 Gather Victim Host Information: Software",
              "command": "curl -s http://target-agent/ | grep -iE \"<!--|version|powered\"",
              "expected": "Comments / markup reveal stack details that guide the exploit modules."},
-            {"action": "Compile the attack-surface inventory for downstream modules.",
+            {"action": "Compile the attack-surface inventory — and hypothesise the weakness of each route YOURSELF before moving on.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
-             "command": "# map each route to a candidate weakness: /search->XSS, /system/ping->cmd-i, /files/read->LFI, /files/upload->upload, /profile/update->CSRF, /auth/login->brute-force",
-             "expected": "A route->vulnerability map ready to drive the exploit modules."},
+             "command": "# For every route you found, note: what input it takes, what it does with it,\n# and the FIRST weakness class you would test. Don't look it up — reason it out,\n# then confirm (or disprove) each guess in the exploit modules that follow.",
+             "expected": "Your own route→weakness hypotheses. You verify them in the later modules — recon hands you the map to fill in, not the answers."},
         ],
         "detection_rule": "Wazuh web-scanner signature / sequential path probes from one IP",
         "success_markers": [
@@ -102,7 +102,7 @@ class ReconModule(BaseModule):
         started = datetime.now(timezone.utc).isoformat()
         steps: list[StepResult] = []
 
-        # -- Header fingerprint --------------------------------------------
+        # ── Header fingerprint ────────────────────────────────────────────
         self._log(log_fn, "Fingerprinting target headers...")
         r = self._get(target.base_url + "/", label="header-probe", timeout=target.timeout)
         steps.append(r)
@@ -110,10 +110,10 @@ class ReconModule(BaseModule):
         if r.success:
             interesting = ["Server", "X-Powered-By", "X-Frame-Options"]
             for h in interesting:
-                val = r.detail # We can parse from full response in a future version
-                self._log(log_fn, f" Header check: {h}")
+                val = r.detail  # We can parse from full response in a future version
+                self._log(log_fn, f"  Header check: {h}")
 
-        # -- Route probe ---------------------------------------------------
+        # ── Route probe ───────────────────────────────────────────────────
         routes = list(_KNOWN_ROUTES)
         extra = opts.get("extra_paths", "")
         if extra:
@@ -123,8 +123,8 @@ class ReconModule(BaseModule):
         for route in routes:
             url = target.base_url + route
             r = self._get(url, label=route, timeout=target.timeout)
-            symbol = "PASS" if r.success and (r.status_code or 0) < 500 else "FAIL"
-            self._log(log_fn, f" [{symbol}] {r.status_code} {route}")
+            symbol = "✓" if r.success and (r.status_code or 0) < 500 else "✗"
+            self._log(log_fn, f"  [{symbol}] {r.status_code}  {route}")
             steps.append(r)
 
         reachable = sum(1 for s in steps if s.success and (s.status_code or 0) < 500)

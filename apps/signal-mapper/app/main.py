@@ -79,6 +79,12 @@ class ReplayRequest(BaseModel):
     # Only replay detections at/after this ISO timestamp (the room's attack
     # start), so events persisted from earlier exercises stay out of the room.
     since: str | None = Field(default=None, max_length=64)
+    # Re-deliver every matching detection even if it was already replayed to this
+    # room in this process. Used when a room is (re-)opened: an earlier delivery
+    # may have silently failed (e.g. TheHive rejected it and the Blue Team API
+    # swallowed the error), and the in-process dedup would otherwise never retry.
+    # Safe to repeat: TheHive dedups alerts by sourceRef, so no duplicates appear.
+    force: bool = Field(default=False)
 
 
 # Detections already replayed to a room in this process, so a room re-entry
@@ -276,10 +282,13 @@ async def replay_detections(
         if body.since and not _at_or_after(ev.get("timestamp"), body.since):
             continue
         ref = (body.room_id, str(ev.get("event_id") or id(ev)))
-        with _replayed_lock:
-            if ref in _replayed_refs:
-                skipped += 1
-                continue
+        # force re-delivers even if already replayed - heals a room whose earlier
+        # delivery silently failed. TheHive dedups by sourceRef, so no duplicates.
+        if not body.force:
+            with _replayed_lock:
+                if ref in _replayed_refs:
+                    skipped += 1
+                    continue
         if post_alert_body(raise_alert_body(ev, incident_id=body.incident_id), body.room_id):
             replayed += 1
             with _replayed_lock:

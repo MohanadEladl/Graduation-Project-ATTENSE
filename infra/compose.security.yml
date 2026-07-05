@@ -142,7 +142,8 @@ services:
     environment:
       - JVM_OPTS=-Xms512m -Xmx512m
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
-    # WEBHOOK_SECRET is shared with attense-app at runtime.
+    # WEBHOOK_SECRET is shared with attense-app at runtime; root .env is the
+    # single source of truth for it (see the entrypoint below).
     env_file:
       - ../secrets/ATTENSE.env
     entrypoint: ["/bin/bash", "-lc"]
@@ -152,24 +153,65 @@ services:
           echo 'Waiting for Elasticsearch before starting TheHive...'
           sleep 5
         done
+        # TheHive signs its webhooks with WEBHOOK_SECRET and attense-app verifies
+        # them; the two MUST match or every CaseCreated webhook 401s. Root .env
+        # (via the compose environment above) is the source of truth. The secrets
+        # file is sourced for THEHIVE_SECRET etc., but it can carry a stale
+        # WEBHOOK_SECRET (e.g. the shipped "changeme-webhook" placeholder), so
+        # capture the compose value first and restore it after sourcing.
+        _COMPOSE_WEBHOOK_SECRET="$${WEBHOOK_SECRET}"
         if [ -f /secrets/ATTENSE.env ]; then
           set -a
           . /secrets/ATTENSE.env
           set +a
         fi
+        export WEBHOOK_SECRET="$${_COMPOSE_WEBHOOK_SECRET}"
         exec /opt/thehive/entrypoint --secret "$${THEHIVE_SECRET}" --cql-hostnames cassandra
     volumes:
       - ../integrations/thehive/application.conf:/etc/thehive/application.conf
       - ../secrets:/secrets:ro
       - ../scripts/healthcheck/check_thehive_cortex.py:/healthchecks/check_thehive_cortex.py:ro
-    ports:
-      - "127.0.0.1:9000:9000" # loopback only - TheHive UI not exposed to the LAN
+    # No public port here: thehive-proxy (below) is what the browser actually
+    # reaches, at the same 127.0.0.1:9000 this container used to publish
+    # directly. TheHive itself stays internal-only on attense_net.
     healthcheck:
       test: ["CMD-SHELL", "python3 /healthchecks/check_thehive_cortex.py"]
       interval: 10s
       timeout: 5s
       retries: 30
       start_period: 240s
+    networks:
+      - attense_net
+
+  # Same-origin reverse proxy in front of TheHive, published where TheHive's
+  # own port used to be (127.0.0.1:9000) so nothing else in the app needs to
+  # change. Its only job beyond transparent proxying: inject a persistent
+  # "Return to ATTENSE" button into every page TheHive serves (via nginx
+  # sub_filter) - a real, always-visible control inside TheHive's own UI,
+  # since TheHive has no plugin/extension mechanism to add one natively.
+  thehive-proxy:
+    image: nginx:1.27-alpine
+    container_name: attense_thehive_proxy
+    hostname: thehive-proxy
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      thehive:
+        condition: service_healthy
+    environment:
+      # Where the injected button links back to. Same default/override as
+      # blueteam's own ATTENSE_BLUE_URL (apps/blue-team-api/.../hive_client.py).
+      ATTENSE_BLUE_URL: "${ATTENSE_BLUE_URL:-http://localhost:3100}"
+    volumes:
+      - ../integrations/thehive-proxy/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "127.0.0.1:9000:80" # loopback only - same public address TheHive used to publish
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/index.html >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks:
       - attense_net
 

@@ -13,8 +13,13 @@ Correlation (per design): time window anchored at ``incident.start_time``,
 refined by the attacker ``source_ip`` when it can be resolved from the
 incident's alert metadata; otherwise all lab events in the window.
 
-Attach-once: each Hive case is enriched a single time. Re-fired webhooks for
-the same case are ignored via an in-memory guard.
+Attach-once-successful: a case is enriched a single time once real attacker
+evidence is found. If the ``case/create`` webhook fires before the attack has
+happened (or before the target-agent has recorded it), there is nothing to
+attach yet - the case is queued and retried by the background poller
+(``retry_pending``, driven from ``main.py``'s lifespan) every few seconds
+until evidence appears or ``pending_timeout_seconds`` elapses, at which point
+it is dropped so a genuinely attack-free case doesn't get polled forever.
 
 Every external call is non-fatal - a down target-agent or Hive simply yields
 a case without the enrichment, never a failed webhook.
@@ -23,8 +28,9 @@ a case without the enrichment, never a failed webhook.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, Optional
 
 from ...infrastructure.sandbox.lab_evidence_connector import LabEvidenceConnector
 from ...infrastructure.thehive.hive_client import HiveClient
@@ -32,6 +38,10 @@ from ...infrastructure.thehive.hive_client import HiveClient
 logger = logging.getLogger(__name__)
 
 ACTIVITY_TASK_TITLE = "Attacker Activity Log"
+
+# How long a case with no correlated evidence yet stays queued for retry
+# before we give up (e.g. a case created for an attack that never happens).
+DEFAULT_PENDING_TIMEOUT_SECONDS = 30 * 60
 
 # Metadata keys (across incident events) that may carry the attacker's IP.
 _SOURCE_IP_KEYS = ("source_ip", "src_ip", "attacker_ip", "src", "sourceIp")
@@ -82,31 +92,43 @@ class AttackerLogAttacher:
 
     Parameters
     ----------
-    hive : HiveClient for case/task/observable writes.
+    hive_resolver : room_id -> HiveClient. Called per attempt (not cached) so
+        each case is written through ITS OWN room's TheHive org - see
+        infrastructure/thehive/room_hive_registry.py.
     lab_connector : LabEvidenceConnector for reading attacker evidence.
     """
 
     def __init__(
         self,
-        hive: HiveClient,
+        hive_resolver: Callable[[Optional[str]], HiveClient],
         lab_connector: LabEvidenceConnector,
         lookback_seconds: int = 3600,
+        pending_timeout_seconds: int = DEFAULT_PENDING_TIMEOUT_SECONDS,
     ) -> None:
-        self.hive = hive
+        self.hive_resolver = hive_resolver
         self.lab = lab_connector
         # Attacker activity PRECEDES detection: an alert is raised after the
         # malicious traffic already hit the target. So the correlation window
         # must look BACK from the incident anchor, not forward. lookback_seconds
         # is how far before start_time/detection_time we still collect evidence.
         self.lookback_seconds = lookback_seconds
-        self._enriched_cases: set[str] = set() # case_ids already enriched
+        self.pending_timeout_seconds = pending_timeout_seconds
+        self._enriched_cases: set[str] = set() # case_ids successfully enriched
+        # case_ids with no evidence yet, waiting on retry_pending():
+        # case_id -> (incident, room_id, first_attempt_monotonic)
+        self._pending: dict[str, tuple[Any, Optional[str], float]] = {}
 
-    def attach(self, case_id: str, incident: Any) -> bool:
+    def attach(self, case_id: str, incident: Any, room_id: Optional[str] = None) -> bool:
         """
         Attach the attacker activity log + IOCs to *case_id* for *incident*.
 
-        Returns True if enrichment ran, False if it was skipped (already done,
-        no case_id, or no correlated events). Never raises.
+        *room_id* selects which TheHive org's client writes the case (falls
+        back to the shared org when None/unresolvable - see
+        `room_hive_registry.resolve_room_hive_api_key`).
+
+        Returns True if enrichment ran now, False if it was skipped (already
+        done) or queued for retry (no correlated events yet - see
+        ``retry_pending``). Never raises.
         """
         if not case_id:
             logger.debug("[AttackerLogAttacher] No case_id - skipping enrichment.")
@@ -118,6 +140,44 @@ class AttackerLogAttacher:
             )
             return False
 
+        if self._try_attach(case_id, incident, room_id):
+            return True
+
+        if case_id not in self._pending:
+            self._pending[case_id] = (incident, room_id, time.monotonic())
+            logger.info(
+                "[AttackerLogAttacher] Case %s queued for retry - no attacker evidence yet.",
+                case_id,
+            )
+        return False
+
+    def retry_pending(self) -> None:
+        """
+        Retry attaching for every case still waiting on attacker evidence.
+
+        Called periodically by the background poller (see main.py's
+        lifespan). Drops a case once it either gets attached or has been
+        pending longer than ``pending_timeout_seconds``, so a case with no
+        attack behind it isn't polled forever. Never raises.
+        """
+        if not self._pending:
+            return
+        now = time.monotonic()
+        for case_id, (incident, room_id, first_attempt) in list(self._pending.items()):
+            if self._try_attach(case_id, incident, room_id):
+                del self._pending[case_id]
+                continue
+            if now - first_attempt >= self.pending_timeout_seconds:
+                logger.info(
+                    "[AttackerLogAttacher] Giving up on case %s after %.0fs - "
+                    "still no correlated attacker evidence.",
+                    case_id, self.pending_timeout_seconds,
+                )
+                del self._pending[case_id]
+                self._enriched_cases.add(case_id)
+
+    def _try_attach(self, case_id: str, incident: Any, room_id: Optional[str]) -> bool:
+        """One attach attempt. Returns True iff events were found and attached."""
         try:
             since = self._incident_start_epoch(incident)
             source_ip = self._resolve_source_ip(incident)
@@ -128,17 +188,16 @@ class AttackerLogAttacher:
                       if e.get("event_type") not in _NOISE_EVENT_TYPES]
 
             if not events:
-                logger.info(
+                logger.debug(
                     "[AttackerLogAttacher] No correlated attacker events for case %s "
-                    "(incident=%s) - nothing to attach.",
+                    "(incident=%s) yet.",
                     case_id, getattr(incident, "incident_id", "?"),
                 )
-                # Mark as enriched so we don't re-poll an empty window on every webhook.
-                self._enriched_cases.add(case_id)
                 return False
 
-            self._write_activity_task(case_id, incident, events)
-            self._add_iocs(case_id, events)
+            hive = self.hive_resolver(room_id)
+            self._write_activity_task(hive, case_id, incident, events)
+            self._add_iocs(hive, case_id, events)
 
             self._enriched_cases.add(case_id)
             logger.info(
@@ -146,7 +205,7 @@ class AttackerLogAttacher:
                 len(events), case_id, getattr(incident, "incident_id", "?"),
             )
             return True
-        except Exception as exc: # never break the webhook
+        except Exception as exc: # never break the webhook or the poller
             logger.warning(
                 "[AttackerLogAttacher] Enrichment failed for case %s (non-fatal): %s",
                 case_id, exc,
@@ -155,9 +214,9 @@ class AttackerLogAttacher:
 
     # -- Internal helpers ------------------------------------------------------
 
-    def _write_activity_task(self, case_id: str, incident: Any, events: list[dict]) -> None:
+    def _write_activity_task(self, hive: HiveClient, case_id: str, incident: Any, events: list[dict]) -> None:
         """Create the activity task and append one log line per attacker event."""
-        task = self.hive.create_task(case_id, ACTIVITY_TASK_TITLE)
+        task = hive.create_task(case_id, ACTIVITY_TASK_TITLE)
         task_id = task.get("id") or task.get("_id")
         if not task_id:
             logger.warning(
@@ -168,13 +227,13 @@ class AttackerLogAttacher:
             return
 
         # Summary header first, then one entry per attacker action.
-        self.hive.add_task_log(
+        hive.add_task_log(
             task_id,
             f"**Attacker activity for incident `{getattr(incident, 'incident_id', '?')}`** "
             f"- {len(events)} action(s) correlated from the target.",
         )
         for ev in events:
-            self.hive.add_task_log(task_id, self._format_event(ev))
+            hive.add_task_log(task_id, self._format_event(ev))
 
     @staticmethod
     def _format_event(ev: dict) -> str:
@@ -198,7 +257,7 @@ class AttackerLogAttacher:
             line += f"\n> {msg}"
         return line
 
-    def _add_iocs(self, case_id: str, events: list[dict]) -> None:
+    def _add_iocs(self, hive: HiveClient, case_id: str, events: list[dict]) -> None:
         """Add IOC observables: distinct source IPs and uploaded filenames."""
         seen_ips: set[str] = set()
         seen_files: set[str] = set()
@@ -207,13 +266,13 @@ class AttackerLogAttacher:
             ip = ev.get("source_ip")
             if ip and ip not in seen_ips:
                 seen_ips.add(ip)
-                self.hive.add_observable(case_id, "ip", ip)
+                hive.add_observable(case_id, "ip", ip)
 
             extra = ev.get("extra") or {}
             filename = extra.get("filename") or extra.get("file") or extra.get("saved_as")
             if filename and filename not in seen_files:
                 seen_files.add(filename)
-                self.hive.add_observable(case_id, "filename", filename)
+                hive.add_observable(case_id, "filename", filename)
 
     def _incident_start_epoch(self, incident: Any) -> float:
         """

@@ -1,24 +1,10 @@
 // Small REST client. In dev Vite proxies /api to the backend.
 // In production the nginx container proxies /api and /ws to the backend.
 
-// Session token captured from the URL on app load (see App.jsx) — forwarded
-// to the backend so it can resolve the real operator identity against
-// attense-app and tag malicious_action_executed events with it instead of
-// the anonymous "redteam-operator" fallback. Best-effort: if it's missing or
-// stale, the backend just degrades to that fallback, nothing here breaks.
-export const SESSION_TOKEN_KEY = 'attense_session_token'
-
-function authHeaders() {
-  const token = localStorage.getItem(SESSION_TOKEN_KEY)
-  return token ? { 'X-Session-Token': token } : {}
-}
-
-function headers(extra) {
-  return { 'Content-Type': 'application/json', ...authHeaders(), ...extra }
-}
+const baseHeaders = { 'Content-Type': 'application/json' }
 
 async function get(path) {
-  const r = await fetch(path, { headers: headers() })
+  const r = await fetch(path, { headers: baseHeaders })
   if (!r.ok) throw new Error(`GET ${path} → ${r.status}`)
   return r.json()
 }
@@ -26,7 +12,7 @@ async function get(path) {
 async function post(path, body) {
   const r = await fetch(path, {
     method: 'POST',
-    headers: headers(),
+    headers: baseHeaders,
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (!r.ok) throw new Error(`POST ${path} → ${r.status}`)
@@ -34,24 +20,16 @@ async function post(path, body) {
 }
 
 async function del(path) {
-  const r = await fetch(path, { method: 'DELETE', headers: headers() })
+  const r = await fetch(path, { method: 'DELETE', headers: baseHeaders })
   if (!r.ok) throw new Error(`DELETE ${path} → ${r.status}`)
   return r.json()
 }
 
 export const api = {
   health:     () => get('/health'),
+  config:     () => get('/api/config'),
   modules:    () => get('/api/modules'),
   target:     () => get('/api/target'),
-
-  auth: {
-    me: () => get('/api/auth/me'),
-  },
-
-  rooms: {
-    list: ()         => get('/api/rooms'),
-    join: (room_id)  => post(`/api/rooms/${encodeURIComponent(room_id)}/join`),
-  },
 
   // Tutorial/Lab mission sessions
   sessions: {
@@ -67,10 +45,8 @@ export const api = {
     resetEvidence:  (sid)     => post(`/api/sessions/${sid}/reset-evidence`),
     restart:        (sid)     => post(`/api/sessions/${sid}/restart`),
     logs:         (sid)       => get(`/api/sessions/${sid}/logs`),
-    labAnalysis:  (sid)       => get(`/api/sessions/${sid}/lab-analysis`),
     getReport:       (sid) => get(`/api/sessions/${sid}/report`),
     regenReport:     (sid) => post(`/api/sessions/${sid}/report/regenerate`),
-    getAttackReport: (sid) => get(`/api/sessions/${sid}/attack-report`),
 
     // ── Variants (Phase 1) ──
     setVariant:    (sid, variant_id) => post(`/api/sessions/${sid}/variant`, { variant_id }),
@@ -95,20 +71,23 @@ export const api = {
   // Variants per module (called from the variant picker before create)
   variants: (module_id) => get(`/api/modules/${encodeURIComponent(module_id)}/variants`),
 
-  // Guided walkthrough content for a module/variant. No backend route yet, so
-  // this 404s and Workspace falls back to buildFallbackWalkthrough via .catch.
+  // Full guided-room walkthrough (overview + MITRE-mapped sections + references)
   walkthrough: (module_id, variant_id) =>
-    get(`/api/modules/${encodeURIComponent(module_id)}/walkthrough${variant_id ? `?variant=${encodeURIComponent(variant_id)}` : ''}`),
+    get(`/api/modules/${encodeURIComponent(module_id)}/walkthrough${variant_id ? `?variant_id=${encodeURIComponent(variant_id)}` : ''}`),
 
   // Lab action telemetry (Phase 2)
   actions: {
     record: (payload) => post('/api/lab/actions', payload),
   },
 
+  mutations: {
+    catalog: () => get('/api/mutations/catalog'),
+  },
+
   // Lab Mode: AttackBox
   attackbox: {
     status:   ()              => get('/api/operator/attackbox/status'),
-    exec:     (command, module_id) => post('/api/operator/attackbox/exec', { command, module_id }),
+    exec:     (command, module_id, session_id) => post('/api/operator/attackbox/exec', { command, module_id, session_id }),
     evidence: (since = 0)     => get(`/api/operator/attackbox/evidence?since=${since}`),
   },
 
@@ -116,8 +95,10 @@ export const api = {
   zap: {
     status:   ()              => get('/api/operator/zap/status'),
     history:  (limit = 50)    => get(`/api/operator/zap/history?limit=${limit}`),
-    repeater: (method, path, headers, body) =>
-      post('/api/operator/zap/repeater/send', { method, path, headers, body }),
+    repeater: (method, path, headers, body, context = {}) =>
+      post('/api/operator/zap/repeater/send', { method, path, headers, body, ...context }),
+    fuzzer: (method, path, body_template, payloads, marker = '§', grep = null, context = {}, headers = null) =>
+      post('/api/operator/zap/fuzzer/send', { method, path, body_template, payloads, marker, grep, headers, ...context }),
   },
 
   skills: {

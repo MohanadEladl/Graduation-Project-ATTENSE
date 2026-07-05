@@ -161,6 +161,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - attense_ssd_volume:/attense/data:ro
       - attense_temp:/attense/temp
+      # Read-write: hive_provisioner.authorize_org_for_webhook() appends each
+      # newly-created room/company org to includedTheHiveOrganisations here,
+      # then restarts the `thehive` container (via the docker.sock mount
+      # above) so the change takes effect.
+      - ../integrations/thehive/application.conf:/thehive/application.conf
     ports:
       # Bound to loopback only: reachable from the host (browser/tools) but not
       # from the LAN. Use an SSH tunnel / reverse proxy for remote access.

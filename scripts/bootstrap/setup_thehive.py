@@ -228,14 +228,57 @@ def ensure_user(org_name: str) -> str:
 
 # -- Step 4: Generate / renew the API key --------------------------------------
 
-def fetch_api_key(user_login: str, org_name: str) -> str:
-    print(f"\n🔑 Step 4: Generating API key for '{user_login}' ...")
+def read_existing_key() -> str | None:
+    """The HIVE_API_KEY currently written in the root .env, if any."""
+    path = Path(ENV_FILE_PATH)
+    if not path.exists():
+        return None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("HIVE_API_KEY=") and not line.startswith("#"):
+            value = line.partition("=")[2].strip()
+            return value or None
+    return None
+
+
+def key_still_valid(key: str, expected_login: str) -> bool:
+    """True if *key* still authenticates against TheHive as *expected_login*.
+
+    TheHive's key/renew REVOKES the previous key the instant a new one is
+    minted. Every re-run of this script used to call key/renew unconditionally,
+    so any restart of the bootstrap containers (a full `docker compose down &&
+    up`, a pruned thehive-init) silently invalidated the key attense-app had
+    already loaded into its process env - alerts then 401 until someone
+    manually recreates attense-app. Checking first (and skipping renewal when
+    the current key is still good) makes re-runs a no-op in the common case.
+    """
+    req = urllib.request.Request(
+        f"{THEHIVE_URL}/api/user/current",
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+            if resp.status != 200:
+                return False
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return False
+    return str(data.get("login", "")).lower() == expected_login.lower()
+
+
+def fetch_api_key(user_login: str, org_name: str, existing_key: str | None = None) -> str:
+    print(f"\n🔑 Step 4: Resolving API key for '{user_login}' ...")
+    if existing_key and key_still_valid(existing_key, user_login):
+        print(f" ✅ Existing key for '{user_login}' still authenticates - reusing it (no renewal).")
+        return existing_key
+
     # key/renew returns the key as plain text. TheHive 4.1.x exposes this on the
     # v0 route (the v1 route 404s with "User not found"). The X-Organisation
     # header is required so TheHive resolves the user in their own org, not the
     # admin session's 'admin' org.
     # URL-encode the login so '@' becomes '%40' - without this TheHive 4.1.x
     # returns 404 "User not found" even for a just-created user.
+    print(f" No valid existing key for '{user_login}' - generating a new one ...")
     import urllib.parse
     encoded_login = urllib.parse.quote(user_login, safe="")
     key = _req("POST", f"/api/user/{encoded_login}/key/renew", raw=True, org=org_name)
@@ -293,13 +336,19 @@ def ensure_notification_rule(org_name: str, api_key: str) -> None:
 # -- Step 4c: Authorise the org(s) on the webhook in application.conf ----------
 
 def patch_webhook_orgs(org_names: list[str]) -> None:
-    """Set webhook `includedTheHiveOrganisations` to exactly *org_names*.
+    """Ensure webhook `includedTheHiveOrganisations` INCLUDES *org_names*.
 
     TheHive's webhook authorisation is case-sensitive and per-org (and "all" is
     NOT a wildcard), so the org must appear here verbatim or TheHive raises
-    "organisation <x> is not authorised to use the webhook". We rewrite the list
-    from THEHIVE_ORG_NAME so switching orgs needs no hand-editing. Takes effect
+    "organisation <x> is not authorised to use the webhook". Takes effect
     after TheHive is restarted (it reads application.conf at startup).
+
+    Additive, not a replace: `core.hive_provisioner.authorize_org_for_webhook`
+    (apps/control-api) appends a room's own org here the first time that room
+    is entered, live, independently of this bootstrap script. A blind
+    overwrite on every re-run of this script would silently de-authorise
+    every already-provisioned room's org - so this merges THEHIVE_ORG_NAME's
+    org(s) into whatever is already there instead of replacing the list.
     """
     print(f"\n🔐 Step 4c: Authorising org(s) on the webhook in application.conf ...")
     conf_path = Path(THEHIVE_CONF_PATH)
@@ -309,18 +358,25 @@ def patch_webhook_orgs(org_names: list[str]) -> None:
         return
 
     content = conf_path.read_text(encoding="utf-8")
-    # JSON happens to render a HOCON string array correctly: ["A", "B"]
-    new_list = json.dumps(org_names)
-    pattern = re.compile(r'includedTheHiveOrganisations\s*=\s*\[[^\]]*\]')
-    if not pattern.search(content):
+    pattern = re.compile(r'includedTheHiveOrganisations\s*=\s*\[([^\]]*)\]')
+    match = pattern.search(content)
+    if not match:
         print(" ⚠️ Could not find `includedTheHiveOrganisations = [...]`.")
-        print(f" Manually set it to: {new_list}")
+        print(f" Manually set it to: {json.dumps(org_names)}")
         return
 
-    new_content = pattern.sub(f"includedTheHiveOrganisations = {new_list}", content)
-    if new_content == content:
+    try:
+        existing = json.loads(f"[{match.group(1)}]")
+    except json.JSONDecodeError:
+        existing = []
+    merged = existing + [org for org in org_names if org not in existing]
+    # JSON happens to render a HOCON string array correctly: ["A", "B"]
+    new_list = json.dumps(merged)
+
+    if merged == existing:
         print(f" ✅ Webhook already authorised for {new_list} - no change.")
         return
+    new_content = pattern.sub(f"includedTheHiveOrganisations = {new_list}", content)
     conf_path.write_text(new_content, encoding="utf-8")
     print(f" ✅ Webhook authorised for {new_list} in {conf_path}")
     print(f" (restart TheHive to load it: docker compose restart thehive)")
@@ -385,21 +441,30 @@ def main() -> None:
     wait_for_thehive()
     login()
 
+    # Only the FIRST org's key is persisted to .env and actually used by
+    # attense-app, so only it needs the reuse-if-still-valid check - a re-run
+    # must not revoke a key attense-app already has loaded (see key_still_valid).
+    previous_key = read_existing_key()
+
     blueteam_key: str | None = None
     for org_name in ORG_NAMES:
         ensure_org(org_name)
         user_login = ensure_user(org_name)
-        key = fetch_api_key(user_login, org_name)
+        is_first = blueteam_key is None
+        key = fetch_api_key(user_login, org_name, existing_key=previous_key if is_first else None)
         ensure_notification_rule(org_name, key)
-        if blueteam_key is None: # first org owns the blueteam identity
+        if is_first: # first org owns the blueteam identity
             blueteam_key = key
 
     if not blueteam_key:
         sys.exit("FAIL No organisation processed - nothing to write.")
 
     patch_webhook_orgs(ORG_NAMES)
-    write_env_file(blueteam_key)
-    print_recreate_instructions()
+    if blueteam_key == previous_key:
+        print(f"\n📝 Step 5: HIVE_API_KEY in {ENV_FILE_PATH} is unchanged - attense-app does not need recreating for the key.")
+    else:
+        write_env_file(blueteam_key)
+        print_recreate_instructions()
 
     print("\n" + "=" * 60)
     print("TheHive setup complete!")

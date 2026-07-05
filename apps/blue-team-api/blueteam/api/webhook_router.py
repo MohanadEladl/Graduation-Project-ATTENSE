@@ -27,7 +27,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from .dependencies import get_event_emitter, get_attacker_log_attacher, get_settings
+from .dependencies import get_event_emitter, get_attacker_log_attacher, build_hive_client_for_room, get_settings
 from ..config.settings import Settings
 from ..config.constants import CONTAINMENT_INVESTIGATION_MIN_SECONDS
 from ..core.blueactions.hive_event_translator import HiveEventTranslator
@@ -171,9 +171,12 @@ async def receive_hive_webhook(
     # The Hive webhook acts within the incident's own room (it never crosses
     # rooms); fall back to a system room only when creating an incident Hive
     # references but ATTENSE hasn't seen yet (e.g. after a restart).
-    incident, store = emitter.get_or_create(
-        emitter.room_of(incident_id) or "system", incident_id, scenario_id="hive"
-    )
+    room_id = emitter.room_of(incident_id) or "system"
+    incident, store = emitter.get_or_create(room_id, incident_id, scenario_id="hive")
+    # Resolved AFTER room_id is known (not a FastAPI Depends param) so this
+    # writes into the room's own TheHive org, not a shared fallback - see
+    # build_hive_client_for_room.
+    hive = build_hive_client_for_room(room_id)
 
     # Safety: destructive / side-effecting actions (blocking IPs, disabling
     # services, isolation, etc.) MUST be explicitly confirmed by an analyst
@@ -231,7 +234,14 @@ async def receive_hive_webhook(
     if object_type.strip().lower() == "case" and operation.strip().lower() == "create":
         object_data = payload.get("object", {})
         case_id = object_data.get("id") or object_data.get("_id") or payload.get("objectId")
-        attacher.attach(case_id, incident)
+        # Every case - including alerts the analyst imported manually in the
+        # Hive UI - gets the visible way back to the ATTENSE report (description
+        # link block + '<- Return to ATTENSE report' task). Idempotent.
+        try:
+            hive.ensure_return_link(case_id, incident_id)
+        except Exception as exc:
+            logger.warning("[Webhook] Could not add return link to case %s: %s", case_id, exc)
+        attacher.attach(case_id, incident, room_id)
 
     return {
         "status": "translated",

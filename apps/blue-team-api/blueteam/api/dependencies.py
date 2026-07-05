@@ -21,10 +21,11 @@ import logging
 from functools import lru_cache
 from typing import Optional
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 from ..infrastructure.eventstore.event_emitter import EventEmitter
 from ..infrastructure.thehive.hive_client import HiveClient
+from ..infrastructure.thehive.room_hive_registry import resolve_room_hive_api_key
 from ..infrastructure.sandbox.target_connector import TargetConnector
 from ..infrastructure.sandbox.lab_evidence_connector import LabEvidenceConnector
 from ..infrastructure.cortex.enrichment_service import EnrichmentService
@@ -56,9 +57,28 @@ def get_event_emitter() -> EventEmitter:
 
 
 def get_hive_client() -> HiveClient:
-    """Provide a HiveClient instance for case management."""
+    """Provide a HiveClient using the global HIVE_API_KEY (shared org).
+
+    Room-scoped callers should use `get_room_scoped_hive_client` /
+    `build_hive_client_for_room` instead so alerts/cases land in that room's
+    own TheHive organisation rather than this shared fallback.
+    """
     settings = get_settings()
     return HiveClient(base_url=settings.hive_url, api_key=settings.hive_api_key)
+
+
+def build_hive_client_for_room(room_id: Optional[str]) -> HiveClient:
+    """Provide a HiveClient scoped to *room_id*'s own TheHive org, when known.
+
+    Falls back to the global HIVE_API_KEY (see `get_hive_client`) when the
+    room has no dedicated key yet - e.g. a deferred exercise whose alerts
+    fire before any Blue Team member has entered the room and triggered
+    provisioning (see `core.room_manager._ensure_room_hive`), or when running
+    the standalone per-room container where `core` isn't importable.
+    """
+    settings = get_settings()
+    api_key = resolve_room_hive_api_key(room_id) or settings.hive_api_key
+    return HiveClient(base_url=settings.hive_url, api_key=api_key)
 
 
 def get_sandbox_connector() -> TargetConnector:
@@ -82,7 +102,7 @@ def get_attacker_log_attacher() -> AttackerLogAttacher:
     no side effects / no eager Settings or network-client construction.
     """
     return AttackerLogAttacher(
-        hive=get_hive_client(),
+        hive_resolver=build_hive_client_for_room,
         lab_connector=get_lab_evidence_connector(),
     )
 
@@ -122,3 +142,13 @@ def require_room(
             detail="Missing X-Room-Id header (room authorization required).",
         )
     return x_room_id
+
+
+def get_room_scoped_hive_client(room_id: str = Depends(require_room)) -> HiveClient:
+    """FastAPI dependency: a HiveClient scoped to the caller's X-Room-Id.
+
+    Use this (not `get_hive_client`) in any route that raises alerts or
+    creates/updates cases, so the write lands in that room's own TheHive
+    organisation instead of the shared fallback org.
+    """
+    return build_hive_client_for_room(room_id)

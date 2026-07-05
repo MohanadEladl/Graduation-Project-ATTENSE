@@ -1,7 +1,7 @@
 """
-routes/profile.py - User profile + update endpoint.
+routes/profile.py – User profile + update endpoint.
 
-[VULN APP-05] CSRF - /profile/update accepts POSTs with no CSRF token,
+[VULN APP-05] CSRF — /profile/update accepts POSTs with no CSRF token,
 no Origin/Referer enforcement.
 """
 import json
@@ -13,19 +13,19 @@ from flask import Blueprint, request, render_template_string, session, current_a
 
 import containment
 
-logger = logging.getLogger("target.profile")
+logger     = logging.getLogger("target.profile")
 profile_bp = Blueprint("profile", __name__)
 
 _PROFILES: dict[str, dict] = {
-    "admin": {"email": "admin@lab.local", "role": "administrator"},
+    "admin":    {"email": "admin@lab.local",    "role": "administrator"},
     "operator": {"email": "operator@lab.local", "role": "operator"},
-    "guest": {"email": "guest@lab.local", "role": "guest"},
-    "alice": {"email": "alice@lab.local", "role": "user"},
+    "guest":    {"email": "guest@lab.local",    "role": "guest"},
+    "alice":    {"email": "alice@lab.local",    "role": "user"},
 }
 
 _PROFILE_PAGE = """
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
-<title>My Account - AcmeCorp</title>
+<title>My Account — AcmeCorp</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#c8cdd8;min-height:100vh;}
@@ -144,10 +144,10 @@ def profile():
 @profile_bp.route("/update", methods=["POST"])
 def update():
     # [VULN] No CSRF token check
-    user = session.get("user", "guest")
+    user  = session.get("user", "guest")
     email = request.form.get("email", "")
     referer = request.headers.get("Referer", "none")
-    origin = request.headers.get("Origin", "none")
+    origin  = request.headers.get("Origin",  "none")
 
     logger.warning(json.dumps({
         "event": "profile_update",
@@ -156,7 +156,7 @@ def update():
         "new_email": email,
         "source_ip": request.remote_addr,
         "referer": referer,
-        "origin": origin,
+        "origin":  origin,
     }))
 
     # Lab evidence
@@ -169,7 +169,7 @@ def update():
         via=current_app.detect_via(),
         extra={"user": user, "new_email": email, "referer": referer},
     )
-    # No anti-CSRF token field is ever sent - every request is by definition missing one
+    # No anti-CSRF token field is ever sent — every request is by definition missing one
     supplied_token = request.form.get("_csrf_token") or request.form.get("csrf_token") or ""
     expected_token = session.get("csrf_token", "")
     has_token = bool(
@@ -222,7 +222,7 @@ def update():
             )
 
     data = _PROFILES.get(user, _PROFILES["guest"])
-    msg = '<div class="success-msg">&#9989; Email updated successfully.</div>'
+    msg  = '<div class="success-msg">&#9989; Email updated successfully.</div>'
     return render_template_string(
         _PROFILE_PAGE,
         user=user, email=data["email"], role=data["role"], message=msg,

