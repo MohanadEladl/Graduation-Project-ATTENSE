@@ -1,9 +1,4 @@
-"""Role authorization checks.
-
-Grant/revoke mutation helpers live in sibling modules:
-    - grant_permissions.py
-    - revoke_permissions.py
-"""
+"""Role authorization checks."""
 
 from __future__ import annotations
 
@@ -18,6 +13,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "start_blue_team",
         "manage_hive_keys",
         "investigate_alerts",
+        "deny_alert",
         "confirm_incidents",
         "start_containment",
         "complete_containment",
@@ -25,11 +21,13 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     "soc_l1": {
         "investigate_alerts",
+        "deny_alert",
         "confirm_incidents",
         "start_containment",
     },
     "soc_l2": {
         "investigate_alerts",
+        "deny_alert",
         "confirm_incidents",
         "start_containment",
         "complete_containment",
@@ -52,6 +50,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "start_blue_team",
         "manage_hive_keys",
         "investigate_alerts",
+        "deny_alert",
         "confirm_incidents",
         "start_containment",
         "complete_containment",

@@ -40,9 +40,11 @@ function controlHeaders() {
 }
 
 function roomHeaders(roomId) {
+ const token = getToken()
  return {
  'Content-Type': 'application/json',
  ...(roomId ? { 'X-Room-Id': roomId } : {}),
+ ...(token ? { 'X-Session-Token': token } : {}),
  }
 }
 

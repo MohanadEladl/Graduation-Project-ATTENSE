@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import os
 import json
-import asyncio
 import hmac
 import logging
 import threading

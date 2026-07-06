@@ -22,14 +22,16 @@ Flow:
 
 from __future__ import annotations
 
-import hmac
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from attense_core.security.bearer_auth import verify_bearer_token
+from .analyst_actions import store_analyst_action
 from .dependencies import get_event_emitter, get_attacker_log_attacher, build_hive_client_for_room, get_settings
 from ..config.settings import Settings
 from ..config.constants import CONTAINMENT_INVESTIGATION_MIN_SECONDS
+from ..core.blueactions.analyst_action_extractor import extract_analyst_action
 from ..core.blueactions.hive_event_translator import HiveEventTranslator
 from ..core.blueactions.attacker_log_attacher import AttackerLogAttacher
 from ..infrastructure.eventstore.event_emitter import EventEmitter
@@ -130,10 +132,7 @@ async def receive_hive_webhook(
     # else so no other caller can inject analyst actions / state transitions.
     # Constant-time compare to avoid leaking the secret via timing.
     auth_header = request.headers.get("authorization", "")
-    scheme, _, token = auth_header.partition(" ")
-    if scheme.lower() != "bearer" or not hmac.compare_digest(
-        token.encode("utf-8"), settings.webhook_secret.encode("utf-8")
-    ):
+    if not verify_bearer_token(auth_header, settings.webhook_secret):
         logger.warning("[Webhook] Rejected webhook: missing/invalid bearer token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -226,6 +225,22 @@ async def receive_hive_webhook(
         "[Webhook] Hive %s/%s -> ATTENSE '%s' emitted for incident '%s'",
         object_type, operation, event.event_type, incident_id,
     )
+
+    # Step 4b: Also record this as a scored analyst action (the
+    # /blueteam/analyst-action JSONL store bridge.py reads for per-analyst
+    # rule attribution). Placed after the dismissal-approval guard above, so
+    # a self-approval-rejected dismissal never reaches here - satisfying
+    # store_analyst_action()'s caller contract. Non-fatal: a scoring-store
+    # write failure must never break the webhook or the incident-state emit
+    # that already succeeded above.
+    try:
+        action = extract_analyst_action(payload, incident_id)
+        if action is not None:
+            store_analyst_action(action)
+    except Exception:
+        logger.exception(
+            "[Webhook] Failed to record analyst action for incident '%s'", incident_id,
+        )
 
     # Step 5: On case creation (alert promoted to a case), attach the attacker's
     # activity log + IOCs to the new case. Read-only enrichment - attach-once,

@@ -36,11 +36,8 @@ Priority chain:
   2. Rules-based fallback (if no Ollama container is reachable)
 """
 from __future__ import annotations
-import json
 import os
 import time
-import urllib.request
-import urllib.error
 from typing import Any, Dict, List, Optional
 
 # -- Vulnerability metadata per module (used by both AI + fallback path) -----
@@ -146,7 +143,6 @@ def _gather_evidence_text(progress: dict, timeline: list) -> str:
         lines.append(f" {mark} {i+1}. {t['title']} ({t.get('match_count',0)}/{t.get('min_count',1)})")
     lines.append("Timeline (first 40 events):")
     for x in timeline[:40]:
-        ts = x.get("ts", 0.0)
         lines.append(f" [{x.get('channel','?'):<8}] {x.get('kind','?'):<22} - {(x.get('summary') or '')[:120]}")
     if len(timeline) > 40:
         lines.append(f" ... (+{len(timeline)-40} more)")

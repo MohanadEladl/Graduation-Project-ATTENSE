@@ -228,13 +228,15 @@ class IncidentStateMachineTests(unittest.TestCase):
         # end_time is first-write-wins: stays the alert_denied timestamp.
         self.assertEqual(self.inc.end_time, T0)
 
-    def test_containment_after_ended_keeps_ended_but_still_stamps_time(self):
-        # CHARACTERIZATION quirk: status is guarded by `!= ENDED`, but the
-        # containment_start_time field has no such guard and is still set.
+    def test_containment_after_ended_keeps_ended_and_does_not_stamp_time(self):
+        # Once ENDED, a later containment_initiated is fully ignored (status
+        # and timestamps both stay put) - it's still appended to the event
+        # log, but no longer allowed to mutate incident state. Fixes a prior
+        # quirk where the timestamp field had no such guard.
         self.inc.apply_event(make_event("incident_ended", ts=T0))
         self.inc.apply_event(make_event("containment_initiated", ts=T0 + timedelta(minutes=1)))
         self.assertEqual(self.inc.status, "ENDED")
-        self.assertEqual(self.inc.containment_start_time, T0 + timedelta(minutes=1))
+        self.assertIsNone(self.inc.containment_start_time)
 
     def test_timestamps_are_first_write_wins(self):
         self.inc.apply_event(make_event("incident_confirmed", ts=T0))

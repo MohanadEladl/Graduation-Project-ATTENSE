@@ -1,8 +1,8 @@
-import hmac
 import os
 
 from fastapi import Header, HTTPException
 
+from attense_core.security.bearer_auth import verify_bearer_token
 from core import session_store
 
 
@@ -26,9 +26,6 @@ def require_events_secret(authorization: str = Header(default="")):
     these are different trust relationships.
     """
     secret = os.environ.get("RED_TEAM_EVENTS_SECRET", "")
-    scheme, _, token = authorization.partition(" ")
-    if not secret or scheme.lower() != "bearer" or not hmac.compare_digest(
-        token.encode("utf-8"), secret.encode("utf-8")
-    ):
+    if not verify_bearer_token(authorization, secret):
         raise HTTPException(status_code=401, detail="invalid_events_token")
 

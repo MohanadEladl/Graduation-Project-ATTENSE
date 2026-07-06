@@ -12,7 +12,6 @@ import inspect
 import logging
 import pkgutil
 from pathlib import Path
-from typing import Type
 
 from core.base_module import BaseModule
 

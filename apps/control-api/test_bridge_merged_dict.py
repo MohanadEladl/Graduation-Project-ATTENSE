@@ -18,7 +18,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from attense_core.evaluation.attack_rules import ATTACK_RULE_DATA_DIR
-from pprint import pformat
 
 _HERE = Path(__file__).parent.resolve()
 if str(_HERE) not in sys.path:
@@ -27,7 +26,7 @@ if str(_HERE) not in sys.path:
 from attense_core.models.event import Event
 from attense_core.models.incident import Incident
 from attense_core.evaluation.reports import generate_report
-from pipeline.bridge import _load_rule_data, _scoring_to_dict
+from pipeline.bridge import _scoring_to_dict
 from pipeline.scoring_engine import score_incident
 
 # - Build a real XSS-S1 incident from the JSON fixture - 

@@ -1,6 +1,5 @@
 import json
 import os
-import time
 import sys
 
 # Mock Alert Based on Wazuh XSS Rule 31106

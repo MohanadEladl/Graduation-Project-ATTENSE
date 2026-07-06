@@ -1,6 +1,5 @@
 """Tests for the zero-day agent core functions."""
 
-import importlib
 import sys
 import os
 

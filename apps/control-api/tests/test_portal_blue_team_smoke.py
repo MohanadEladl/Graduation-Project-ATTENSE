@@ -5,8 +5,6 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT))
 
-from core import user_store # noqa: E402
-
 
 class PortalBlueTeamSmokeTests(unittest.TestCase):
     def test_login_lookup_and_portal_redirect_logic_are_present(self):

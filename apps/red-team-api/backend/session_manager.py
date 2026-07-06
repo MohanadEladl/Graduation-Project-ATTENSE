@@ -23,7 +23,7 @@ import time
 import uuid
 import requests
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from core.base_module import BaseModule
 from core.models import TargetConfig

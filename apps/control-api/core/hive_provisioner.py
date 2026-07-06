@@ -527,16 +527,34 @@ def _restart_thehive_in_background(org_name: str, my_seq: int) -> None:
 # instead of always minting a new one (see room_manager's org pool).
 
 def wipe_org(org_name: str) -> None:
-    """Delete every case and lock every non-admin user in *org_name*, so a
-    pooled org starts clean for its next occupant.
+    """Delete every alert and case, and lock every non-admin user, in
+    *org_name* - so a pooled org starts clean for its next occupant.
 
-    Best-effort per-item: one failure (e.g. a case already gone) is logged
-    and skipped rather than aborting the whole wipe - a partially-clean org
-    is still safe to reuse, just not perfectly tidy. Never raises.
+    Alerts and cases are distinct TheHive objects (promoting an alert to a
+    case does not delete the alert), so a wipe that only cleared cases left
+    every previous occupant's raw alerts behind for the next room to inherit
+    - the same unbounded-accumulation problem as the shared "blue-team"
+    fallback org, just recurring per recycled org instead of in one bucket.
+
+    Best-effort per-item: one failure (e.g. an alert/case already gone) is
+    logged and skipped rather than aborting the whole wipe - a partially-clean
+    org is still safe to reuse, just not perfectly tidy. Never raises.
     """
     client = None
     try:
         client = _admin_client()
+
+        alerts = client.post(
+            "/api/alert/_search", json={"query": {}}, headers={"X-Organisation": org_name}
+        )
+        for alert in (alerts.json() if alerts.status_code == 200 else []):
+            alert_id = alert.get("id") or alert.get("_id")
+            if not alert_id:
+                continue
+            try:
+                client.delete(f"/api/alert/{alert_id}", headers={"X-Organisation": org_name}).raise_for_status()
+            except httpx.HTTPError:
+                logger.warning("Could not delete alert %s while wiping org '%s'", alert_id, org_name)
 
         cases = client.post(
             "/api/case/_search", json={"query": {}}, headers={"X-Organisation": org_name}

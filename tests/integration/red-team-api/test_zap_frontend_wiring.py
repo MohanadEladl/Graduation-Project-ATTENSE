@@ -17,7 +17,6 @@ intentionally not ported here.
 """
 
 import os
-import re
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))  # tests/integration/red-team-api

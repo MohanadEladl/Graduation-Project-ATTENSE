@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from .dependencies import get_event_emitter, get_room_scoped_hive_client, get_sandbox_connector, get_enrichment_service, get_settings, require_room
+from .dependencies import get_event_emitter, get_room_scoped_hive_client, get_sandbox_connector, get_enrichment_service, get_settings, require_room, require_permission
 from ..core.services.alert_service import raise_alert, investigate_alert, deny_alert
 from ..core.services.incident_service import confirm_incident
 from ..core.services.containment_service import initiate_containment, complete_containment
@@ -124,6 +124,7 @@ def api_investigate_alert(
     body: InvestigateAlertRequest,
     room_id: str = Depends(require_room),
     emitter: EventEmitter = Depends(get_event_emitter),
+    _session: dict = Depends(require_permission("investigate_alerts")),
 ) -> ActionResponse:
     """
     Analyst picks up an alert and starts triage.
@@ -146,6 +147,7 @@ def api_deny_alert(
     body: DenyAlertRequest,
     room_id: str = Depends(require_room),
     emitter: EventEmitter = Depends(get_event_emitter),
+    _session: dict = Depends(require_permission("deny_alert")),
 ) -> ActionResponse:
     """
     Analyst determines the alert is a false positive. Incident ends here - no TTD recorded.
@@ -169,6 +171,7 @@ def api_confirm_incident(
     room_id: str = Depends(require_room),
     emitter: EventEmitter = Depends(get_event_emitter),
     hive: HiveClient = Depends(get_room_scoped_hive_client),
+    _session: dict = Depends(require_permission("confirm_incidents")),
 ) -> ActionResponse:
     """
     Promotes alert to a confirmed incident. TTD (Time to Detect) is calculated at this point.
@@ -192,6 +195,7 @@ def api_initiate_containment(
     room_id: str = Depends(require_room),
     emitter: EventEmitter = Depends(get_event_emitter),
     sandbox: TargetConnector = Depends(get_sandbox_connector),
+    _session: dict = Depends(require_permission("start_containment")),
 ) -> ActionResponse:
     """
     Analyst starts a containment action. Action depends on attack type:
@@ -218,6 +222,7 @@ def api_complete_containment(
     body: CompleteContainmentRequest,
     room_id: str = Depends(require_room),
     emitter: EventEmitter = Depends(get_event_emitter),
+    _session: dict = Depends(require_permission("complete_containment")),
 ) -> ActionResponse:
     """
     System evaluates whether containment succeeded based on target correctness and timing.

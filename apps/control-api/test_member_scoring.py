@@ -159,7 +159,7 @@ class TestScoreDifferentiationAndTeamAverage:
     @staticmethod
     @pytest.fixture(scope="class")
     def setup(rule_data):
-        scenario = _scenario(rule_data, "XSS-S1") # mtta=600s, ttc_expected=8640s
+        # XSS-S1: mtta=600s, ttc_expected=8640s
         incident_id, scenario_id = "diff-test", "XSS-S1"
         events = [
             _make_event(incident_id, scenario_id, "alert_raised", "wazuh", "system", 0),

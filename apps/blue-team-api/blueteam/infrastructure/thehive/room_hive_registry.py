@@ -35,14 +35,49 @@ def resolve_room_hive_api_key(room_id: Optional[str]) -> Optional[str]:
     """
     if not room_id or room_id == "system":
         return None
+    room = _get_room(room_id)
+    return room.get("hive_api_key") if room else None
+
+
+def room_hive_org_pending(room_id: Optional[str]) -> bool:
+    """True when *room_id* is a real, known room whose own dedicated Hive org
+    hasn't been provisioned yet (nobody has entered it - see
+    core.room_manager._ensure_room_hive), as opposed to there being no room
+    at all (room_id is None/"system") or the room being genuinely unknown.
+
+    Callers use this to distinguish "route into the shared fallback org is
+    fine" (no room context to isolate) from "this write belongs to a specific
+    room that just isn't ready yet" (routing it into the shared org would be
+    the exact cross-room leak this registry exists to prevent - it should be
+    skipped instead, and picked up later by that room's own /replay-alerts
+    call once its org exists).
+    """
+    if not room_id or room_id == "system":
+        return False
+    room = _get_room(room_id)
+    return room is not None and not room.get("hive_api_key")
+
+
+def resolve_room_owner(room_id: Optional[str]) -> Optional[str]:
+    """Return the username recorded as this room's soc_manager_username (the
+    analyst who started/entered it - the room's owner for solo exercises),
+    or None if unavailable. Same embedded-only caveat as
+    resolve_room_hive_api_key above.
+    """
+    if not room_id or room_id == "system":
+        return None
+    room = _get_room(room_id)
+    return room.get("soc_manager_username") if room else None
+
+
+def _get_room(room_id: str) -> Optional[dict]:
     try:
         _rm = importlib.import_module("core.room_manager")
         get_room = _rm.get_room  # type: ignore[attr-defined]
     except (ImportError, AttributeError):
         return None
     try:
-        room = get_room(room_id)
+        return get_room(room_id)
     except Exception:
-        logger.debug("[room_hive_registry] No room '%s' found for Hive key lookup", room_id)
+        logger.debug("[room_hive_registry] No room '%s' found", room_id)
         return None
-    return room.get("hive_api_key") or None

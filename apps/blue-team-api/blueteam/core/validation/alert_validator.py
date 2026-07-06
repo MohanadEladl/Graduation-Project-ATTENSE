@@ -12,26 +12,6 @@ from __future__ import annotations
 from attense_core.models.incident import Incident
 
 
-def validate_raise_alert(incident: Incident, store) -> None:
-    """
-    Guard for raise_alert().
-
-    Rules:
-    - Incident must not be in a terminal state (CONTAINED or ENDED).
-    - An alert_raised event must not already exist for this incident.
-    """
-    from ...config.constants import TERMINAL_STATUSES, EVENT_ALERT_RAISED
-    if incident.status in TERMINAL_STATUSES:
-        raise ValueError(
-            f"Cannot raise alert on incident '{incident.incident_id}': "
-            f"already in terminal status '{incident.status}'."
-        )
-    if store.has_event(incident.incident_id, EVENT_ALERT_RAISED):
-        raise ValueError(
-            f"An alert has already been raised for incident '{incident.incident_id}'."
-        )
-
-
 def validate_investigate_alert(incident: Incident, store) -> None:
     """
     Guard for investigate_alert().

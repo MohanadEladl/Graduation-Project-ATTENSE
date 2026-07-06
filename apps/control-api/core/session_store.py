@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from attense_core.security.session_auth import get_session
+
 TEMP_PATH = os.getenv("ATTENSE_TEMP_PATH", "/attense/temp")
 SESSIONS_DIR = Path(TEMP_PATH) / "sessions"
 
@@ -29,11 +31,7 @@ def generate_session(username: str, role: str, company_id: Optional[str] = None)
 
 
 def validate_session(token: str) -> Optional[dict]:
-    path = _session_path(token)
-    if not path.exists():
-        return None
-    with open(path, "r") as f:
-        return json.load(f)
+    return get_session(token)
 
 
 def delete_session(token: str) -> None:

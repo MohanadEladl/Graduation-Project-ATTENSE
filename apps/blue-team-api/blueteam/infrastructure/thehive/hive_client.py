@@ -55,6 +55,12 @@ class HiveClient:
             "Content-Type": "application/json",
         }
         self.timeout = timeout
+        # No api_key means "deliberately disabled" (see
+        # dependencies.build_hive_client_for_room): a room whose own Hive org
+        # isn't provisioned yet, where writing through some OTHER org's key
+        # would leak this incident's data into the wrong org. _get/_post
+        # short-circuit to a clean no-op instead of making that call.
+        self._enabled = bool(api_key)
 
     def create_case(self, incident_id: str, title: str, severity: str) -> dict:
         """
@@ -282,6 +288,9 @@ class HiveClient:
 
     def _get(self, path: str) -> list | dict:
         """Send a GET request to the Hive API. Returns [] or {} on error."""
+        if not self._enabled:
+            logger.info("[HiveClient] Skipping GET %s - client is disabled (no Hive org for this write yet).", path)
+            return []
         url = f"{self.base_url}{path}"
         try:
             response = httpx.get(
@@ -297,6 +306,9 @@ class HiveClient:
 
     def _post(self, path: str, payload: dict) -> dict:
         """Send a POST request to the Hive API. Returns {} on error."""
+        if not self._enabled:
+            logger.info("[HiveClient] Skipping POST %s - client is disabled (no Hive org for this write yet).", path)
+            return {}
         url = f"{self.base_url}{path}"
         try:
             response = httpx.post(
@@ -313,6 +325,9 @@ class HiveClient:
 
     def _patch(self, path: str, payload: dict) -> dict:
         """Send a PATCH request to the Hive API. Returns {} on error."""
+        if not self._enabled:
+            logger.info("[HiveClient] Skipping PATCH %s - client is disabled (no Hive org for this write yet).", path)
+            return {}
         url = f"{self.base_url}{path}"
         try:
             response = httpx.patch(

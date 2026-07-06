@@ -14,21 +14,21 @@ def validate_initiate_containment(incident: Incident, store) -> None:
     Guard for initiate_containment().
 
     Rules:
-    - Incident must be in DETECTED status (confirmed true positive).
-    - A containment_initiated event must not already exist.
+    - Incident must be in DETECTED status (confirmed true positive) - the
+      first attempt - or CONTAINMENT_FAILED, so an analyst who contained the
+      wrong target can retry against the correct one instead of being stuck.
+      (No "already initiated" check: a retry is expected to already have a
+      prior containment_initiated event from the failed attempt. The status
+      check alone still blocks re-initiating while CONTAINING/CONTAINED/ENDED.)
     """
     from ...config.constants import (
         STATUS_DETECTED,
-        EVENT_CONTAINMENT_INITIATED,
+        STATUS_CONTAINMENT_FAILED,
     )
-    if incident.status != STATUS_DETECTED:
+    if incident.status not in (STATUS_DETECTED, STATUS_CONTAINMENT_FAILED):
         raise ValueError(
             f"Cannot initiate containment for incident '{incident.incident_id}': "
-            f"expected status DETECTED, got '{incident.status}'."
-        )
-    if store.has_event(incident.incident_id, EVENT_CONTAINMENT_INITIATED):
-        raise ValueError(
-            f"Containment has already been initiated for incident '{incident.incident_id}'."
+            f"expected status DETECTED or CONTAINMENT_FAILED, got '{incident.status}'."
         )
 
 
@@ -39,13 +39,16 @@ def validate_complete_containment(incident: Incident, store) -> None:
     Rules:
     - A containment_initiated event must exist first.
     - Incident must not already be CONTAINED or ENDED.
-    - containment_succeeded/failed must not already exist.
+    - containment_succeeded must not already exist (that outcome is final -
+      also already covered by the CONTAINED terminal-status check below, kept
+      here too for defense in depth). A prior containment_failed does NOT
+      block this: that's exactly the retry case initiate_containment now
+      allows, and this call evaluates the analyst's latest chosen target.
     """
     from ...config.constants import (
         TERMINAL_STATUSES,
         EVENT_CONTAINMENT_INITIATED,
         EVENT_CONTAINMENT_SUCCEEDED,
-        EVENT_CONTAINMENT_FAILED,
     )
     if not store.has_event(incident.incident_id, EVENT_CONTAINMENT_INITIATED):
         raise ValueError(
@@ -57,8 +60,7 @@ def validate_complete_containment(incident: Incident, store) -> None:
             f"Cannot complete containment for incident '{incident.incident_id}': "
             f"already in terminal status '{incident.status}'."
         )
-    if store.has_event(incident.incident_id, EVENT_CONTAINMENT_SUCCEEDED) or \
-       store.has_event(incident.incident_id, EVENT_CONTAINMENT_FAILED):
+    if store.has_event(incident.incident_id, EVENT_CONTAINMENT_SUCCEEDED):
         raise ValueError(
             f"Containment outcome already recorded for incident '{incident.incident_id}'."
         )

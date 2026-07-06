@@ -19,7 +19,6 @@ import os
 import queue
 import re
 import signal
-import sys
 import threading
 import time
 from typing import Optional

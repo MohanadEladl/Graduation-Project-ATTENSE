@@ -116,8 +116,7 @@ bootstrap.
   watcher-pipeline integration) had no Dockerfile step creating it, unlike
   `/attense/data`/`/attense/temp` — the non-root `appuser` got a silently
   swallowed `PermissionError` trying to create it at runtime. Fixed in both
-  `apps/control-api/Dockerfile` and `apps/blue-team-api/Dockerfile`. See
-  `WATCHER_PIPELINE_INTEGRATION.md` for the full live-test writeup.
+  `apps/control-api/Dockerfile` and `apps/blue-team-api/Dockerfile`.
 - `pipeline/report_generator.py` imported `google.genai` unconditionally at
   module level, crashing the whole pipeline if it wasn't installed — and it
   isn't (it requires `pydantic>=2.12.5`, conflicting with this project's
@@ -127,8 +126,7 @@ bootstrap.
 All of the above were found by actually building the images and running the
 full `docker compose up` stack (not just `docker compose config`), then
 driving a real incident through `POST /blueteam/analyst-action` and
-`python -m pipeline.run_pipeline` inside the live `attense_app` container —
-see `WATCHER_PIPELINE_INTEGRATION.md`.
+`python -m pipeline.run_pipeline` inside the live `attense_app` container.
 
 ## `infra/` compose split — done
 

@@ -10,7 +10,6 @@ source). Requires pydantic + fastapi (both pinned by attense-app).
     py -m unittest discover -s tests/integration/control-api -p test_scenarios_spec.py
 """
 
-import json
 import os
 import sys
 import unittest

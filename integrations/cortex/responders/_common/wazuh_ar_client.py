@@ -144,6 +144,71 @@ def resolve_agent_id_with_fallback(
     raise Exception("Could not resolve a Wazuh agent ID (no matching IP and no agent_name configured)")
 
 
+def run_wazuh_active_response(
+    *,
+    observable_label: str,
+    command: str,
+    alert_field: str,
+    action_description: str,
+    resolve_by_ip: bool = True,
+) -> None:
+    """
+    Shared Cortex responder entrypoint for Wazuh active-response actions
+    (block IP, isolate host, disable account, ...) — every WazuhXxx responder
+    is a thin call into this, differing only in the arguments above.
+
+    *resolve_by_ip* controls agent lookup: True tries the observable's own
+    value as an IP first (falling back to config's agent_name) — right when
+    the observable IS or MAY BE the target agent's reporting address (e.g.
+    a blocked/isolated IP). False resolves by agent_name only — right when
+    the observable carries no host/IP info (e.g. a username).
+    """
+    try:
+        input_data = read_cortex_input()
+        value = extract_observable_value(input_data)
+        if not value:
+            write_cortex_output({"success": False, "errorMessage": f"No {observable_label} provided in the input data"})
+            return
+
+        config = input_data.get("config", {})
+        wazuh_url = config.get("wazuh_url", "https://wazuh-manager:55000").rstrip("/")
+        wazuh_user = config.get("wazuh_username")
+        wazuh_password = config.get("wazuh_password")
+        agent_name = config.get("agent_name", "target-agent")
+
+        if not wazuh_user or not wazuh_password:
+            write_cortex_output({"success": False, "errorMessage": "Wazuh credentials are not configured for this responder"})
+            return
+        if not resolve_by_ip and not agent_name:
+            write_cortex_output({"success": False, "errorMessage": "agent_name is not configured for this responder"})
+            return
+
+        token = get_token(wazuh_url, wazuh_user, wazuh_password)
+
+        if resolve_by_ip:
+            agent_id = resolve_agent_id_with_fallback(wazuh_url, token, ip=value, agent_name=agent_name)
+        else:
+            agent_id = resolve_agent_id(wazuh_url, token, name=agent_name)
+
+        ar_response = trigger_active_response(
+            wazuh_url, token,
+            command=command,
+            alert_data={alert_field: value},
+            agent_id=agent_id,
+        )
+
+        write_cortex_output({
+            "success": True,
+            "full": {
+                "message": f"Successfully triggered Wazuh {action_description}: {value} (agent {agent_id})",
+                "wazuhResponse": ar_response,
+            },
+            "operations": [],
+        })
+    except Exception as e:
+        write_cortex_output({"success": False, "errorMessage": str(e)})
+
+
 def trigger_active_response(
     wazuh_url: str, token: str, *, command: str, alert_data: dict, agent_id: str
 ) -> dict:

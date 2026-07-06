@@ -110,7 +110,6 @@ class ReconModule(BaseModule):
         if r.success:
             interesting = ["Server", "X-Powered-By", "X-Frame-Options"]
             for h in interesting:
-                val = r.detail # We can parse from full response in a future version
                 self._log(log_fn, f" Header check: {h}")
 
         # -- Route probe ---------------------------------------------------

@@ -6,7 +6,6 @@ Workflow: select module -> set options -> show steps -> start
 """
 from __future__ import annotations
 
-import os
 import shlex
 import threading
 from typing import Callable, Optional

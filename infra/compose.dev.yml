@@ -97,12 +97,3 @@ services:
   zeroday-agent:
     volumes:
       - ./apps/zeroday-agent/app:/app/app
-
-  attense-portal:
-    volumes:
-      - ./frontends/portal/src:/app/src
-      - ./frontends/portal/public:/app/public
-      - ./frontends/portal/index.html:/app/index.html
-      # Vite reads proxy and development-server settings from this file at
-      # startup; mounting it keeps local portal routing changes in sync too.
-      - ./frontends/portal/vite.config.js:/app/vite.config.js:ro

@@ -6,8 +6,7 @@ the mapper is converted to a StandardEvent before being emitted.
 """
 from __future__ import annotations
 
-import uuid
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 

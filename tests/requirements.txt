@@ -1,0 +1,27 @@
+# Dependencies for tests/unit + tests/integration/* (run by .github/workflows/ci.yml's
+# python-tests job). Kept as its own file instead of a hardcoded `pip install` line so it
+# can't silently drift out of sync with what the test suite actually imports.
+#
+# pydantic is pinned to 2.10.6 (not apps/control-api/requirements.txt's >=2.12.5 floor)
+# because this job installs one shared environment for control-api, blue-team-api,
+# signal-mapper, and red-team-api tests together, and apps/signal-mapper/requirements.txt
+# and apps/red-team-api/requirements.txt both pin pydantic==2.10.6 exactly.
+pydantic==2.10.6
+pydantic-settings==2.7.1
+fastapi
+httpx
+requests
+tenacity
+pytest
+uvicorn
+
+# docker, psycopg, and bcrypt aren't runtime-only: apps/control-api's core/room_manager.py
+# and core/hive_provisioner.py `import docker` unconditionally at module scope,
+# core/db.py (imported by room_manager.py) does the same for psycopg, and
+# core/user_store.py (also imported by room_manager.py) does the same for bcrypt - so any
+# control-api test that imports room_manager or hive_provisioner, directly or transitively,
+# fails at import time without all three. google-genai, python-docx, and python-multipart
+# are NOT needed at import time by anything the test suite reaches, so they're left out.
+docker
+psycopg[binary]
+bcrypt
