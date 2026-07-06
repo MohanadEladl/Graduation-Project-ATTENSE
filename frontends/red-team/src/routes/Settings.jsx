@@ -2,7 +2,7 @@ import { useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import RangeSidebar from '../components/RangeSidebar.jsx'
 import { useRangeStats, WINDOWS } from '../hooks/useRangeStats.js'
-import { getAccount, saveAccount, changePassword, hasPassword, getPasswordMeta } from '../lib/account.js'
+import { getAccount, saveAccount, changePassword, hasPassword, getPasswordMeta, logout } from '../lib/account.js'
 import {
   Crosshair,
   CheckCircle2,
@@ -640,7 +640,7 @@ function AccountPanel() {
                 <div className="text-xs font-medium text-white">Sign out</div>
                 <div className="mt-0.5 text-[11px] text-[#7a8699]">End your operator session and return to the login screen.</div>
               </div>
-              <Button variant="danger" onClick={() => navigate('/login')}>
+              <Button variant="danger" onClick={logout}>
                 <LogOut className="h-3.5 w-3.5" /> Sign out
               </Button>
             </div>

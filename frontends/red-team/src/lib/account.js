@@ -11,6 +11,22 @@
 const PROFILE_KEY = 'attense_account'
 const PASSWORD_KEY = 'attense_account_pwd'
 const PASSWORD_AT_KEY = 'attense_account_pwd_at'
+// Session token minted by the portal login (POST /api/auth/login) and handed to
+// this app via the redirect URL fragment. Used to hydrate the real operator
+// identity from the control API.
+const SESSION_TOKEN_KEY = 'attense_session_token'
+
+// Backend role → the label shown in Settings → Account.
+const ROLE_LABELS = {
+  red_team: 'Red Team Operator',
+  ciso: 'CISO',
+  soc_manager: 'SOC Manager',
+  soc_l1: 'SOC Analyst',
+  soc_l2: 'IR Lead',
+}
+function roleLabel(role) {
+  return ROLE_LABELS[role] || DEFAULT_ACCOUNT.role
+}
 
 const DEFAULT_ACCOUNT = {
   name: 'Operator',
@@ -70,4 +86,70 @@ export async function changePassword(current, next) {
   }
   localStorage.setItem(PASSWORD_KEY, await sha256(next))
   localStorage.setItem(PASSWORD_AT_KEY, String(Math.floor(Date.now() / 1000)))
+}
+
+/**
+ * Capture a session token handed over in the URL fragment by the portal login
+ * (`#session=<token>`), persist it, and strip it from the address bar so it
+ * doesn't linger in history or get shared. Call once, early, on app start.
+ * Returns true if a token was captured.
+ */
+export function captureSessionTokenFromUrl() {
+  const hash = window.location.hash || ''
+  const m = hash.match(/session=([^&]+)/)
+  if (!m) return false
+  try {
+    localStorage.setItem(SESSION_TOKEN_KEY, decodeURIComponent(m[1]))
+  } catch {
+    return false
+  }
+  // Remove the fragment without reloading or adding a history entry.
+  const clean = window.location.pathname + window.location.search
+  window.history.replaceState(null, '', clean)
+  return true
+}
+
+export function getSessionToken() {
+  return localStorage.getItem(SESSION_TOKEN_KEY) || ''
+}
+
+/**
+ * Hydrate the local operator profile from the logged-in portal session.
+ * No-op when there is no token. On success, the real identity (display name,
+ * email, role) flows into the same account store Settings → Account renders.
+ * On 401 (expired/invalid) the token is cleared and the existing local
+ * DEFAULT_ACCOUNT stays in place — no forced redirect.
+ */
+export async function hydrateFromSession() {
+  const token = getSessionToken()
+  if (!token) return null
+  try {
+    const res = await fetch('/control-api/api/auth/me', {
+      headers: { 'X-Session-Token': token },
+    })
+    if (res.status === 401) {
+      localStorage.removeItem(SESSION_TOKEN_KEY)
+      return null
+    }
+    if (!res.ok) return null
+    const me = await res.json()
+    return saveAccount({
+      name: me.display_name || me.username || DEFAULT_ACCOUNT.name,
+      email: me.email || DEFAULT_ACCOUNT.email,
+      operatorId: me.username || DEFAULT_ACCOUNT.operatorId,
+      role: roleLabel(me.role),
+    })
+  } catch {
+    // Network blip — keep whatever profile we already have.
+    return null
+  }
+}
+
+/**
+ * Sign out: drop the portal session token and return to the portal login.
+ * Leaves local profile/password state alone (a fresh login re-hydrates it).
+ */
+export function logout() {
+  localStorage.removeItem(SESSION_TOKEN_KEY)
+  window.location.href = 'http://127.0.0.1:5173/red-login.html'
 }

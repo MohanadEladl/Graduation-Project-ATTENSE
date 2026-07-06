@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { captureSessionTokenFromUrl, hydrateFromSession } from './lib/account.js'
 import { RangeLayout }   from './components/RangeLayout.jsx'
 import Login             from './routes/Login.jsx'
 import WhoAreYou         from './routes/WhoAreYou.jsx'
@@ -14,6 +16,14 @@ import Gauntlet          from './routes/Gauntlet.jsx'
 import ZapWorkspace      from './routes/ZapWorkspace.jsx'
 
 export default function App() {
+  // On load: pick up a session token handed over by the portal login (URL
+  // fragment), then hydrate the real operator identity into Settings → Account.
+  // Runs on every mount so a plain refresh with a stored token re-hydrates too.
+  useEffect(() => {
+    captureSessionTokenFromUrl()
+    hydrateFromSession()
+  }, [])
+
   return (
     <BrowserRouter>
       <Routes>

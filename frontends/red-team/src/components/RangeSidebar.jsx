@@ -8,6 +8,7 @@ import {
   LogOut,
   PanelLeft,
 } from 'lucide-react'
+import { logout } from '../lib/account.js'
 
 const SECTIONS = [
   { key: 'overview', label: 'Overview', icon: LayoutGrid },
@@ -152,7 +153,7 @@ export default function RangeSidebar({
           {!collapsed && 'Back to Range'}
         </button>
         <button
-          onClick={() => navigate('/login')}
+          onClick={logout}
           title={collapsed ? 'Log out' : undefined}
           className={`flex w-full items-center rounded-lg px-2 py-1.5 text-left text-xs text-[#7a8699] transition-colors hover:bg-white/[0.04] hover:text-white ${
             collapsed ? 'justify-center' : 'gap-2.5'

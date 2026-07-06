@@ -114,6 +114,11 @@ def me(session: dict = Depends(require_session)):
     response = {"username": session["username"], "role": session["role"]}
     user = user_store.get_user_by_username(session["username"])
     if user is not None:
+        # Real identity for the red-team app's Settings → Account panel. There is
+        # no separate full-name column for red_team users, so display_name is the
+        # username; both come from the already-fetched user dict (no new query).
+        response["email"] = user.get("email")
+        response["display_name"] = user.get("username")
         response["type"] = user.get("type")
         if session["role"] in user_store.HIVE_KEY_ROLES:
             response["hive_key"] = user.get("hive_key")

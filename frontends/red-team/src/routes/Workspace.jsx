@@ -1561,9 +1561,6 @@ function GuidedRoom({ snapshot, variantId }) {
                     <h1 className="text-[22px] font-bold tracking-tight text-attense-text mb-2">
                       {snapshot?.module_name}
                     </h1>
-                    {wt?.overview && (
-                      <p className="text-[15px] text-attense-muted leading-relaxed">{wt.overview}</p>
-                    )}
                   </div>
                 </div>
 

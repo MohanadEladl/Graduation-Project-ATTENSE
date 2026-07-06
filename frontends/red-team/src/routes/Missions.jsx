@@ -9,11 +9,12 @@ import {
 const SEV_COLOR = { critical:'#ff1535', high:'#ff6b00', medium:'#f5c400', low:'#00c8ff', info:'#8b8faa' }
 const SEV_DIFFICULTY = { critical:'Expert', high:'Hard', medium:'Medium', low:'Easy', info:'Fundamental' }
 
-// A mission is COMPLETE when its goal event fired (learning_success). Otherwise
-// it is ACTIVE once started, else IDLE. The old completed_steps/total_steps
-// progress model is gone — completion is a single goal-trigger flag now.
+// A mission is COMPLETE when its goal event fired (learning_success) OR the
+// attack run finished (state === 'completed' — instructor/demo/auto execution
+// that ran the module end to end). Otherwise it is ACTIVE once started, else
+// IDLE. Both completion signals come straight from the backend session record.
 function missionStatus(s) {
-  if (s.learning_success) return 'completed'
+  if (s.learning_success || s.state === 'completed') return 'completed'
   if (s.state === 'running' || s.mission_started_at) return 'active'
   return 'idle'
 }
@@ -50,10 +51,13 @@ export default function Missions() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      api.sessions.list().catch(() => []),
-      api.modules().catch(() => []),
-    ]).then(async ([s, mods]) => {
+
+    // Full load: sessions + module categories + variant names.
+    async function loadAll() {
+      const [s, mods] = await Promise.all([
+        api.sessions.list().catch(() => []),
+        api.modules().catch(() => []),
+      ])
       if (cancelled) return
       const list = Array.isArray(s) ? s : []
       setSessions(list)
@@ -72,9 +76,28 @@ export default function Missions() {
         for (const v of (Array.isArray(lists[i]) ? lists[i] : [])) vmap[mid][v.variant_id] = v
       })
       setVariantMap(vmap)
+      setError(null)
       setLoading(false)
-    }).catch(e => { if (!cancelled) { setError(e.message); setLoading(false) } })
-    return () => { cancelled = true }
+    }
+
+    loadAll().catch(e => { if (!cancelled) { setError(e.message); setLoading(false) } })
+
+    // Keep mission status live against the backend: re-poll the (cheap) session
+    // list so a mission that completes elsewhere flips to Complete without a
+    // manual reload. Also refresh when the tab regains focus.
+    async function refreshSessions() {
+      try {
+        const s = await api.sessions.list()
+        if (!cancelled && Array.isArray(s)) { setSessions(s); setError(null) }
+      } catch { /* transient backend blip — keep last good state */ }
+    }
+    const interval = setInterval(refreshSessions, 5000)
+    window.addEventListener('focus', refreshSessions)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      window.removeEventListener('focus', refreshSessions)
+    }
   }, [])
 
   const withStatus = sessions.map(s => ({ ...s, _status: missionStatus(s) }))
