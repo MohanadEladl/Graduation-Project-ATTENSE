@@ -31,6 +31,7 @@ from routes.containment import containment_bp
 from routes_op.auth    import auth_op_bp
 from routes_op.home    import home_op_bp
 from routes_op.search  import search_op_bp
+from routes_op.comments import comments_op_bp
 from routes_op.system  import system_op_bp
 from routes_op.files   import files_op_bp
 from routes_op.profile import profile_op_bp
@@ -216,6 +217,7 @@ app.register_blueprint(containment_bp, url_prefix="/containment")
 app.register_blueprint(home_op_bp,    url_prefix="/op")
 app.register_blueprint(auth_op_bp,    url_prefix="/op/auth")
 app.register_blueprint(search_op_bp,  url_prefix="/op")
+app.register_blueprint(comments_op_bp, url_prefix="/op")
 app.register_blueprint(system_op_bp,  url_prefix="/op/system")
 app.register_blueprint(files_op_bp,   url_prefix="/op/files")
 app.register_blueprint(profile_op_bp, url_prefix="/op/profile")

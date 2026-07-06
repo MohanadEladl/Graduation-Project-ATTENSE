@@ -70,15 +70,17 @@ def test_brute_force_no_failed_attempts_completes(monkeypatch):
 
 # 3. XSS: one browser payload proof completes.
 def test_xss_one_browser_payload_completes(monkeypatch):
-    events = [_ev("reflected_input_detected", "/op/search", "browser", ts=1.0)]
+    events = [_ev("xss_reflected_html_executed", "/op/search", "browser", ts=1.0)]
     r = _run("xss", events, monkeypatch)
     assert r["success"] is True
     assert r["quality_score"] < 100
 
 
-def test_xss_payload_observed_alone_completes(monkeypatch):
+def test_xss_payload_observed_alone_does_not_complete(monkeypatch):
+    # New model: xss_payload_observed is only an ATTEMPT marker (evidence/quality),
+    # not a completion trigger. The variant-specific goal event completes.
     events = [_ev("xss_payload_observed", "/op/search", "browser", ts=1.0)]
-    assert _run("xss", events, monkeypatch)["success"] is True
+    assert _run("xss", events, monkeypatch)["success"] is False
 
 
 # 4. Command Injection: direct goal completes (browser or unknown, no ZAP).
@@ -113,12 +115,12 @@ def test_csrf_browser_goal_completes(monkeypatch):
 # 8. Negative safety tests.
 def test_wrong_module_id_does_not_complete(monkeypatch):
     # xss goal event tagged as recon must not complete xss.
-    events = [_ev("reflected_input_detected", "/op/search", "zap_repeater", ts=1.0, module_id="recon")]
+    events = [_ev("xss_reflected_html_executed", "/op/search", "zap_repeater", ts=1.0, module_id="recon")]
     assert _run("xss", events, monkeypatch)["success"] is False
 
 
 def test_guided_legacy_path_does_not_complete_operator(monkeypatch):
-    events = [_ev("reflected_input_detected", "/search", "browser", ts=1.0, backend="guided")]
+    events = [_ev("xss_reflected_html_executed", "/search", "browser", ts=1.0, backend="guided")]
     assert _run("xss", events, monkeypatch)["success"] is False
 
 
@@ -128,7 +130,7 @@ def test_random_unrelated_event_does_not_complete(monkeypatch):
 
 
 def test_tutorial_mode_never_triggers_goal(monkeypatch):
-    events = [_ev("reflected_input_detected", "/op/search", "zap_repeater", ts=1.0)]
+    events = [_ev("xss_reflected_html_executed", "/op/search", "zap_repeater", ts=1.0)]
     _patch(monkeypatch, events)
     r = lab_progress.compute("xss", 0.0, mode="tutorial")
     assert r["goal_triggered"] is False
@@ -137,7 +139,7 @@ def test_tutorial_mode_never_triggers_goal(monkeypatch):
 
 # 9. Report tests: browser-only completed XSS.
 def test_report_for_browser_only_xss_says_reached_and_recommends_tools(monkeypatch):
-    events = [_ev("reflected_input_detected", "/op/search", "browser", ts=1.0)]
+    events = [_ev("xss_reflected_html_executed", "/op/search", "browser", ts=1.0)]
     progress = _run("xss", events, monkeypatch)
     assert progress["success"] is True
 
@@ -153,8 +155,8 @@ def test_report_for_browser_only_xss_says_reached_and_recommends_tools(monkeypat
 
 
 def test_report_tool_run_scores_higher_than_browser(monkeypatch):
-    browser = _run("xss", [_ev("reflected_input_detected", "/op/search", "browser", ts=1.0)], monkeypatch)
-    tool = _run("xss", [_ev("reflected_input_detected", "/op/search", "zap_repeater", ts=1.0)], monkeypatch)
+    browser = _run("xss", [_ev("xss_reflected_html_executed", "/op/search", "browser", ts=1.0)], monkeypatch)
+    tool = _run("xss", [_ev("xss_reflected_html_executed", "/op/search", "zap_repeater", ts=1.0)], monkeypatch)
     _, s_browser = report_agent._grade(browser, (1, 0))
     _, s_tool = report_agent._grade(tool, (0, 1))
     assert s_tool >= s_browser

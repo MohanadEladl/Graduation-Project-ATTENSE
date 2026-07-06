@@ -100,10 +100,23 @@ BROWSER_COMPLETABLE_MODULES = set(BROWSER_COMPLETION_EVENT_TYPES)
 # derived operator event) and match the module. Guided-surface and external
 # evidence never trigger a goal. via is deliberately ignored for completion —
 # even via="unknown" completes (it just tanks the quality score).
-GOAL_TRIGGERS: Dict[str, set] = {
+# Each module maps to EITHER:
+#   * a set (legacy, module-level): the same events complete every difficulty; or
+#   * a dict {variant_id: set} (variant-aware): each difficulty has its OWN
+#     completion event, so an Easy payload can't complete Hard.
+# Modules are migrated to the variant-aware form one at a time; _goal_events_for
+# resolves both shapes, so un-migrated modules keep working unchanged.
+GOAL_TRIGGERS: Dict[str, Any] = {
     "recon":         {"recon_sequence_observed", "hidden_clue_accessed"},
     "brute_force":   {"credential_found", "login_success"},
-    "xss":           {"reflected_input_detected", "xss_payload_observed", "stored_payload_observed"},
+    # Variant-aware (Part 2): Easy=reflected HTML body, Medium=attribute-context
+    # bypass, Hard=stored (persisted + rendered). A reflected payload can no
+    # longer complete the stored variant, and vice-versa.
+    "xss": {
+        "reflected":         {"xss_reflected_html_executed"},
+        "alternate_context": {"xss_attribute_context_bypass"},
+        "stored_attempt":    {"stored_xss_persisted"},
+    },
     "cmd_injection": {"command_injection_detected"},
     "dir_traversal": {"sensitive_file_disclosed", "lab_file_disclosed"},
     "file_upload":   {"dangerous_extension_accepted", "unrestricted_upload_detected",
@@ -111,27 +124,56 @@ GOAL_TRIGGERS: Dict[str, set] = {
     "csrf":          {"profile_changed_without_csrf"},
 }
 
+
+def _goal_events_for(module_id: str, variant_id: Optional[str]) -> set:
+    """Resolve the goal event types that complete a given (module, variant).
+
+    Handles both GOAL_TRIGGERS shapes. For a variant-aware module with a known
+    variant_id, ONLY that variant's events count (real difficulty separation).
+    With no/unknown variant_id we fall back to the union of the module's variant
+    events so completion never regresses for a session that omits the variant.
+    """
+    entry = GOAL_TRIGGERS.get(module_id or "")
+    if entry is None:
+        return set()
+    if isinstance(entry, dict):
+        if variant_id and variant_id in entry:
+            return set(entry[variant_id])
+        # No/unknown variant → default to the module's FIRST variant, matching
+        # compute()'s get_variant_spec default (next(iter(variants))), so
+        # "variant unspecified" resolves the same way everywhere. Fall back to
+        # the union only if that first variant can't be resolved.
+        default_variant = next(iter(MODULE_VARIANTS.get(module_id, {})), None)
+        if default_variant and default_variant in entry:
+            return set(entry[default_variant])
+        return set().union(*entry.values()) if entry else set()
+    return set(entry)
+
 # recon may also complete on enough route-discovery evidence (mapping proof),
 # even if the derived recon_sequence_observed event never fired.
 RECON_ROUTE_DISCOVERY_MIN = 3
 
 
-def _event_triggers_goal(e: Dict[str, Any], module_id: str, *, is_lab: bool) -> bool:
-    """True when a single event is a goal trigger for the module: a GOAL event
-    type observed with valid operator lab scope. via-INDEPENDENT by design."""
+def _event_triggers_goal(e: Dict[str, Any], module_id: str, *, is_lab: bool,
+                         variant_id: Optional[str] = None) -> bool:
+    """True when a single event is a goal trigger for the (module, variant): a
+    GOAL event type observed with valid operator lab scope. via-INDEPENDENT by
+    design; difficulty-AWARE for migrated modules (see _goal_events_for)."""
     return (
-        e.get("event_type") in GOAL_TRIGGERS.get(module_id or "", set())
+        e.get("event_type") in _goal_events_for(module_id or "", variant_id)
         and _event_has_operator_scope(e, is_lab=is_lab, module_id=module_id)
     )
 
 
-def _goal_trigger(module_id: str, events: List[Dict[str, Any]], *, is_lab: bool):
+def _goal_trigger(module_id: str, events: List[Dict[str, Any]], *, is_lab: bool,
+                  variant_id: Optional[str] = None):
     """Resolve the mission goal from observed events.
 
     Returns (triggered: bool, trigger_event: str|None, trigger_reason: str|None).
     Completion fires on the FIRST goal event seen, from any local channel.
     """
-    hits = [e for e in events if _event_triggers_goal(e, module_id, is_lab=is_lab)]
+    hits = [e for e in events
+            if _event_triggers_goal(e, module_id, is_lab=is_lab, variant_id=variant_id)]
     if hits:
         first = min(hits, key=lambda e: e.get("ts") or 0)
         et = first.get("event_type")
@@ -184,18 +226,19 @@ def _event_has_operator_scope(e: Dict[str, Any], *, is_lab: bool,
 
 
 def _event_counts_for_completion(e: Dict[str, Any], *, is_lab: bool,
-                                 module_id: Optional[str] = None) -> bool:
+                                 module_id: Optional[str] = None,
+                                 variant_id: Optional[str] = None) -> bool:
     """Gate objective completion evidence — the goal-trigger rule.
 
     An event counts toward completion when it is a GOAL event (see
     GOAL_TRIGGERS) observed with valid operator lab scope (Operator Mode,
-    backend=operator, /op/* path or a derived operator event, matching module).
-    Completion is deliberately via-INDEPENDENT: Browser, AttackBox, ZAP
-    Repeater/Fuzzer, curl, and even an uncaptured via="unknown" all count —
-    tool choice affects only the quality score, never completion. Guided-surface
-    and external evidence still never count.
+    backend=operator, /op/* path or a derived operator event, matching module
+    AND variant for migrated modules). Completion is deliberately via-INDEPENDENT:
+    Browser, AttackBox, ZAP Repeater/Fuzzer, curl, and even an uncaptured
+    via="unknown" all count — tool choice affects only the quality score, never
+    completion. Guided-surface and external evidence still never count.
     """
-    return _event_triggers_goal(e, module_id or "", is_lab=is_lab)
+    return _event_triggers_goal(e, module_id or "", is_lab=is_lab, variant_id=variant_id)
 
 
 def _event_counts_for_quality(e: Dict[str, Any], *, is_lab: bool,
@@ -705,79 +748,78 @@ MODULE_VARIANTS: Dict[str, Dict[str, Dict[str, Any]]] = {
     # ─── XSS ────────────────────────────────────────────────────────────
     "xss": {
         "reflected": {
-            "name":        "Reflected XSS",
-            "description": "Single-request injection — payload bounces back in the response.",
+            "name":        "Reflected XSS (HTML body)",
+            "description": "Single-request injection reflected in the HTML body. <script> is "
+                           "stripped, but an event-handler/img/svg payload executes.",
             "difficulty":  "Easy",
-            "techniques":  ["reflection", "event-handler", "url-parameter"],
+            "techniques":  ["reflection", "event-handler", "html-body-context"],
             "tasks": [
                 {"title": "Submit a benign query to confirm reflection",
                  "event_types": ["search_used"], "min_count": 1,
-                 "explain": "GET /search?q=hello — confirm 'hello' appears in the response body."},
+                 "explain": "GET /op/search?level=easy&q=hello — 'hello' appears in the body."},
                 {"title": "Inject an event-handler payload",
                  "event_types": ["xss_payload_observed"], "min_count": 1,
-                 "explain": "Try <img src=x onerror=alert(1)> or <svg onload=alert(1)>; script tags are stripped."},
-                {"title": "Confirm the payload renders unescaped",
-                 "event_types": ["reflected_input_detected"],
-                 "explain": "The response or browser proof shows the event-handler/SVG payload survived."},
+                 "explain": "Try <img src=x onerror=alert(1)>; <script> is stripped but this executes."},
+                {"title": "Confirm the payload executes in the HTML body",
+                 "event_types": ["xss_reflected_html_executed"],
+                 "explain": "The img/svg/onerror payload survives sanitization and fires — Easy complete."},
             ],
-            "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
+            "success_event_types": ["xss_reflected_html_executed"],
             "ideal_commands": [
-                "# Capture: submit a query in Operator Mode, then open ZAP Proxy History.",
-                "# Baseline (AttackBox-safe — no shell metacharacters):",
-                "curl -s -G --data-urlencode 'q=hello' http://target-agent/op/search",
-                "# ZAP Repeater: set q=<img src=x onerror=alert(1)> and resend on /op/search.",
-                "# Confirm: the event-handler payload is reflected unescaped or fires in the browser.",
+                "# HTML body context — <script> stripped, event handlers survive.",
+                "curl -s -G --data-urlencode 'q=hello' 'http://target-agent/op/search?level=easy'",
+                "# ZAP Repeater: q=<img src=x onerror=alert(1)>  on  /op/search?level=easy",
+                "# Confirm: the payload reflects raw in the body and fires.",
             ],
         },
         "alternate_context": {
-            "name":        "Alternate XSS Contexts",
-            "description": "Bypass script-tag blocklists with event handlers and SVG/IMG vectors.",
+            "name":        "Attribute-Context Bypass",
+            "description": "The input is reflected inside a double-quoted attribute; < and > are "
+                           "escaped so a body <img>/<svg> is inert. You must break OUT of the "
+                           "attribute with a quote + event handler.",
             "difficulty":  "Medium",
-            "techniques":  ["event-handler", "svg-onload", "img-onerror"],
+            "techniques":  ["attribute-breakout", "quote-escape", "event-handler"],
             "tasks": [
-                {"title": "Confirm baseline reflection",
+                {"title": "Confirm baseline reflection in the attribute",
                  "event_types": ["search_used"], "min_count": 1,
-                 "explain": "GET /search?q=test"},
-                {"title": "Submit 3 distinct payload contexts",
-                 "event_types": ["xss_payload_observed"], "min_count": 3,
-                 "explain": "<img onerror>, <svg onload>, javascript: URL — each is a different filter bypass."},
-                {"title": "Confirm at least one unescaped reflection",
-                 "event_types": ["reflected_input_detected"],
-                 "explain": "Script tags are filtered here; event handlers and SVG/IMG contexts are the bypass."},
+                 "explain": "GET /op/search?level=medium&q=test — 'test' appears inside value=\"…\"."},
+                {"title": "Try a body payload and see it fail",
+                 "event_types": ["xss_payload_observed"], "min_count": 1,
+                 "explain": "<img onerror=…> is angle-escaped here — it will NOT fire in an attribute."},
+                {"title": "Break out of the attribute",
+                 "event_types": ["xss_attribute_context_bypass"],
+                 "explain": "Close the quote then add a handler, e.g.  \" autofocus onfocus=alert(1) x=\"  — Medium complete."},
             ],
-            "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
+            "success_event_types": ["xss_attribute_context_bypass"],
             "ideal_commands": [
-                "# Baseline capture in ZAP Proxy History, then Send to Repeater.",
-                "curl -s -G --data-urlencode 'q=test' http://target-agent/op/search",
-                "# ZAP Fuzzer: mark the q value and try one payload per request, e.g.:",
-                "#   <img src=x onerror=alert(1)>",
-                "#   <svg onload=alert(1)>",
-                "# Compare responses: the variant reflected unescaped is the working context.",
+                "# Attribute context — reflected inside value=\"__HERE__\".",
+                "curl -s -G --data-urlencode 'q=test' 'http://target-agent/op/search?level=medium'",
+                "# ZAP Repeater on /op/search?level=medium — break out of the quote:",
+                "#   q=\" autofocus onfocus=alert(1) x=\"",
+                "# A plain <img onerror> will NOT work here (angle brackets are escaped).",
             ],
         },
         "stored_attempt": {
-            "name":        "Stored XSS Probe",
-            "description": "Save a payload via the profile bio field — see if it persists. Hardest technique. "
-                           "(Lab note: the reflected variant already succeeds here; do this one to learn stored/persistent "
-                           "XSS, which is what matters on apps that filter reflected input.)",
+            "name":        "Stored XSS",
+            "description": "Persist a payload via /op/comments, then load the page so it renders for "
+                           "every viewer. A reflected one-liner cannot complete this — the payload "
+                           "must be STORED and later RENDERED.",
             "difficulty":  "Hard",
-            "techniques":  ["persistence", "profile-update", "double-trigger"],
+            "techniques":  ["persistence", "stored-xss", "store-then-render"],
             "tasks": [
-                {"title": "Authenticate so the profile is editable",
-                 "event_types": ["login_success"], "min_count": 1,
-                 "explain": "POST /auth/login with valid credentials."},
-                {"title": "Submit a payload through the profile bio",
-                 "event_types": ["xss_payload_observed", "profile_update_used"], "min_count": 2,
-                 "explain": "POST /profile/update with email or bio containing a harmless event-handler payload."},
-                {"title": "Verify the payload reflects on a SECOND request",
-                 "event_types": ["reflected_input_detected"],
-                 "explain": "Reload /profile/ and confirm the payload is still there."},
+                {"title": "Store a comment payload",
+                 "event_types": ["comment_stored"], "min_count": 1,
+                 "explain": "POST /op/comments with comment=<img src=x onerror=alert(1)>."},
+                {"title": "Load the comments page so the stored payload renders",
+                 "event_types": ["stored_xss_persisted"],
+                 "explain": "GET /op/comments — the stored payload is rendered raw and fires. Hard complete."},
             ],
-            "success_event_types": ["xss_payload_observed", "reflected_input_detected"],
+            "success_event_types": ["stored_xss_persisted"],
             "ideal_commands": [
-                "# 1. Authenticate on the operator surface (use the lab-provided credential).",
-                "# 2. ZAP Repeater: POST /op/profile/update with a harmless event-handler payload in the email field.",
-                "# 3. Re-request /op/profile/ in Repeater and confirm the payload persists unescaped.",
+                "# Two steps — persist, then render.",
+                "curl -s -X POST --data-urlencode 'comment=<img src=x onerror=alert(1)>' http://target-agent/op/comments",
+                "curl -s http://target-agent/op/comments   # stored payload renders raw -> stored_xss_persisted",
+                "# Or drive both from ZAP Repeater against /op/comments (POST then GET).",
             ],
         },
     },
@@ -2343,12 +2385,13 @@ def get_objective_spec(module_id: str) -> Dict[str, Any]:
     return OBJECTIVE_SPECS.get(module_id, {})
 
 
-def completion_event_types(module_id: str) -> List[str]:
+def completion_event_types(module_id: str, variant_id: Optional[str] = None) -> List[str]:
     """One representative goal event that completes the mission. Used by tests
     and callers that need to synthesise a 'just completed' evidence set. Under
     the goal-trigger model a single goal event is enough, so this returns one
-    representative goal type."""
-    goals = sorted(GOAL_TRIGGERS.get(module_id, set()))
+    representative goal type. Variant-aware: for a migrated module, pass
+    variant_id to get that difficulty's specific goal event."""
+    goals = sorted(_goal_events_for(module_id, variant_id))
     return goals[:1]
 
 
@@ -2569,7 +2612,8 @@ def compute(module_id: str,
     else:
         events_for_completion = [
             e for e in raw_events
-            if _event_counts_for_completion(e, is_lab=is_lab, module_id=module_id)
+            if _event_counts_for_completion(e, is_lab=is_lab, module_id=module_id,
+                                            variant_id=variant_id_out)
         ]
         events_for_quality = [
             e for e in raw_events
@@ -2644,7 +2688,8 @@ def compute(module_id: str,
         return (
             _is_brute_force_event_for_completion(ev, is_lab=is_lab)
             if module_id == "brute_force"
-            else _event_counts_for_completion(ev, is_lab=is_lab, module_id=module_id)
+            else _event_counts_for_completion(ev, is_lab=is_lab, module_id=module_id,
+                                              variant_id=variant_id_out)
         )
 
     def _counts_for_quality(ev: Dict[str, Any]) -> bool:
@@ -2730,7 +2775,7 @@ def compute(module_id: str,
         if module_id == "brute_force" else None
     )
     goal_triggered, trigger_event, trigger_reason = _goal_trigger(
-        module_id, raw_events, is_lab=is_lab
+        module_id, raw_events, is_lab=is_lab, variant_id=variant_id_out
     )
     success = goal_triggered
     completion = {

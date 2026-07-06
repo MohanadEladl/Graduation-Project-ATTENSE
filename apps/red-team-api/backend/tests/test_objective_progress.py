@@ -125,7 +125,7 @@ def test_xss_browser_operator_objective_proof_completes_with_lower_quality(monke
         {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
          "via": "browser", "ts": 2.0, "module_id": "xss",
          "extra": {"backend": "operator", "path": "/op/search"}},
-        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+        {"event_type": "xss_reflected_html_executed", "path": "/op/search", "method": "GET",
          "via": "browser", "ts": 3.0, "module_id": "xss",
          "extra": {"backend": "operator", "path": "/op/search"}},
     ]
@@ -134,7 +134,7 @@ def test_xss_browser_operator_objective_proof_completes_with_lower_quality(monke
     assert r["success"] is True
     assert r["completion_score"] == 100
     assert r["quality_score"] < 100
-    reflected = next(c for c in r["evidence"] if c["event_type"] == "reflected_input_detected")
+    reflected = next(c for c in r["evidence"] if c["event_type"] == "xss_reflected_html_executed")
     assert reflected["counts_for_completion"] is True
     assert reflected["counts_for_quality"] is False
 
@@ -169,7 +169,7 @@ def test_wrong_module_id_does_not_complete_xss(monkeypatch):
         {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
          "via": "zap_repeater", "ts": 1.0, "module_id": "recon",
          "extra": {"backend": "operator", "path": "/op/search"}},
-        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+        {"event_type": "xss_reflected_html_executed", "path": "/op/search", "method": "GET",
          "via": "zap_repeater", "ts": 2.0, "module_id": "recon",
          "extra": {"backend": "operator", "path": "/op/search"}},
     ]
@@ -183,7 +183,7 @@ def test_xss_worked_example(monkeypatch):
     events = [
         {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
          "via": "zap_repeater", "ts": 1.0, "extra": {"backend": "operator", "path": "/op/search"}},
-        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+        {"event_type": "xss_reflected_html_executed", "path": "/op/search", "method": "GET",
          "via": "zap_repeater", "ts": 2.0, "extra": {"backend": "operator", "path": "/op/search"}},
     ]
     _patch(monkeypatch, events)
@@ -357,7 +357,7 @@ def test_ignored_diagnostics_classify_wrong_channel(monkeypatch):
         {"event_type": "search_used", "path": "/op/search", "method": "GET",
          "via": "unknown", "ts": 1.0, "module_id": "xss",
          "extra": {"backend": "operator", "path": "/op/search"}},
-        {"event_type": "reflected_input_detected", "path": "/search", "method": "GET",
+        {"event_type": "xss_reflected_html_executed", "path": "/search", "method": "GET",
          "via": "zap_repeater", "ts": 2.0, "module_id": "xss",
          "extra": {"backend": "guided", "path": "/search"}},
     ]
@@ -395,7 +395,7 @@ def test_report_explains_objective_and_missing_methodology(monkeypatch):
     events = [
         {"event_type": "xss_payload_observed", "path": "/op/search", "method": "GET",
          "via": "zap_repeater", "ts": 1.0, "extra": {"backend": "operator", "path": "/op/search"}},
-        {"event_type": "reflected_input_detected", "path": "/op/search", "method": "GET",
+        {"event_type": "xss_reflected_html_executed", "path": "/op/search", "method": "GET",
          "via": "zap_repeater", "ts": 2.0, "extra": {"backend": "operator", "path": "/op/search"}},
     ]
     _patch(monkeypatch, events)
