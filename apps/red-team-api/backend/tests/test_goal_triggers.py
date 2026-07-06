@@ -86,7 +86,7 @@ def test_xss_payload_observed_alone_does_not_complete(monkeypatch):
 # 4. Command Injection: direct goal completes (browser or unknown, no ZAP).
 @pytest.mark.parametrize("via", ["browser", "unknown"])
 def test_cmd_injection_direct_goal_completes(monkeypatch, via):
-    events = [_ev("command_injection_detected", "/op/system/ping", via, ts=1.0)]
+    events = [_ev("cmd_injection_semicolon_success", "/op/system/ping", via, ts=1.0)]
     r = _run("cmd_injection", events, monkeypatch)
     assert r["success"] is True
     assert r["quality_score"] < 100
