@@ -5,60 +5,48 @@ Endpoints:
   GET    /health                            – liveness
   GET    /api/modules                       – list all attack modules + metadata
   GET    /api/target                        – current default target
-  POST   /api/auth/login                    – proxy login to attense-app, returns session token
-  POST   /api/sessions                      – create mission session            [auth required]
+  POST   /api/sessions                      – create mission session
   GET    /api/sessions                      – list sessions
   GET    /api/sessions/{sid}                – session snapshot
-  DELETE /api/sessions/{sid}                – close session                     [auth required]
-  POST   /api/sessions/{sid}/options        – set one option                    [auth required]
-  POST   /api/sessions/{sid}/target         – set target host/port              [auth required]
-  POST   /api/sessions/{sid}/start          – begin mission (no attack)         [auth required]
-  POST   /api/sessions/{sid}/execute        – execute the attack                [auth required]
+  DELETE /api/sessions/{sid}                – close session
+  POST   /api/sessions/{sid}/options        – set one option
+  POST   /api/sessions/{sid}/target         – set target host/port
+  POST   /api/sessions/{sid}/start          – begin mission (no attack)
+  POST   /api/sessions/{sid}/execute        – instructor/demo auto execution only
   GET    /api/sessions/{sid}/logs           – full log history
   WS     /ws/sessions/{sid}                 – live log stream
-  WS     /ws/shell                          – legacy single-tab shell
 
   Lab Mode (AttackBox):
   GET    /api/operator/attackbox/status      – AttackBox container status
-  POST   /api/operator/attackbox/exec        – run command in AttackBox         [auth required]
+  POST   /api/operator/attackbox/exec        – run command in AttackBox
   GET    /api/operator/attackbox/evidence     – tool command evidence
   GET    /api/operator/zap/status            – ZAP service status
-  GET    /api/operator/zap/history           – ZAP proxy history
-  POST   /api/operator/zap/repeater/send     – send request through ZAP        [auth required]
-  POST   /api/operator/zap/fuzzer/send       – fuzz a wordlist through ZAP (Intruder-style) [auth required]
-  ANY    /zap-browse/{path}                  – Operator lab-browser traffic, reverse-proxied
-                                                through ZAP (Burp-style Proxy History)
+  GET    /api/operator/zap/history           – ZAP Repeater/Fuzzer history
+  POST   /api/operator/zap/repeater/send     – send request through ZAP
+  POST   /api/operator/zap/fuzzer/send       – fuzz a wordlist through ZAP (Intruder-style)
 
-  Watcher Agent (SOC analyst terminal monitor):
-  POST   /session/watcher                    – create session, returns 6-char code
-  GET    /session/watcher/{code}             – poll session status (pending → active)
-
-[auth required] = caller must send X-Session-Token (from /api/auth/login),
-validated against attense-app's session store on every such request; see
-require_operator_session(). Other state-mutating session routes (variant,
-reset-evidence, restart, report/regenerate, mutations/trigger, mutations/
-schedule, check-progress, skills/update) are also gated the same way.
-
-Modes:
-  guided   – rich walkthrough; browser interactions count as evidence
-  operator – AttackBox terminal/ZAP required; browser clicks do NOT count
+Modes (see docs/redteam-guided-mode-reading-only.md):
+  guided (wire value "tutorial") – READING-ONLY. No attack execution, no
+    evidence-based completion, no target-agent scoring, no AI attack report.
+    /check-progress returns lab_progress's static reading_only=True payload;
+    /report returns a short "start Operator Mode" message instead of a
+    generated report.
+  operator (wire value "lab")    – the ONLY mode that runs the real lab
+    pipeline: /op/ routes, ZAP/AttackBox evidence, objective-based
+    completion, quality scoring, AI/Purple report.
 """
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import sys
 from typing import Any, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 import json as _json
-import random
-import string
-import time as _time_mod
 
 # Make sibling folders (core/, modules/, engine/) importable
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -66,33 +54,18 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from core.module_loader import discover_modules    # noqa: E402
-from backend.shell.router import ShellRouter       # noqa: E402
-from backend.session_manager import SessionManager # noqa: E402
+from backend.session_manager import (        # noqa: E402
+    AUTO_ATTACK_DISABLED_MESSAGE,
+    SessionManager,
+    auto_attacks_enabled,
+)
 from backend.detections import DetectionBroker     # noqa: E402
-from backend.zap_bridge import ZapBridge            # noqa: E402
 from backend import operator_api                   # noqa: E402
 from backend import action_trace                   # noqa: E402
-from backend import identity                        # noqa: E402
 
-logger = logging.getLogger("red-team.backend")
 
 DEFAULT_HOST = os.getenv("TARGET_HOST", "target-agent")
 DEFAULT_PORT = int(os.getenv("TARGET_PORT", "80"))
-ALLOW_GUEST_OPERATOR = os.getenv("RED_TEAM_ALLOW_GUEST_OPERATOR", "1").lower() not in {"0", "false", "no"}
-GUEST_OPERATOR_USERNAME = os.getenv("RED_TEAM_GUEST_USERNAME", "guest-red-operator")
-
-# ── Watcher Agent: session coordination store ─────────────────────────────────
-_WATCHER_SESSIONS: dict[str, dict] = {}
-
-
-def _generate_watcher_code() -> str:
-    """Return a random 6-character uppercase alphanumeric code."""
-    alphabet = string.ascii_uppercase + string.digits
-    while True:
-        code = "".join(random.choices(alphabet, k=6))
-        if code not in _WATCHER_SESSIONS:
-            return code
-
 
 app = FastAPI(
     title="ATTENSE Cyber Lab API",
@@ -112,25 +85,19 @@ app.add_middleware(
 _MODULES = discover_modules("modules")
 
 # Process-wide session store. Each guided mission (one per browser workspace)
-# owns a SessionRecord here; the legacy /ws/shell path is separate and uses
-# ShellRouter.
+# owns a SessionRecord here.
 _SESSIONS = SessionManager(_MODULES, DEFAULT_HOST, DEFAULT_PORT)
 
 # Detection broker: polls signal-store, fans Wazuh alerts out to WS subscribers.
 # Started on FastAPI startup so it runs inside the event loop.
 _DETECTIONS = DetectionBroker()
 
-# ZAP bridge: polls ZAP's alerts queue, reports freestyle (open_lab) findings
-# to the scoring engine. Same startup/shutdown lifecycle as _DETECTIONS.
-_ZAP_BRIDGE = ZapBridge(_SESSIONS)
-
 
 @app.on_event("startup")
 async def _boot() -> None:
     _DETECTIONS.start()
-    _ZAP_BRIDGE.start()
-    # Warm the MITRE analyst model in the background so the first mission
-    # report isn't the one that pays Ollama's cold-load cost. Never blocks boot.
+    # Warm the MITRE analyst model in the background so the first mission report
+    # isn't the one that pays Ollama's cold-load cost. Never blocks boot.
     import threading
     from backend import report_agent
     threading.Thread(target=report_agent.warm_up_model, daemon=True).start()
@@ -139,12 +106,6 @@ async def _boot() -> None:
 @app.on_event("shutdown")
 async def _shutdown() -> None:
     await _DETECTIONS.stop()
-    await _ZAP_BRIDGE.stop()
-
-
-@app.get("/api/zap-bridge/status")
-def zap_bridge_status() -> dict:
-    return _ZAP_BRIDGE.status()
 
 
 # ── REST ──────────────────────────────────────────────────────────────────────
@@ -191,6 +152,14 @@ def get_target() -> dict:
     return {"host": DEFAULT_HOST, "port": DEFAULT_PORT}
 
 
+@app.get("/api/config")
+def get_config() -> dict[str, Any]:
+    return {
+        "enable_auto_attacks": auto_attacks_enabled(),
+        "student_mode_message": AUTO_ATTACK_DISABLED_MESSAGE,
+    }
+
+
 # ── Guided-mission sessions ───────────────────────────────────────────────────
 class CreateSessionBody(BaseModel):
     module_id: str
@@ -216,68 +185,8 @@ def _require_session(sid: str):
     return rec
 
 
-# ── Operator auth (validated against attense-app, not invented here) ─────────
-class LoginBody(BaseModel):
-    username: str
-    password: str
-
-
-@app.post("/api/auth/login")
-async def login(body: LoginBody) -> dict:
-    """
-    Proxy login to attense-app server-side so the browser never needs CORS
-    access to attense-app directly and attense-app's URL stays out of
-    frontend code. Returns attense-app's own response (token + role) as-is.
-    """
-    loop = asyncio.get_running_loop()
-    status_code, payload = await loop.run_in_executor(
-        None, identity.login, body.username, body.password
-    )
-    if status_code != 200:
-        raise HTTPException(status_code=status_code, detail=payload.get("detail", "login_failed"))
-    return payload
-
-
-async def require_operator_session(
-    x_session_token: Optional[str] = Header(default=None),
-) -> dict:
-    """
-    Resolve the red-team operator for session-driving endpoints.
-
-    If a valid ATTENSE session token is supplied, use that identity. There is
-    no "join a room first" step - a room comes into existence automatically
-    (control-api's ensure_room_for_incident) the moment this operator's first
-    attack event lands. When control-api's own session hasn't already supplied
-    a room-derived incident_id, `incident_id` here stays None and
-    SessionManager.create() mints a fresh one unique to that session - every
-    unassociated operator used to fall back to the same deployment-wide
-    static INCIDENT_ID, which silently collapsed every such session's attack
-    onto one shared incident (and one shared room). For the standalone
-    cyber-range/demo flow, allow a guest operator so launching a mission does
-    not bounce back to the portal login page. Set
-    RED_TEAM_ALLOW_GUEST_OPERATOR=0 to restore the hard auth gate.
-    """
-    loop = asyncio.get_running_loop()
-    info = await loop.run_in_executor(None, identity.validate_session, x_session_token)
-    if info and info.get("username"):
-        info.setdefault("incident_id", None)
-        return info
-    if ALLOW_GUEST_OPERATOR:
-        return {
-            "username": GUEST_OPERATOR_USERNAME,
-            "role": "red_team",
-            "type": "guest",
-            "room_id": None,
-            "incident_id": None,
-        }
-    raise HTTPException(status_code=401, detail="invalid_or_missing_session_token")
-
-
 @app.post("/api/sessions")
-async def create_session(
-    body: CreateSessionBody,
-    operator: dict = Depends(require_operator_session),
-) -> dict:
+async def create_session(body: CreateSessionBody) -> dict:
     loop = asyncio.get_running_loop()
     mode = body.mode or "tutorial"
     try:
@@ -286,8 +195,6 @@ async def create_session(
             mode=mode,
             mutation_mode=bool(body.mutation_mode),
             mutation_intensity=body.mutation_intensity or "single",
-            actor_id=operator["username"],
-            incident_id=operator.get("incident_id"),
             loop=loop,
         )
     except KeyError as exc:
@@ -309,7 +216,7 @@ def get_session(sid: str) -> dict:
 
 
 @app.delete("/api/sessions/{sid}")
-def delete_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
+def delete_session(sid: str) -> dict:
     ok = _SESSIONS.delete(sid)
     if not ok:
         raise HTTPException(status_code=404, detail=f"Unknown session: {sid}")
@@ -317,25 +224,21 @@ def delete_session(sid: str, operator: dict = Depends(require_operator_session))
 
 
 @app.post("/api/sessions/{sid}/options")
-def set_session_option(
-    sid: str, body: SetOptionBody, operator: dict = Depends(require_operator_session)
-) -> dict:
+def set_session_option(sid: str, body: SetOptionBody) -> dict:
     rec = _require_session(sid)
     _SESSIONS.set_option(rec, body.key, body.value)
     return rec.snapshot()
 
 
 @app.post("/api/sessions/{sid}/target")
-def set_session_target(
-    sid: str, body: SetTargetBody, operator: dict = Depends(require_operator_session)
-) -> dict:
+def set_session_target(sid: str, body: SetTargetBody) -> dict:
     rec = _require_session(sid)
     _SESSIONS.set_target(rec, body.host, body.port)
     return rec.snapshot()
 
 
 @app.post("/api/sessions/{sid}/start")
-async def start_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
+async def start_session(sid: str) -> dict:
     """Begin guided mode — starts the timer + records mission_started_at.
     Does NOT execute the attack."""
     rec = _require_session(sid)
@@ -348,61 +251,42 @@ async def start_session(sid: str, operator: dict = Depends(require_operator_sess
 
 
 @app.post("/api/sessions/{sid}/check-progress")
-async def check_progress(
-    sid: str,
-    mode: Optional[str] = Query(None),
-    final: Optional[bool] = Query(None),
-    operator: dict = Depends(require_operator_session),
-) -> dict:
+async def check_progress(sid: str, mode: Optional[str] = None) -> dict:
     """Inspect target-agent evidence since mission start; do NOT run attack.
 
     Uses the mode and variant_id stored on the session:
-      tutorial / lab — both count evidence from any channel toward task
-                 completion and success; "lab" only changes the coaching
-                 copy nudging the learner toward AttackBox/ZAP (see
-                 lab_progress.compute)
-      variant_id — selects the specific attack flavour (replaces task ladder)
-
-    The `mode` query param (sent by the frontend's ModeSwitcher on every call) is
-    persisted onto the session here, so toggling Guided/Operator actually changes
-    what gets graded instead of being frozen at session creation.
+      tutorial (guided)  — READING-ONLY. lab_progress.compute() short-circuits
+                            to a static reading_only=True payload; no evidence
+                            is fetched or scored.
+      lab (operator)     — the real lab pipeline. Only evidence from an
+                            approved local tool against the /op/ operator
+                            surface counts toward objective-based completion.
+      variant_id — selects the specific attack flavour (Operator Mode only;
+                   replaces the task ladder).
 
     Returns per-task completion + evidence cards + success state for the
-    LearningPanel. Pure read (aside from the mode persist above) — no side effects
-    on the attack engine.
-
-    `final=1` (sent by Workspace.jsx's handleFinishMission, once, when the
-    learner explicitly finishes) posts a `mission_finished` event to
-    control-api's incident pipeline - this, not the first attack event, is
-    what makes the Blue Team room become visible (see
-    room_manager.ensure_room_for_incident).
+    LearningPanel. Pure read — no side effects on the attack engine.
     """
     rec = _require_session(sid)
-    started = rec.mission_started_at or rec.created_at
-
     if mode:
-        normalized = {"guided": "tutorial", "operator": "lab"}.get(mode, mode)
-        if normalized in ("tutorial", "lab") and normalized != rec.mode:
-            rec.mode = normalized
-            _SESSIONS._persist()
-
+        m = mode.strip().lower()
+        if m == "guided": m = "tutorial"
+        elif m == "operator": m = "lab"
+        if m in ("tutorial", "lab"):
+            rec.mode = m
+    started = rec.mission_started_at or rec.created_at
+    mode = rec.mode
     variant_id = getattr(rec, "variant_id", None)
     from backend import lab_progress  # local import keeps cold-start fast
     result = lab_progress.compute(
         module_id=rec.module.module_id,
         mission_started_at=started,
         session_completed_steps=list(rec.completed_steps),
-        mode=rec.mode,
+        mode=mode,
         variant_id=variant_id,
         session_id=sid,
     )
-    was_success = rec.learning_success
     rec.update_learning_progress(result)
-    # A fresh success invalidates any report generated before this evidence
-    # existed, so the next /report call regenerates instead of returning a
-    # stale cached result.
-    if result.get("success") and not was_success:
-        rec.report_cache = None
     _SESSIONS._persist()
 
     # If the mission just succeeded, push a preliminary skill score so the
@@ -416,33 +300,6 @@ async def check_progress(
             _skill_store.update(rec.module.module_id, _vid, _pct, _grade)
         except Exception:
             pass
-
-    if final:
-        try:
-            import uuid as _uuid
-            from datetime import datetime, timezone
-            from core import event_sink
-
-            incident_id = getattr(rec, "incident_id", None) or os.environ.get("INCIDENT_ID")
-            if incident_id:
-                event_sink.post_malicious_action_event(
-                    event_id=str(_uuid.uuid4()),
-                    incident_id=incident_id,
-                    scenario_id=rec.module.scenario_id,
-                    actor_id=getattr(rec, "actor_id", None) or "redteam-operator",
-                    target_id=rec.target.base_url,
-                    outcome="success" if result.get("success") else "partial",
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    metadata={"module_id": rec.module.module_id, "sid": sid},
-                    event_type="mission_finished",
-                )
-            else:
-                logger.warning(
-                    "check-progress final=1 but no incident_id available for session %s "
-                    "(nothing to tag the mission_finished event with)", sid,
-                )
-        except Exception:
-            logger.exception("Failed to post mission_finished for session %s", sid)
 
     return result
 
@@ -465,9 +322,7 @@ async def get_module_walkthrough(module_id: str, variant_id: Optional[str] = Non
 
 
 @app.post("/api/sessions/{sid}/variant")
-async def set_session_variant(
-    sid: str, body: dict, operator: dict = Depends(require_operator_session)
-) -> dict:
+async def set_session_variant(sid: str, body: dict) -> dict:
     """Set the active attack variant for a session.  Body: {variant_id: str}."""
     rec = _require_session(sid)
     variant_id = (body or {}).get("variant_id")
@@ -515,22 +370,25 @@ async def get_session_timeline(sid: str) -> dict:
 
     # 2. Terminal commands from operator_api
     try:
-        for c in operator_api.get_tool_evidence(since=started, session_id=sid):
+        for c in operator_api.get_tool_evidence(since=started):
+            if c.get("session_id") and c.get("session_id") != sid:
+                continue
+            is_zap = str(c.get("tool") or "").startswith("zap_") or str(c.get("event_type") or "").startswith("zap_")
             timeline.append({
                 "ts":          c.get("ts", 0.0),
-                "channel":     "terminal",
-                "kind":        c.get("tool", "tool_command"),
-                "summary":     (c.get("command") or "")[:140],
+                "channel":     "zap" if is_zap else "terminal",
+                "kind":        c.get("event_type") or c.get("tool", "tool_command"),
+                "summary":     c.get("learner_message") or (c.get("command") or "")[:140],
                 "raw":         c,
             })
     except Exception:
         pass
 
     # 3. Lab events from target-agent
-    import urllib.request, urllib.error, urllib.parse, json as _j
+    import urllib.request, urllib.error, json as _j
     target_url = os.getenv("LAB_EVENTS_URL", "http://target-agent")
     try:
-        url = f"{target_url}/lab/events?since={started}&limit=500&session_id={urllib.parse.quote(sid)}"
+        url = f"{target_url}/lab/events?since={started}&limit=500"
         with urllib.request.urlopen(url, timeout=4) as resp:
             data = _j.loads(resp.read().decode("utf-8"))
         for e in data.get("events", []):
@@ -553,6 +411,7 @@ async def get_session_timeline(sid: str) -> dict:
         "counts": {
             "browser":  sum(1 for x in timeline if x["channel"] == "browser"),
             "terminal": sum(1 for x in timeline if x["channel"] == "terminal"),
+            "zap":      sum(1 for x in timeline if x["channel"] == "zap"),
             "evidence": sum(1 for x in timeline if x["channel"] == "evidence"),
         },
     }
@@ -577,17 +436,15 @@ def _summarise_browser_action(a: dict) -> str:
     return f"{kind} {sel}".strip()
 
 
-async def _do_reset_evidence(sid: str) -> dict:
-    """Shared by reset_evidence and restart_session -- pulled out so each
-    route can independently carry its own auth Depends() without one calling
-    the other as a plain function (Depends() markers don't resolve outside
-    FastAPI's request handling)."""
+@app.post("/api/sessions/{sid}/reset-evidence")
+async def reset_evidence(sid: str) -> dict:
+    """Reset a mission for a fresh attempt. Clears evidence, resets timer,
+    learning state, and mission_started_at. Does NOT delete the session."""
     rec = _require_session(sid)
-    import time as _time, urllib.request, urllib.error, urllib.parse
+    import time as _time, urllib.request, urllib.error
     target_url = os.getenv("LAB_EVENTS_URL", "http://target-agent")
     try:
-        reset_url = f"{target_url}/lab/events/reset?session_id={urllib.parse.quote(sid)}"
-        req = urllib.request.Request(reset_url, method="POST")
+        req = urllib.request.Request(f"{target_url}/lab/events/reset", method="POST")
         urllib.request.urlopen(req, timeout=4).read()
     except (urllib.error.URLError, OSError):
         pass  # non-fatal; the mission_started_at reset still works
@@ -600,26 +457,22 @@ async def _do_reset_evidence(sid: str) -> dict:
     rec.learning_completed_at = None
     rec.latest_evidence = []
     rec.completed_steps = []
-    # Force the next /report call to regenerate instead of returning a stale
-    # pre-reset result.
-    rec.report_cache = None
     # Restart the internal timer
     if rec.attack.timer.started_at:
         rec.attack.timer.started_at = _time.time()
     return rec.snapshot()
 
 
-@app.post("/api/sessions/{sid}/reset-evidence")
-async def reset_evidence(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
-    """Reset a mission for a fresh attempt. Clears evidence, resets timer,
-    learning state, and mission_started_at. Does NOT delete the session."""
-    return await _do_reset_evidence(sid)
-
-
 @app.post("/api/sessions/{sid}/restart")
-async def restart_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
+async def restart_session(sid: str) -> dict:
     """Alias for reset-evidence — restarts the mission for a clean attempt."""
-    return await _do_reset_evidence(sid)
+    return await reset_evidence(sid)
+
+
+GUIDED_MODE_REPORT_MESSAGE = (
+    "Guided Mode is reading-only. No attack report was generated. Switch to "
+    "Operator Mode to perform the lab and receive AI/Purple feedback."
+)
 
 
 @app.get("/api/sessions/{sid}/report")
@@ -631,19 +484,35 @@ async def get_report(sid: str) -> dict:
       • the unified timeline (browser + terminal + lab events)
       • the AI coaching agent (Claude Haiku, with rule-based fallback)
     and is cached on the session so repeat visits don't re-bill the LLM.
+
+    Guided Mode is reading-only and never generates an attack report — this
+    returns a short reading_only message instead (Operator Mode only).
     """
     rec = _require_session(sid)
+    if rec.mode == "tutorial":
+        return {
+            "session_id":   sid,
+            "module_id":     rec.module.module_id,
+            "module_name":   rec.module.name,
+            "mode":          "guided",
+            "reading_only":  True,
+            "success":       False,
+            "grade":         None,
+            "score":         0,
+            "summary":       GUIDED_MODE_REPORT_MESSAGE,
+            "message":       GUIDED_MODE_REPORT_MESSAGE,
+        }
     if rec.report_cache:
         return rec.report_cache
 
-    import urllib.request as _ur, urllib.error as _ue, urllib.parse as _up
+    import urllib.request as _ur, urllib.error as _ue
     started = rec.mission_started_at or rec.created_at
     target_url = os.getenv("LAB_EVENTS_URL", "http://target-agent")
 
     # 1. Lab events
     events: list = []
     try:
-        url = f"{target_url}/lab/events?since={started}&limit=500&session_id={_up.quote(sid)}"
+        url = f"{target_url}/lab/events?since={started}&limit=500"
         with _ur.urlopen(url, timeout=4) as resp:
             events = __import__("json").loads(resp.read()).get("events", [])
     except (_ue.URLError, _ue.HTTPError, OSError):
@@ -685,7 +554,7 @@ async def get_report(sid: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/report/regenerate")
-async def regenerate_report(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
+async def regenerate_report(sid: str) -> dict:
     """Clear the cached report and regenerate it fresh."""
     rec = _require_session(sid)
     rec.report_cache = None
@@ -712,9 +581,7 @@ class SkillUpdateBody(BaseModel):
 
 
 @app.post("/api/skills/update")
-async def update_skill(
-    body: SkillUpdateBody, operator: dict = Depends(require_operator_session)
-) -> dict:
+async def update_skill(body: SkillUpdateBody) -> dict:
     rec = _require_session(body.session_id)
     if not rec.report_cache:
         raise HTTPException(status_code=409, detail="No report cache — generate report first")
@@ -726,91 +593,16 @@ async def update_skill(
     return skill_store.update(module_id, variant_id, score, grade)
 
 
-@app.get("/api/sessions/{sid}/attack-report")
-async def get_attack_report(sid: str) -> dict:
-    """Red-team attack report — only available after execute() has run.
-
-    Returns raw attack results: module info, per-step outcomes, timing, logs.
-    Does not require a completed mission; any executed session qualifies.
-    """
-    import time as _time
-    rec = _require_session(sid)
-    snap = rec.attack.snapshot()
-    state = snap.get("state", "idle")
-    if state not in ("completed", "error"):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Attack has not been executed yet (state={state}). Run the attack first.",
-        )
-
-    result = snap.get("result") or {}
-    with rec.log_lock:
-        log_lines = [e["line"] for e in rec.logs]
-
-    summary = result.get("summary", "")
-    error   = result.get("error")
-    # goal_achieved: attack ran without error AND the summary indicates the
-    # objective was met. Modules use consistent phrasing for failure.
-    _NO_FIND = (
-        "no valid", "0 reachable", "not found", "no payload", "0 payload",
-        "no credentials", "none found", "module crashed",
-        "0/",          # "0/5 payloads reflected", "0/N paths"
-        " 0 path",     # "0 path(s) disclosed"
-        " 0 state",    # "0 state changes"
-    )
-    goal_achieved = (
-        state == "completed"
-        and not error
-        and bool(summary)
-        and not any(neg in summary.lower() for neg in _NO_FIND)
-    )
-
-    return {
-        "session_id":    rec.session_id,
-        "module_id":     rec.module.module_id,
-        "module_name":   rec.module.name,
-        "scenario_id":   rec.module.scenario_id,
-        "severity":      rec.module.severity.value,
-        "category":      rec.module.category.value,
-        "description":   rec.module.description,
-        "target":        f"{rec.target.host}:{rec.target.port}",
-        "state":         state,
-        "generated_at":  _time.time(),
-        # Timing
-        "started_at":    snap.get("started_at"),
-        "stopped_at":    snap.get("stopped_at"),
-        "elapsed":       snap.get("elapsed"),
-        # Attack result — goal_achieved reflects the attack objective, not just HTTP
-        "goal_achieved":      goal_achieved,
-        "total_steps":        result.get("total_steps", 0),
-        "successful_steps":   result.get("successful_steps", 0),
-        "duration_ms":        result.get("duration_ms", 0),
-        "summary":            summary,
-        "error":              error,
-        "steps":              result.get("steps", []),
-        # Raw terminal output
-        "logs":          log_lines,
-    }
-
-
-@app.get("/api/sessions/{sid}/lab-analysis")
-async def get_lab_analysis(sid: str) -> dict:
-    """Return post-mission analysis for Lab mode: what worked, what was missed,
-    better techniques, and an overall rating.
-
-    Uses the evidence stored on the session (populated by the last check-progress).
-    Can be called any time after mission start; best called after mission completion.
-    """
-    rec = _require_session(sid)
-    from backend import lab_analysis
-    evidence = list(rec.latest_evidence)
-    return lab_analysis.analyse(rec.module.module_id, evidence)
-
-
 @app.post("/api/sessions/{sid}/execute")
-async def execute_session(sid: str, operator: dict = Depends(require_operator_session)) -> dict:
+async def execute_session(sid: str) -> dict:
     """Execute the attack module. This is the ONLY endpoint that runs the attack."""
     rec = _require_session(sid)
+    if not auto_attacks_enabled():
+        return {
+            "status": "blocked",
+            "auto_attacks_enabled": False,
+            "message": AUTO_ATTACK_DISABLED_MESSAGE,
+        }
     loop = asyncio.get_running_loop()
     try:
         return await _SESSIONS.execute(rec, loop=loop)
@@ -971,13 +763,11 @@ def attackbox_status() -> dict:
 class ExecBody(BaseModel):
     command: str
     module_id: Optional[str] = None
-    sid: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 @app.post("/api/operator/attackbox/exec")
-async def attackbox_exec(
-    body: ExecBody, operator: dict = Depends(require_operator_session)
-) -> dict:
+async def attackbox_exec(body: ExecBody) -> dict:
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, operator_api.exec_in_attackbox, body.command)
     # Record evidence for successful/blocked commands
@@ -986,15 +776,16 @@ async def attackbox_exec(
             tool=result.get("tool", "unknown"),
             command=body.command,
             module_id=body.module_id,
+            session_id=body.session_id,
             output_preview=result.get("output", "")[:200],
-            session_id=body.sid,
+            extra={"exit_code": result.get("exit_code"), "status": result.get("status")},
         )
     return result
 
 
 @app.get("/api/operator/attackbox/evidence")
-def attackbox_evidence(since: float = 0.0, limit: int = 100, sid: Optional[str] = None) -> dict:
-    return {"events": operator_api.get_tool_evidence(since=since, limit=limit, session_id=sid)}
+def attackbox_evidence(since: float = 0.0, limit: int = 100) -> dict:
+    return {"events": operator_api.get_tool_evidence(since=since, limit=limit)}
 
 
 # ── Operator Mode: ZAP ───────────────────────────────────────────────────────
@@ -1014,16 +805,16 @@ class RepeaterBody(BaseModel):
     headers: Optional[dict] = None
     body: Optional[str] = None
     module_id: Optional[str] = None
-    sid: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 @app.post("/api/operator/zap/repeater/send")
-def zap_repeater(body: RepeaterBody, operator: dict = Depends(require_operator_session)) -> dict:
+def zap_repeater(body: RepeaterBody) -> dict:
     return operator_api.zap_repeater_send(
         method=body.method, path=body.path,
         headers=body.headers, body=body.body,
         module_id=body.module_id,
-        session_id=body.sid,
+        session_id=body.session_id,
     )
 
 
@@ -1036,51 +827,42 @@ class FuzzerBody(BaseModel):
     headers: Optional[dict] = None
     grep: Optional[str] = None
     module_id: Optional[str] = None
-    sid: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 @app.post("/api/operator/zap/fuzzer/send")
-def zap_fuzzer(body: FuzzerBody, operator: dict = Depends(require_operator_session)) -> dict:
+def zap_fuzzer(body: FuzzerBody) -> dict:
     return operator_api.zap_fuzzer_send(
         method=body.method, path=body.path,
         body_template=body.body_template, marker=body.marker,
         payloads=body.payloads, headers=body.headers, grep=body.grep,
         module_id=body.module_id,
-        session_id=body.sid,
+        session_id=body.session_id,
     )
 
 
 # ── Operator Mode: Browser-through-ZAP proxy ─────────────────────────────────
-# The Operator lab browser loads /zap-browse/... (proxied here by the frontend
-# nginx as /target-zap/...). We reverse-proxy each request to
-# http://target-agent/op/... THROUGH ZAP so normal clicks, form posts and
-# navigation land in ZAP history — like Burp Proxy History. Strictly local:
-# operator_api.browse_through_zap only ever targets target-agent.
+# The Operator lab browser loads /target-zap/... (proxied here by the frontend
+# nginx). We reverse-proxy each request to http://target-agent/op/... THROUGH
+# ZAP so normal clicks, form posts and navigation land in ZAP history — like
+# Burp Proxy History. Strictly local: operator_api.browse_through_zap only ever
+# targets target-agent.
 _ZAP_BROWSE_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 
 @app.api_route("/zap-browse/{path:path}", methods=_ZAP_BROWSE_METHODS)
-async def zap_browse(path: str, request: Request, sid: Optional[str] = None, module_id: Optional[str] = None) -> Response:
+async def zap_browse(path: str, request: Request) -> Response:
     body = await request.body()
     host = request.headers.get("host", "target-agent")
     headers = dict(request.headers)
     method = request.method
-    # sid/module_id are consumed here for session-scoped evidence, not part of
-    # the actual page's query string - strip them before forwarding upstream so
-    # target-agent's own routes never see this proxy's own bookkeeping params.
-    import urllib.parse as _up
-    query_params = [
-        (k, v) for k, v in request.query_params.multi_items()
-        if k not in ("sid", "module_id")
-    ]
-    query = _up.urlencode(query_params)
+    query = request.url.query
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(
         None,
         lambda: operator_api.browse_through_zap(
             method, path, query,
             req_headers=headers, body=body, host=host,
-            session_id=sid, module_id=module_id,
         ),
     )
     resp = Response(content=result["content"], status_code=result["status_code"])
@@ -1093,97 +875,6 @@ async def zap_browse(path: str, request: Request, sid: Optional[str] = None, mod
         resp.raw_headers.append((k.encode("latin-1", "ignore"),
                                  v.encode("latin-1", "ignore")))
     return resp
-
-
-# ── WebSocket shell ───────────────────────────────────────────────────────────
-@app.websocket("/ws/shell")
-async def shell_ws(ws: WebSocket) -> None:
-    """
-    One persistent shell per browser tab.
-
-    Protocol (JSON lines):
-      client → server:  {"type": "input", "data": "use brute_force"}
-      server → client:  {"type": "output", "data": "some line"}
-      server → client:  {"type": "prompt", "data": "attense(brute_force) > "}
-      server → client:  {"type": "snapshot", "data": {...}}
-    """
-    await ws.accept()
-    loop = asyncio.get_running_loop()
-
-    # Bridge: engine code is synchronous and emits via callbacks; we must
-    # get those lines onto the event loop's send queue without blocking.
-    send_q: asyncio.Queue = asyncio.Queue()
-
-    def emit(line: str) -> None:
-        # Called from the sync engine thread during attacks, and from the
-        # event-loop thread during command handling. Use call_soon_threadsafe
-        # so both paths are safe.
-        try:
-            loop.call_soon_threadsafe(
-                send_q.put_nowait, {"type": "output", "data": line}
-            )
-        except RuntimeError:
-            # loop closed — connection gone
-            pass
-
-    router = ShellRouter(emit, default_host=DEFAULT_HOST, default_port=DEFAULT_PORT)
-
-    async def sender() -> None:
-        """Forward everything from send_q → websocket."""
-        try:
-            while True:
-                msg = await send_q.get()
-                await ws.send_json(msg)
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            return
-
-    sender_task = asyncio.create_task(sender())
-
-    async def send_prompt() -> None:
-        await ws.send_json({"type": "prompt", "data": router.prompt()})
-
-    async def send_snapshot() -> None:
-        await ws.send_json({"type": "snapshot", "data": router.snapshot()})
-
-    # Initial banner + prompt
-    router.start()
-    await asyncio.sleep(0.05)    # let banner flush first
-    await send_prompt()
-    await send_snapshot()
-
-    try:
-        while True:
-            msg = await ws.receive_json()
-            if msg.get("type") != "input":
-                continue
-            line = str(msg.get("data", ""))
-
-            # Attacks are synchronous and may take seconds → run in executor
-            await loop.run_in_executor(None, router.handle_line, line)
-
-            # After every command: flush output, then prompt + snapshot
-            # A tiny sleep lets all queued emit() calls drain to the client
-            # before we send the next prompt marker.
-            await asyncio.sleep(0.02)
-            await send_prompt()
-            await send_snapshot()
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as exc:  # noqa: BLE001
-        try:
-            await ws.send_json({"type": "output",
-                                "data": f"[!] Server error: {exc}"})
-        except Exception:
-            pass
-    finally:
-        sender_task.cancel()
-        try:
-            await sender_task
-        except (asyncio.CancelledError, Exception):
-            pass
 
 
 # ── Attack Chains ──────────────────────────────────────────────────────────────
@@ -1336,6 +1027,33 @@ _MUTATION_WINDOWS = {
     "escalating": (50, 130, 2),
     "chaos": (25, 75, 3),
 }
+
+
+def _public_mutation_catalog() -> dict[str, Any]:
+    modules: dict[str, list[dict[str, Any]]] = {}
+    for module_id, choices in _MUTATION_CATALOG.items():
+        modules[module_id] = [
+            {
+                "mutation_id": choice["mutation_id"],
+                "module_id": choice["module_id"],
+                "label": choice["label"],
+                "description": choice["description"],
+                "color": choice.get("color"),
+                "signature": choice.get("signature"),
+            }
+            for choice in choices
+        ]
+    return {
+        "modules": modules,
+        "module_count": len(modules),
+        "total_mutations": sum(len(choices) for choices in modules.values()),
+    }
+
+
+@app.get("/api/mutations/catalog")
+async def get_mutation_catalog() -> dict[str, Any]:
+    """Return the public mutation catalog without solution-oriented target tasks."""
+    return _public_mutation_catalog()
 
 
 def _mutation_action_summary(rec) -> str:
@@ -1569,9 +1287,7 @@ def _mutation_status_payload(rec) -> dict:
 
 
 @app.post("/api/sessions/{sid}/mutations/trigger")
-async def trigger_mutation(
-    sid: str, body: dict = Body(...), operator: dict = Depends(require_operator_session)
-):
+async def trigger_mutation(sid: str, body: dict = Body(...)):
     """Activate a mutation on the target-agent for this session."""
     rec = _require_session(sid)
     module_id   = body.get("module_id", "")
@@ -1622,9 +1338,7 @@ async def get_session_mutation_status(sid: str):
 
 
 @app.post("/api/sessions/{sid}/mutations/schedule")
-async def schedule_mutation(
-    sid: str, body: dict = Body(...), operator: dict = Depends(require_operator_session)
-):
+async def schedule_mutation(sid: str, body: dict = Body(...)):
     """
     Schedule a mutation to trigger inside a random delay window.
     Runs in a background thread. Returns immediately.
@@ -1648,35 +1362,3 @@ async def schedule_mutation(
         max_delay=float(max_delay) if max_delay is not None else None,
     )
     return {"ok": True, "scheduled": True, "event": event}
-
-
-# ── Watcher Agent: session coordination ──────────────────────────────────────
-
-class WatcherSessionBody(BaseModel):
-    scenario_id: str
-    incident_id: str
-
-
-@app.post("/session/watcher")
-def create_watcher_session(body: WatcherSessionBody) -> dict:
-    """Create a watcher session. Returns a 6-char code the analyst types into
-    the Watcher Agent CLI to bind their terminal to this incident."""
-    code = _generate_watcher_code()
-    session = {
-        "code":            code,
-        "scenario_id":     body.scenario_id,
-        "incident_id":     body.incident_id,
-        "status":          "active",
-        "started_at_unix": _time_mod.time(),
-    }
-    _WATCHER_SESSIONS[code] = session
-    return session
-
-
-@app.get("/session/watcher/{code}")
-def get_watcher_session(code: str) -> dict:
-    """Return watcher session for *code*, or {status: pending} if not yet created."""
-    session = _WATCHER_SESSIONS.get(code.upper())
-    if session is None:
-        return {"status": "pending"}
-    return session

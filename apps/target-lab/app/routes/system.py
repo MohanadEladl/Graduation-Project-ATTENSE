@@ -1,5 +1,5 @@
 """
-routes/system.py - System utility endpoints.
+routes/system.py – System utility endpoints.
 
 [VULN APP-02] COMMAND INJECTION
 The `host` parameter is passed directly to os.popen() with no sanitization.
@@ -9,14 +9,13 @@ import logging
 import os
 
 from flask import Blueprint, request, render_template_string, current_app
-from route_security import has_command_output_indicator, has_shell_separator
 
 logger = logging.getLogger("target.system")
 system_bp = Blueprint("system", __name__)
 
 _PING_PAGE = """
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
-<title>Network Diagnostics - AcmeCorp IT</title>
+<title>Network Diagnostics — AcmeCorp IT</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#c8cdd8;min-height:100vh;}
@@ -90,35 +89,34 @@ def ping():
         "event": "ping_request",
         "endpoint": "/system/ping",
         "host_param": host,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
 
-    # Lab evidence - generic usage
+    # Lab evidence — generic usage
     import evidence
     evidence.record(
         "diagnostics_used",
         module_id="cmd_injection",
         path="/system/ping", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         extra={"host_param": host},
     )
     # Detect injection patterns
-    if has_shell_separator(host):
+    SEPARATORS = (";", "|", "&&", "||", "`", "$(")
+    if any(s in host for s in SEPARATORS):
         evidence.record(
             "command_separator_observed",
             module_id="cmd_injection",
             path="/system/ping", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
             severity="medium",
             extra={"host_param": host[:200]},
         )
 
-    # [VULN] direct shell injection - host concatenated unsanitized
-    output = os.popen(f"ping -c 2 {host} 2>&1").read() # noqa: S605
+    # [VULN] direct shell injection — host concatenated unsanitized
+    output = os.popen(f"ping -c 2 {host} 2>&1").read()  # noqa: S605
 
     logger.info(json.dumps({
         "event": "ping_output",
@@ -127,14 +125,14 @@ def ping():
     }))
 
     # If the output contains evidence of extra command execution, flag it
-    if has_command_output_indicator(output):
+    INDICATORS = ("uid=", "root:", "/bin/", "/etc/", "drwx", "-rwx", "Linux ")
+    if any(s in output for s in INDICATORS):
         evidence.record(
             "command_injection_detected",
             module_id="cmd_injection",
             path="/system/ping", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
             severity="critical",
             extra={"host_param": host[:200], "output_excerpt": output[:300]},
         )

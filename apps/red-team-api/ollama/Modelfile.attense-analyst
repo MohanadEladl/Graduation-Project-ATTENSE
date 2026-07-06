@@ -6,7 +6,7 @@
 #
 #   ollama create attense-analyst -f Modelfile.attense-analyst
 #
-# (ollama/build_ollama_model.sh does this inside the running container.)
+# (scripts/build_ollama_model.sh does this inside the running container.)
 # The report agent (backend/report_agent.py) then grounds every generation on
 # the REAL technique IDs each attack module carries, so the model explains the
 # operator's actual ATT&CK chain instead of inventing one.

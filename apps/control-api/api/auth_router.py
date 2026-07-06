@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from core import company_store, session_store, user_store
+from core import company_store, room_manager, session_store, user_store
 from dependencies.auth import require_session
 
 router = APIRouter(prefix="/api/auth")
@@ -117,6 +117,16 @@ def me(session: dict = Depends(require_session)):
         response["type"] = user.get("type")
         if session["role"] in user_store.HIVE_KEY_ROLES:
             response["hive_key"] = user.get("hive_key")
+        if session["role"] == "red_team":
+            room = None
+            active_room_id = user.get("active_room_id")
+            if active_room_id:
+                room = room_manager.get_room_if_member(active_room_id, session["username"])
+            if room is None:
+                room = room_manager.find_room_for_red_team_member(session["username"])
+            if room is not None:
+                response["room_id"] = room["room_id"]
+                response["incident_id"] = room.get("incident_id")
     return response
 
 

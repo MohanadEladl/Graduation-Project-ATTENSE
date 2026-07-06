@@ -42,7 +42,7 @@ export default function ZapWorkspace() {
   const s = STATUS_STYLES[c.status] || STATUS_STYLES.error
 
   return (
-    <div className="min-h-screen w-full flex flex-col" style={{ background: '#0a0d13', color: '#c8d0e8' }}>
+    <div className="h-screen w-full flex flex-col" style={{ background: '#0a0d13', color: '#c8d0e8' }}>
       {/* Top connection bar */}
       <div className="shrink-0 flex items-center justify-between gap-6 px-6 py-3"
         style={{ background: 'rgba(0,0,0,0.5)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>

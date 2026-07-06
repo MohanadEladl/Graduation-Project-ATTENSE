@@ -406,6 +406,24 @@ export default function MissionReport() {
 
   if (!report) return null
 
+  // Guided Mode is reading-only — the backend never generates an attack
+  // report for it. Show the plain message instead of the full report UI
+  // (which expects grade/score/evidence fields a guided session never has).
+  if (report.reading_only) return (
+    <div className="p-6 max-w-2xl mx-auto">
+      <div className="rounded-xl p-6 text-center"
+        style={{ background: 'rgba(125,211,252,0.04)', border: '1px solid rgba(125,211,252,0.22)' }}>
+        <div className="font-mono text-[9px] tracking-[0.26em] mb-3" style={{ color: '#7dd3fc' }}>
+          GUIDED MODE · READING-ONLY
+        </div>
+        <div className="text-[13px] text-attense-text leading-relaxed">
+          {report.message || report.summary || 'Guided Mode is reading-only. No attack report is generated.'}
+        </div>
+      </div>
+      <Link to="/" className="inline-block mt-4 font-mono text-[11px] text-attense-muted hover:text-attense-red">← Back</Link>
+    </div>
+  )
+
   const c = GRADE_COLORS[report.grade] || GRADE_COLORS.C
 
   return (
@@ -486,6 +504,68 @@ export default function MissionReport() {
         </div>
       </motion.div>
 
+
+      {/* ── OBJECTIVE & METHODOLOGY ── */}
+      {(report.objective || report.completion_score != null) && (
+        <motion.section {...fadeUp(0.06)} className="mb-5">
+          <SectionTitle
+            title="Objective & Methodology"
+            subtitle="Completion is objective-based; methodology is advisory"
+            color="#7dd3fc"
+          />
+          <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            {report.objective && (
+              <div className="text-[13px] mb-3" style={{ color: '#e6e8ee' }}>
+                <span className="font-mono text-[9px] tracking-[0.24em] block mb-1"
+                  style={{ color: report.success ? '#2ee39a' : '#ff9a3c' }}>
+                  {report.success ? 'OBJECTIVE REACHED' : 'OBJECTIVE NOT REACHED'}
+                </span>
+                {report.objective}
+              </div>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+              <HeroStat label="COMPLETION"  value={`${report.completion_score ?? 0}%`} />
+              <HeroStat label="METHODOLOGY" value={`${report.quality_score ?? 0}%`} />
+              <HeroStat label="RESULT" value={report.success ? 'COMPLETE' : 'IN PROGRESS'} mono={false} />
+            </div>
+            {report.completed_required?.length > 0 && (
+              <div className="text-[11px] mb-2" style={{ color: '#9aa0c0' }}>
+                <span style={{ color: '#2ee39a' }}>Completed by:</span> {report.completed_required.join(', ')}
+              </div>
+            )}
+            {!report.success && report.next_recommended_action && (
+              <div className="rounded-lg p-3 text-[11.5px] leading-relaxed"
+                style={{ background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.22)', color: '#cfe8ff' }}>
+                <span className="font-mono text-[9px] tracking-[0.22em] block mb-1" style={{ color: '#7dd3fc' }}>
+                  NEXT RECOMMENDED
+                </span>
+                {report.next_recommended_action}
+              </div>
+            )}
+            {report.missing_quality?.length > 0 && (
+              <div className="mt-3">
+                <div className="font-mono text-[9px] tracking-[0.22em] mb-1.5" style={{ color: '#9aa0c0' }}>
+                  METHODOLOGY TO IMPROVE
+                </div>
+                <ul className="space-y-1">
+                  {report.missing_quality.map((q, i) => (
+                    <li key={i} className="flex gap-2 text-[11px] leading-snug" style={{ color: '#9aa0c0' }}>
+                      <span style={{ color: '#7dd3fc' }}>○</span>
+                      <span>{q.recommendation || q.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {report.warnings?.map((w, i) => (
+              <div key={i} className="mt-2 rounded-lg p-2.5 text-[11px] leading-snug"
+                style={{ background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.28)', color: '#ffd48a' }}>
+                ⚠ {w}
+              </div>
+            ))}
+          </div>
+        </motion.section>
+      )}
 
       {/* ── MITRE ATT&CK ANALYSIS ── */}
       <MitreAnalysisSection report={report} />

@@ -1,5 +1,5 @@
 """
-core/logger.py - Structured logging for the Red Team framework (CLI build).
+core/logger.py — Structured logging for the Red Team framework (CLI build).
 
 Pure-Python implementation: NO Qt/PySide6 dependency so the container runs
 headless. Writes JSONL entries to /red-team/logs/attack_log.jsonl and echoes
@@ -15,7 +15,7 @@ from typing import Callable, List
 
 from core.models import AttackResult
 
-# -- Log file location ---------------------------------------------------------
+# ── Log file location ─────────────────────────────────────────────────────────
 LOG_DIR = os.environ.get(
     "LOG_DIR",
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs"),
@@ -23,7 +23,7 @@ LOG_DIR = os.environ.get(
 LOG_FILE = os.path.join(LOG_DIR, "attack_log.jsonl")
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# -- ANSI colors (disabled if NO_COLOR env or non-TTY) -------------------------
+# ── ANSI colors (disabled if NO_COLOR env or non-TTY) ─────────────────────────
 _USE_COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 
 
@@ -41,14 +41,14 @@ class LogManager:
         self._subscribers: List[Callable[[str], None]] = []
         self._result_subscribers: List[Callable[[dict], None]] = []
 
-    # -- Subscription API (kept for compatibility with future UIs) -------------
+    # ── Subscription API (kept for compatibility with future UIs) ─────────────
     def subscribe(self, fn: Callable[[str], None]) -> None:
         self._subscribers.append(fn)
 
     def subscribe_result(self, fn: Callable[[dict], None]) -> None:
         self._result_subscribers.append(fn)
 
-    # -- Private emit helper ---------------------------------------------------
+    # ── Private emit helper ───────────────────────────────────────────────────
     def _emit(self, line: str) -> None:
         try:
             print(line, flush=True)
@@ -63,24 +63,24 @@ class LogManager:
             except Exception:
                 pass
 
-    # -- Public log methods ----------------------------------------------------
+    # ── Public log methods ────────────────────────────────────────────────────
     def info(self, msg: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
         self._emit(f"[{ts}] {msg}")
 
     def success(self, msg: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
-        self._emit(f"[{ts}] {_c('32', 'PASS')} {msg}")
+        self._emit(f"[{ts}] {_c('32', '✓')} {msg}")
 
     def error(self, msg: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
-        self._emit(f"[{ts}] {_c('31', 'FAIL')} {msg}")
+        self._emit(f"[{ts}] {_c('31', '✗')} {msg}")
 
     def warning(self, msg: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
         self._emit(f"[{ts}] {_c('33', '⚠')} {msg}")
 
-    # -- Persistent log of completed attacks -----------------------------------
+    # ── Persistent log of completed attacks ───────────────────────────────────
     def log_result(self, result: AttackResult) -> None:
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -101,6 +101,6 @@ class LogManager:
         ok = result.successful_steps
         total = result.total_steps
         self.info(
-            f"[{result.module_name}] Complete - {ok}/{total} steps OK | "
+            f"[{result.module_name}] Complete — {ok}/{total} steps OK | "
             f"{result.duration_ms:.0f}ms | {result.summary}"
         )

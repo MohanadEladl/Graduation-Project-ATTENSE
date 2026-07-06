@@ -1,11 +1,11 @@
 """
-routes/home.py - Landing page + module-to-route aliases + CSRF lure page.
+routes/home.py – Landing page + module-to-route aliases + CSRF lure page.
 """
 import json
 import logging
 from flask import Blueprint, current_app, redirect, render_template_string, request
 
-logger = logging.getLogger("target.home")
+logger  = logging.getLogger("target.home")
 home_bp = Blueprint("home", __name__)
 
 _INDEX = """
@@ -108,7 +108,7 @@ def index():
     logger.info(json.dumps({
         "event": "portal_visited",
         "endpoint": "/",
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
         "user_agent": request.headers.get("User-Agent", ""),
     }))
     import evidence
@@ -116,14 +116,13 @@ def index():
         "portal_visited",
         module_id="recon",
         path="/", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
     )
     return render_template_string(_INDEX)
 
 
-# -- Friendly aliases (preserve canonical paths via 307 redirect) ------------
+# ── Friendly aliases (preserve canonical paths via 307 redirect) ────────────
 @home_bp.route("/tools/ping")
 def alias_ping():
     qs = request.query_string.decode("utf-8", errors="replace")
@@ -147,7 +146,7 @@ def alias_files_view():
     return redirect(target, code=307)
 
 
-# -- Hidden clue routes (recon module - "Discover a hidden lab clue") ---------
+# ── Hidden clue routes (recon module — "Discover a hidden lab clue") ─────────
 # Common recon targets: /robots.txt and /.well-known/security.txt. A learner
 # who checks these earns the hidden_clue_accessed event for the recon module.
 @home_bp.route("/robots.txt")
@@ -157,20 +156,19 @@ def robots_txt():
         "hidden_clue_accessed",
         module_id="recon",
         path="/robots.txt", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         severity="low",
-        learner_message="Discovered robots.txt - contains disallowed admin paths.",
+        learner_message="Discovered robots.txt — contains disallowed admin paths.",
     )
     logger.info(json.dumps({
         "event": "hidden_clue_accessed",
         "endpoint": "/robots.txt",
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
     from flask import Response
     return Response(
-        "# AcmeCorp Internal - do not index\n"
+        "# AcmeCorp Internal — do not index\n"
         "User-agent: *\n"
         "Disallow: /admin/\n"
         "Disallow: /system/\n"
@@ -188,16 +186,15 @@ def security_txt():
         "hidden_clue_accessed",
         module_id="recon",
         path="/.well-known/security.txt", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         severity="low",
-        learner_message="Discovered security.txt - reveals internal contact info and policy.",
+        learner_message="Discovered security.txt — reveals internal contact info and policy.",
     )
     logger.info(json.dumps({
         "event": "hidden_clue_accessed",
         "endpoint": "/.well-known/security.txt",
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
     }))
     from flask import Response
     return Response(
@@ -211,7 +208,7 @@ def security_txt():
     )
 
 
-# -- CSRF lure page (local-only, in-lab attacker) ----------------------------
+# ── CSRF lure page (local-only, in-lab attacker) ────────────────────────────
 # Demonstrates the CSRF vulnerability against /profile/update. Educational
 # only: this page is served by the SAME target-agent host and never reaches
 # the public internet.
@@ -245,7 +242,7 @@ p{font-size:14px;color:#cbb4d4;line-height:1.6;margin-bottom:18px;}
   <!--
     Hidden CSRF: this form auto-targets /profile/update on the same target-agent
     host. If the learner is logged in (has a session cookie), submitting this
-    will silently change their email - no token, no Referer check.
+    will silently change their email — no token, no Referer check.
   -->
   <form id="lure" method="POST" action="{{ lab_url('/profile/update') }}">
     <input type="hidden" name="email" value="hacked@evil.lab">
@@ -255,7 +252,7 @@ p{font-size:14px;color:#cbb4d4;line-height:1.6;margin-bottom:18px;}
   <div class="explainer">
     <strong>What this proves:</strong><br>
     A simple button click can submit a form that changes your account email
-    on AcmeCorp - because <code>/profile/update</code> has no CSRF token
+    on AcmeCorp — because <code>/profile/update</code> has no CSRF token
     and accepts any same-origin POST. Open <code>{{ lab_url('/profile/') }}</code>
     after clicking to confirm the change.
   </div>
@@ -270,7 +267,7 @@ def csrf_lure():
     logger.info(json.dumps({
         "event": "csrf_lure_visited",
         "endpoint": "/evil/csrf-demo",
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip": request.remote_addr,
         "module_id": "csrf",
     }))
     import evidence
@@ -278,9 +275,8 @@ def csrf_lure():
         "csrf_lure_visited",
         module_id="csrf",
         path="/evil/csrf-demo", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=current_app.detect_via(),
-        session_id=current_app.current_session_id(),
         severity="medium",
     )
     return render_template_string(_LURE_PAGE)

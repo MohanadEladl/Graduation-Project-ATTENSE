@@ -48,41 +48,6 @@ services:
       - ./apps/red-team-api/utils:/red-team/utils
       - ./apps/red-team-api/main.py:/red-team/main.py
 
-  # The base image serves a static nginx-built bundle (no reload possible - a
-  # source edit needs a full `docker compose build` + recreate). This override
-  # instead runs Vite's own dev server with HMR, so src/ edits reload live.
-  # Only `dockerfile` is overridden here (not `context`) - re-specifying a
-  # relative `context` in an override file resolves incorrectly (drops a
-  # directory level) with this Compose version, whereas inheriting the base
-  # file's already-correct absolute-resolved context works fine.
-  # Runs on the base file's existing container port (8080) rather than Vite's
-  # usual 5173, so the `ports:` mapping doesn't need touching here - Compose
-  # merges (rather than replaces) list-valued keys like `ports` across files,
-  # so overriding it would add a second, conflicting port mapping.
-  # The dev server also needs docker-network hostnames instead of
-  # vite.config.js's host-based-dev defaults (localhost:*), since "localhost"
-  # here means this container, not the host.
-  red-team-frontend:
-    build:
-      dockerfile: Dockerfile.dev
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "8080"]
-    environment:
-      VITE_BACKEND_URL: "http://red-team-backend:8000"
-      VITE_TARGET_URL: "http://target-agent:80"
-      # Bind-mounted source doesn't reliably deliver native fs-change events
-      # into the container on Windows/Mac Docker Desktop - fall back to
-      # polling so HMR actually triggers on a host-side edit.
-      VITE_USE_POLLING: "1"
-    volumes:
-      - ./frontends/red-team/src:/app/src
-      - ./frontends/red-team/public:/app/public
-      - ./frontends/red-team/index.html:/app/index.html
-      - ./frontends/red-team/vite.config.js:/app/vite.config.js:ro
-    # nginx's wget-based frontend-health check doesn't apply to the vite dev
-    # server; disable it so this override doesn't get marked unhealthy.
-    healthcheck:
-      disable: true
-
   # These processes are long-running scripts rather than reload-capable web
   # servers. Their code is mounted; use `docker compose restart <service>`
   # after an edit instead of rebuilding an image.

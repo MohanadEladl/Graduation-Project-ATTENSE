@@ -5,7 +5,7 @@
 #   bash apps/red-team-api/ollama/build_ollama_model.sh
 #
 # Requires: the attense_ollama container running, with llama3.2:3b already
-# pulled (the base model - see scripts/pull_ollama_model.sh). Env overrides:
+# pulled (the base model). Env overrides:
 #   OLLAMA_CONTAINER  (default: attense_ollama)
 #   ANALYST_MODEL     (default: attense-analyst)
 set -euo pipefail

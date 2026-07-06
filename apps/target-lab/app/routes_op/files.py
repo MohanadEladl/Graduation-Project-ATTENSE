@@ -1,14 +1,14 @@
 """
-routes_op/files.py - Operator-mode HARDER traversal + upload.
+routes_op/files.py — Operator-mode HARDER traversal + upload.
 
 Traversal:
   * The `path` parameter is rejected outright if it contains `..`.
-  * Absolute paths (starting with `/`) ARE accepted - the bypass is to
+  * Absolute paths (starting with `/`) ARE accepted — the bypass is to
     pass `/etc/passwd` directly instead of `../../etc/passwd`.
 
 Upload:
   * Hard-blocks .php, .exe, .sh, .py, .pl, .cgi, .jsp, .jspx, .asp, .aspx
-  * Allows .phtml, .svg, .html, .htm, .js - those are the bypasses.
+  * Allows .phtml, .svg, .html, .htm, .js — those are the bypasses.
 
 Same evidence event types so lab_progress.py is unchanged.
 """
@@ -21,22 +21,27 @@ from flask import Blueprint, request, render_template_string, current_app
 logger = logging.getLogger("target.files_op")
 files_op_bp = Blueprint("files_op", __name__)
 
-from routes.files import _READ_PAGE, _UPLOAD_PAGE # noqa: E402
+from routes.files import _READ_PAGE, _UPLOAD_PAGE  # noqa: E402
 
 # Reuse the guided-mode UPLOAD_DIR (already created at import time by routes.files).
-import routes.files as _guided_files # noqa: E402
-from route_security import (
-OPERATOR_BLOCKED_UPLOAD_EXTENSIONS,
-OPERATOR_DANGEROUS_BUT_ACCEPTED_EXTENSIONS,
-has_extension,
-has_sensitive_file_content,
-has_traversal_pattern,
-) # noqa: E402
+import routes.files as _guided_files  # noqa: E402
 
-BASE_DIR = _guided_files.BASE_DIR
-UPLOAD_DIR = _guided_files.UPLOAD_DIR
+BASE_DIR    = _guided_files.BASE_DIR
+UPLOAD_DIR  = _guided_files.UPLOAD_DIR
 
-# -- Directory traversal -----------------------------------------------------
+# Block list for the harder upload — extensions a real defender would
+# blacklist. The intent is the learner has to go AROUND the list (.phtml,
+# .svg, .html) to still get a dangerous payload through.
+_HARD_BLOCKED_EXT = (
+    ".php", ".phps", ".exe", ".sh", ".py", ".pl", ".cgi",
+    ".jsp", ".jspx", ".asp", ".aspx",
+)
+_DANGEROUS_BUT_ACCEPTED = (
+    ".phtml", ".svg", ".html", ".htm", ".js",
+)
+
+
+# ── Directory traversal ─────────────────────────────────────────────────────
 @files_op_bp.route("/read")
 def read_file():
     raw = request.args.get("path", "readme.txt")
@@ -44,34 +49,33 @@ def read_file():
 
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
 
     logger.info(json.dumps({
-        "event": "file_read_request",
-        "endpoint": "/op/files/read",
+        "event":      "file_read_request",
+        "endpoint":   "/op/files/read",
         "path_param": raw,
-        "source_ip": current_app.fake_attacker_ip(),
+        "source_ip":  request.remote_addr,
     }))
 
     evidence.record(
         "file_viewer_used",
         module_id="dir_traversal",
         path="/op/files/read", method="GET",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"path_param": raw, "backend": "operator"},
     )
 
-    # Credit the learner for ATTEMPTING traversal even when we reject ...
-    if has_traversal_pattern(raw):
+    low = raw.lower()
+    # Credit the learner for ATTEMPTING traversal even when we reject ..
+    if (".." in raw) or "%2e%2e" in low or path.startswith("/etc/") \
+            or path.startswith("/proc/") or "passwd" in low or "shadow" in low:
         evidence.record(
             "traversal_pattern_observed",
             module_id="dir_traversal",
             path="/op/files/read", method="GET",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="medium",
             extra={"path_param": raw[:200], "backend": "operator"},
         )
@@ -86,17 +90,17 @@ def read_file():
     try:
         with open(full_path, "r", errors="replace") as f:
             content = f.read(4096)
-            if has_sensitive_file_content(content):
-                evidence.record(
-                    "sensitive_file_disclosed",
-                    module_id="dir_traversal",
-                    path="/op/files/read", method="GET",
-                    source_ip=current_app.fake_attacker_ip(),
-                    via=via,
-                    session_id=session_id,
-                    severity="critical",
-                    extra={"path_param": raw[:200], "backend": "operator"},
-                )
+        SENSITIVE = ("root:", "/bin/bash", "/bin/sh", "daemon:", "nobody:")
+        if any(s in content for s in SENSITIVE):
+            evidence.record(
+                "sensitive_file_disclosed",
+                module_id="dir_traversal",
+                path="/op/files/read", method="GET",
+                source_ip=request.remote_addr,
+                via=via,
+                severity="critical",
+                extra={"path_param": raw[:200], "backend": "operator"},
+            )
     except FileNotFoundError:
         content = f"[ERROR] File not found: {full_path}"
     except PermissionError:
@@ -107,19 +111,17 @@ def read_file():
     return render_template_string(_READ_PAGE, path=raw, content=content)
 
 
-# -- File upload -------------------------------------------------------------
+# ── File upload ─────────────────────────────────────────────────────────────
 @files_op_bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
     import evidence
     via = current_app.detect_via()
-    session_id = current_app.current_session_id()
     evidence.record(
         "file_upload_used",
         module_id="file_upload",
         path="/op/files/upload", method=request.method,
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"backend": "operator"},
     )
     if request.method == "GET":
@@ -133,8 +135,10 @@ def upload_file():
         )
 
     filename = file.filename
+    fn_lower = filename.lower()
+
     # HARDER: hard-block obvious server-side execution extensions.
-    if has_extension(filename, OPERATOR_BLOCKED_UPLOAD_EXTENSIONS):
+    if any(fn_lower.endswith(ext) for ext in _HARD_BLOCKED_EXT):
         return render_template_string(
             _UPLOAD_PAGE,
             message=f'<div class="error-msg">Extension blocked by policy: {filename}</div>',
@@ -144,8 +148,8 @@ def upload_file():
     file.save(save_path)
 
     logger.warning(json.dumps({
-        "event": "file_upload_saved",
-        "filename": filename,
+        "event":     "file_upload_saved",
+        "filename":  filename,
         "save_path": save_path,
     }))
 
@@ -153,21 +157,19 @@ def upload_file():
         "file_saved",
         module_id="file_upload",
         path="/op/files/upload", method="POST",
-        source_ip=current_app.fake_attacker_ip(),
+        source_ip=request.remote_addr,
         via=via,
-        session_id=session_id,
         extra={"filename": filename, "content_type": file.content_type or "",
                "backend": "operator"},
     )
 
-    if has_extension(filename, OPERATOR_DANGEROUS_BUT_ACCEPTED_EXTENSIONS):
+    if any(fn_lower.endswith(ext) for ext in _DANGEROUS_BUT_ACCEPTED):
         evidence.record(
             "dangerous_extension_accepted",
             module_id="file_upload",
             path="/op/files/upload", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="high",
             extra={"filename": filename, "backend": "operator"},
         )
@@ -175,9 +177,8 @@ def upload_file():
             "unrestricted_upload_detected",
             module_id="file_upload",
             path="/op/files/upload", method="POST",
-            source_ip=current_app.fake_attacker_ip(),
+            source_ip=request.remote_addr,
             via=via,
-            session_id=session_id,
             severity="high",
             learner_message=(
                 "A bypass-style extension was accepted by the upload form "

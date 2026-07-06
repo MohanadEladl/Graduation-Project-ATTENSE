@@ -8,24 +8,21 @@
  * All sub-components are defined in this file to keep the route self-contained.
  * Visual design ported from the standalone gauntlet prototype.
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client.js'
 import GauntletIntro from '../components/GauntletIntro.jsx'
 import {
   Zap, Workflow, Radar, KeyRound, Code, Repeat,
-  SquareTerminal, FolderTree, Upload, Timer, Lock, ShieldCheck, Filter,
-  FolderLock, Ban, FileX, FileCheck, Braces, Check, ChevronRight, ArrowRight,
+  SquareTerminal, FolderTree, Upload, Check, ArrowRight,
   RotateCcw, X,
 } from 'lucide-react'
 
 // ─── Chain metadata ────────────────────────────────────────────────────────────
-const CHAIN_META = {
+const CHAIN_PRESENTATION = {
   full_compromise: {
-    id: 'full_compromise',
     cardImage: 'https://images.unsplash.com/photo-1614064641938-3bbee52942c7?auto=format&fit=crop&w=800&q=80',
-    name: 'Full Compromise',
     tagline: 'FULL COMPROMISE',
     threat: 'APT-CLASS',
     difficulty: 'EXTREME',
@@ -33,18 +30,10 @@ const CHAIN_META = {
     accentColor: '#ff1535',
     glowColor: 'rgba(255,21,53,0.18)',
     borderGlow: 'rgba(255,21,53,0.45)',
-    steps: ['RECON', 'BRUTE FORCE', 'XSS', 'CSRF'],
-    stepModules: ['recon', 'brute_force', 'xss', 'csrf'],
-    stepIcons: [Radar, KeyRound, Code, Repeat],
-    description:
-      'Execute a complete network takeover — map the surface, breach authentication, inject scripts, and forge cross-site requests. Every phase builds on the last.',
     objective: 'Full unauthorized access + session hijack',
-    chainId: 'full_compromise',
   },
   root_the_box: {
-    id: 'root_the_box',
     cardImage: 'https://images.unsplash.com/photo-1597733336794-12d05021d510?auto=format&fit=crop&w=800&q=80',
-    name: 'Root The Box',
     tagline: 'ROOT THE BOX',
     threat: 'OS-LEVEL',
     difficulty: 'CRITICAL',
@@ -52,18 +41,10 @@ const CHAIN_META = {
     accentColor: '#8b2fff',
     glowColor: 'rgba(139,47,255,0.18)',
     borderGlow: 'rgba(139,47,255,0.45)',
-    steps: ['RECON', 'CMD INJECTION', 'DIR TRAVERSAL', 'FILE UPLOAD'],
-    stepModules: ['recon', 'cmd_injection', 'dir_traversal', 'file_upload'],
-    stepIcons: [Radar, SquareTerminal, FolderTree, Upload],
-    description:
-      'Escalate from zero to root. Fingerprint the target, inject OS commands, traverse the filesystem, and plant your payload via unrestricted file upload.',
     objective: 'Remote code execution + filesystem control',
-    chainId: 'root_the_box',
   },
   data_exfiltration: {
-    id: 'data_exfiltration',
     cardImage: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80',
-    name: 'Data Exfiltration',
     tagline: 'DATA EXFILTRATION',
     threat: 'INSIDER-THREAT',
     difficulty: 'HIGH',
@@ -71,173 +52,21 @@ const CHAIN_META = {
     accentColor: '#f5c400',
     glowColor: 'rgba(245,196,0,0.14)',
     borderGlow: 'rgba(245,196,0,0.4)',
-    steps: ['RECON', 'BRUTE FORCE', 'DIR TRAVERSAL', 'CSRF'],
-    stepModules: ['recon', 'brute_force', 'dir_traversal', 'csrf'],
-    stepIcons: [Radar, KeyRound, FolderTree, Repeat],
-    description:
-      'Silently drain sensitive data. Enumerate attack vectors, crack credentials, walk the file system for secrets, then weaponize cross-site requests to cover your tracks.',
     objective: 'Credential theft + sensitive data disclosure',
-    chainId: 'data_exfiltration',
   },
 }
-const CHAIN_ORDER = ['full_compromise', 'root_the_box', 'data_exfiltration']
 
-// ─── Mutation definitions ──────────────────────────────────────────────────────
-const MUTATION_DEFS = [
-  {
-    id: 'bf_delay',
-    module: 'brute_force',
-    moduleLabel: 'Brute Force',
-    icon: Timer,
-    label: 'Rate Limiter',
-    color: '#ff6b00',
-    glow: 'rgba(255,107,0,0.2)',
-    description: 'A 2-second artificial delay is injected on every login attempt, crippling fast-spray tools.',
-    hint: 'Slow your wordlist or add request delays in your tool config.',
-    impact: 'HIGH',
-  },
-  {
-    id: 'bf_lockout',
-    module: 'brute_force',
-    moduleLabel: 'Brute Force',
-    icon: Lock,
-    label: 'Account Lockout',
-    color: '#ff1535',
-    glow: 'rgba(255,21,53,0.2)',
-    description: 'After 5 consecutive failed logins the account is locked for 60 seconds — triggering lockout is detectable.',
-    hint: 'Rotate target accounts, watch for 403 responses, slow down.',
-    impact: 'HIGH',
-  },
-  {
-    id: 'xss_encode',
-    module: 'xss',
-    moduleLabel: 'XSS',
-    icon: Code,
-    label: 'Output Encoding',
-    color: '#00c8ff',
-    glow: 'rgba(0,200,255,0.2)',
-    description: 'Angle brackets < > are HTML-encoded in the response — but event handlers remain injectable.',
-    hint: 'Drop script tags. Use onerror=, onload=, onfocus= payloads instead.',
-    impact: 'MEDIUM',
-  },
-  {
-    id: 'xss_csp',
-    module: 'xss',
-    moduleLabel: 'XSS',
-    icon: ShieldCheck,
-    label: 'CSP Header',
-    color: '#2ee39a',
-    glow: 'rgba(46,227,154,0.2)',
-    description: 'A Content-Security-Policy header is injected, blocking all inline script execution.',
-    hint: 'Look for script-src bypasses, JSONP endpoints, or CSP misconfigurations.',
-    impact: 'CRITICAL',
-  },
-  {
-    id: 'ci_filter_pipe',
-    module: 'cmd_injection',
-    moduleLabel: 'Command Injection',
-    icon: Filter,
-    label: 'Pipe Filtered',
-    color: '#8b2fff',
-    glow: 'rgba(139,47,255,0.2)',
-    description: 'The pipe character | is stripped from all host input before it reaches the OS layer.',
-    hint: 'Substitute with semicolons, backticks, or $() subshell syntax.',
-    impact: 'MEDIUM',
-  },
-  {
-    id: 'ci_filter_semi',
-    module: 'cmd_injection',
-    moduleLabel: 'Command Injection',
-    icon: Filter,
-    label: 'Semicolon Filtered',
-    color: '#f5c400',
-    glow: 'rgba(245,196,0,0.2)',
-    description: 'Semicolons are stripped from host input — the most common command separator is gone.',
-    hint: 'Try pipe, backtick, or $() injection. Newline (%0a) may also work.',
-    impact: 'MEDIUM',
-  },
-  {
-    id: 'dt_dotdot_filtered',
-    module: 'dir_traversal',
-    moduleLabel: 'Dir Traversal',
-    icon: FolderLock,
-    label: 'Dot-Dot Filtered',
-    color: '#06b6d4',
-    glow: 'rgba(6,182,212,0.2)',
-    description: 'The sequence ../ is stripped from the path input before it reaches the filesystem layer.',
-    hint: 'Try URL encoding: ..%2f or double encoding: ..%252f.',
-    impact: 'HIGH',
-  },
-  {
-    id: 'dt_absolute_path_only',
-    module: 'dir_traversal',
-    moduleLabel: 'Dir Traversal',
-    icon: Ban,
-    label: 'Absolute Path Blocked',
-    color: '#22d3ee',
-    glow: 'rgba(34,211,238,0.2)',
-    description: 'Paths starting with / are rejected — only relative paths are accepted.',
-    hint: 'Use relative traversal from the app root without a leading slash.',
-    impact: 'MEDIUM',
-  },
-  {
-    id: 'fu_extension_blocklist',
-    module: 'file_upload',
-    moduleLabel: 'File Upload',
-    icon: FileX,
-    label: 'Extension Blocklist',
-    color: '#a855f7',
-    glow: 'rgba(168,85,247,0.2)',
-    description: 'Common executable extensions (.php, .py, .sh) are rejected by the upload handler.',
-    hint: 'Try double extensions (.php.jpg), null bytes, or uncommon executable types.',
-    impact: 'HIGH',
-  },
-  {
-    id: 'fu_mime_check',
-    module: 'file_upload',
-    moduleLabel: 'File Upload',
-    icon: FileCheck,
-    label: 'MIME Type Check',
-    color: '#c084fc',
-    glow: 'rgba(192,132,252,0.2)',
-    description: 'Content-Type must match image/* — the server now validates MIME type on upload.',
-    hint: 'Intercept and set Content-Type: image/jpeg while keeping your payload.',
-    impact: 'HIGH',
-  },
-  {
-    id: 'csrf_referer_check',
-    module: 'csrf',
-    moduleLabel: 'CSRF',
-    icon: ShieldCheck,
-    label: 'Referer Check',
-    color: '#f43f5e',
-    glow: 'rgba(244,63,94,0.2)',
-    description: 'The server validates that the Referer header originates from the same host.',
-    hint: 'Try omitting the Referer header — some implementations only block wrong origins.',
-    impact: 'MEDIUM',
-  },
-  {
-    id: 'csrf_json_only',
-    module: 'csrf',
-    moduleLabel: 'CSRF',
-    icon: Braces,
-    label: 'JSON-Only Update',
-    color: '#fb7185',
-    glow: 'rgba(251,113,133,0.2)',
-    description: 'The state-changing endpoint only accepts application/json, breaking form-based CSRF.',
-    hint: 'Use fetch() with a CORS-preflighted JSON body to bypass the simple-request restriction.',
-    impact: 'HIGH',
-  },
-]
-const MUTATION_GROUPS = [
-  { module: 'brute_force',   label: 'BRUTE FORCE' },
-  { module: 'xss',           label: 'XSS — REFLECTED' },
-  { module: 'cmd_injection', label: 'COMMAND INJECTION' },
-  { module: 'dir_traversal', label: 'DIR TRAVERSAL' },
-  { module: 'file_upload',   label: 'FILE UPLOAD' },
-  { module: 'csrf',          label: 'CSRF' },
-]
-
+const DEFAULT_CHAIN_PRESENTATION = {
+  cardImage: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80',
+  tagline: 'ATTACK CHAIN',
+  threat: 'MULTI-PHASE',
+  difficulty: 'ADVANCED',
+  difficultyColor: '#7dd3fc',
+  accentColor: '#7dd3fc',
+  glowColor: 'rgba(125,211,252,0.16)',
+  borderGlow: 'rgba(125,211,252,0.4)',
+  objective: 'Complete each backend-defined phase objective',
+}
 const MUTATION_MODULES = [
   {
     module: 'brute_force',
@@ -498,8 +327,8 @@ function GauntletEntranceLoader() {
 // ─── Section navigator — segmented control ────────────────────────────────────
 function HeroSectionNav({ active, onSelect }) {
   const sections = [
-    { id: 'chains',    icon: Workflow, label: 'ATTACK CHAINS', sub: 'Multi-phase operations', count: 3,  countLabel: 'OPS'      },
-    { id: 'mutations', icon: Zap,      label: 'MUTATION MODE', sub: 'Adaptive defense',       count: 13, countLabel: 'MUTATIONS' },
+    { id: 'chains',    icon: Workflow, label: 'ATTACK CHAINS', sub: 'Multi-phase operations', count: 'API', countLabel: 'SOURCE' },
+    { id: 'mutations', icon: Zap,      label: 'MUTATION MODE', sub: 'Adaptive defense',       count: 'API', countLabel: 'CATALOG' },
   ]
 
   return (
@@ -655,14 +484,63 @@ function PhaseNode({ icon: Icon, label, index, total, accentColor, active, compl
 // Left: scrollable list of chain names, items shift horizontally by distance
 // from viewport center (closest = x:0, furthest = x:80px).
 // Right: single sticky card that cross-fades when active chain changes.
+function labelForChainStep(step) {
+  return String(step?.label || step?.module_id || 'phase').replace(/_/g, ' ').toUpperCase()
+}
+
+function buildChainMeta(chain) {
+  const presentation = CHAIN_PRESENTATION[chain.id] || DEFAULT_CHAIN_PRESENTATION
+  const steps = Array.isArray(chain.steps) ? chain.steps : []
+  const stepModules = steps.map(step => step?.module_id).filter(Boolean)
+  const labels = steps.length > 0 ? steps.map(labelForChainStep) : ['PHASE']
+  return {
+    ...presentation,
+    id: chain.id,
+    chainId: chain.id,
+    name: chain.name || chain.id,
+    tagline: presentation.tagline || String(chain.name || chain.id).toUpperCase(),
+    description: chain.description || presentation.objective,
+    steps: labels,
+    stepModules,
+    stepIcons: stepModules.map(moduleId => MODULE_ICONS[moduleId] || Radar),
+  }
+}
 function AttackChainsSection() {
   const navigate = useNavigate()
   const [activeIdx, setActiveIdx] = useState(0)
   const [sessions, setSessions] = useState({})
   const [launchingId, setLaunchingId] = useState(null)
+  const [chains, setChains] = useState([])
+  const [chainLoadError, setChainLoadError] = useState(null)
+  const [loadingChains, setLoadingChains] = useState(true)
   const itemRefs = useRef([])
   const sectionRef = useRef(null)
   const cardRef = useRef(null)
+  const chainMetas = useMemo(() => chains.map(buildChainMeta), [chains])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingChains(true)
+    api.chains.list()
+      .then(list => Promise.all(
+        (Array.isArray(list) ? list : []).map(chain =>
+          api.chains.get(chain.id).catch(() => chain),
+        ),
+      ))
+      .then(details => {
+        if (cancelled) return
+        setChains(details)
+        setChainLoadError(null)
+      })
+      .catch(err => {
+        if (cancelled) return
+        setChainLoadError(err?.message || 'Could not load attack chains.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingChains(false)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   // Scroll-driven horizontal offset + active detection.
   // NOTE: this app scrolls inside an inner <main overflow-y:auto> container,
@@ -704,7 +582,7 @@ function AttackChainsSection() {
       target.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', onScroll)
     }
-  }, [])
+  }, [chainMetas.length])
 
   // Mouse-following 3D tilt on the sticky card (the lukebaffait "3D" feel).
   useEffect(() => {
@@ -746,11 +624,12 @@ function AttackChainsSection() {
   const start = async (id) => {
     if (launchingId) return
     setLaunchingId(id)
-    const meta = CHAIN_META[id]
+    const meta = chainMetas.find(chain => chain.id === id)
     try {
       const chain = await api.chains.start(id, `gauntlet-${id}-${Date.now()}`)
       const phase = chain.current_step_index ?? 0
-      const moduleId = meta.stepModules[phase]
+      const moduleId = meta?.stepModules?.[phase]
+      if (!moduleId) throw new Error('Backend chain has no module for the current phase.')
       const session = await api.sessions.create(moduleId)
       navigate(`/workspace/${session.session_id}?chain=${chain.id}&chainId=${id}&phase=${phase}`)
     } catch (err) {
@@ -769,8 +648,8 @@ function AttackChainsSection() {
     try {
       const checkResult = await api.chains.check(sess.chainSessionId)
       if (!checkResult.complete) {
-        const meta = CHAIN_META[id]
-        const stepLabel = meta.steps[sess.phase] ?? 'current phase'
+        const meta = chainMetas.find(chain => chain.id === id)
+        const stepLabel = meta?.steps?.[sess.phase] ?? 'current phase'
         setSessions(s => ({
           ...s,
           [id]: { ...s[id], checking: false, error: `Complete the ${stepLabel} phase first — reach 60% progress before advancing.` },
@@ -797,8 +676,23 @@ function AttackChainsSection() {
 
       {/* ── LEFT: scrollable list ── */}
       <div style={{ padding: '45vh 48px 75vh 0' }}>
-        {CHAIN_ORDER.map((id, idx) => {
-          const meta = CHAIN_META[id]
+        {loadingChains && (
+          <div style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.2em', color: '#3a4560' }}>
+            LOADING CHAINS...
+          </div>
+        )}
+        {chainLoadError && (
+          <div style={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1.7, color: '#f87171' }}>
+            {chainLoadError}
+          </div>
+        )}
+        {!loadingChains && !chainLoadError && chainMetas.length === 0 && (
+          <div style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.16em', color: '#6b7fa3' }}>
+            NO CHAINS AVAILABLE
+          </div>
+        )}
+        {chainMetas.map((meta, idx) => {
+          const id = meta.id
           const isAct = idx === activeIdx
           const sess = sessions[id]
           return (
@@ -806,7 +700,7 @@ function AttackChainsSection() {
               key={id}
               ref={el => { itemRefs.current[idx] = el }}
               style={{
-                marginBottom: idx < CHAIN_ORDER.length - 1 ? '36vh' : 0,
+                marginBottom: idx < chainMetas.length - 1 ? '36vh' : 0,
                 willChange: 'transform',
                 transition: 'transform 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
               }}
@@ -864,9 +758,9 @@ function AttackChainsSection() {
       <div style={{ position: 'sticky', top: 0, height: '100vh', display: 'flex', alignItems: 'center', padding: '0 24px 0 40px' }}>
         <div style={{ width: '100%', maxWidth: 480 }}>
           <AnimatePresence mode="wait">
-            {CHAIN_ORDER.map((id, idx) => {
+            {chainMetas.map((meta, idx) => {
               if (idx !== activeIdx) return null
-              const meta = CHAIN_META[id]
+              const id = meta.id
               const sess = sessions[id]
               const isComplete = !!sess?.complete
               const currentPhase = sess?.phase ?? 0
@@ -1005,57 +899,6 @@ function AttackChainsSection() {
 }
 
 // ─── Mutation catalog card ─────────────────────────────────────────────────────
-function MutationCard({ mut, index }) {
-  const [expanded, setExpanded] = useState(false)
-  const MutIcon = mut.icon
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: 0.04 + index * 0.06, duration: 0.4 }}
-      onClick={() => setExpanded(e => !e)}
-      style={{
-        position: 'relative', borderRadius: 12,
-        border: `1px solid ${expanded ? mut.color + '45' : mut.color + '20'}`,
-        background: expanded ? `${mut.color}0c` : 'rgba(255,255,255,0.022)',
-        padding: '18px 22px', marginBottom: 12, cursor: 'pointer',
-        transition: 'all 0.25s ease', overflow: 'hidden',
-        backdropFilter: 'blur(10px)',
-      }}>
-      {/* Left accent stripe */}
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: `linear-gradient(180deg, ${mut.color}, ${mut.color}40)`, borderRadius: '3px 0 0 3px' }} />
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${mut.color}45`, background: `${mut.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: mut.color, flexShrink: 0 }}><MutIcon size={17} strokeWidth={1.75} /></div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '0.22em', color: '#4a5280' }}>{mut.moduleLabel.toUpperCase()}</span>
-              <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '2px 7px', borderRadius: 3, border: `1px solid ${mut.color}55`, color: mut.color, background: `${mut.color}12`, letterSpacing: '0.18em' }}>{mut.impact}</span>
-            </div>
-            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 600, color: '#d8e0f5' }}>{mut.label}</div>
-          </div>
-        </div>
-        <motion.div animate={{ rotate: expanded ? 90 : 0 }} transition={{ duration: 0.2 }}
-          style={{ color: mut.color, display: 'flex', opacity: 0.85 }}><ChevronRight size={16} strokeWidth={2.25} /></motion.div>
-      </div>
-
-      <AnimatePresence>
-        {expanded && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
-            <div style={{ paddingLeft: 14, paddingTop: 16 }}>
-              <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#7a8aab', lineHeight: 1.75, marginBottom: 14 }}>{mut.description}</p>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderRadius: 8, background: `${mut.color}0a`, border: `1px solid ${mut.color}22` }}>
-                <span style={{ fontFamily: 'monospace', fontSize: 9, color: mut.color, letterSpacing: '0.22em', whiteSpace: 'nowrap', paddingTop: 1 }}>HINT</span>
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#9ba8c8', lineHeight: 1.65 }}>{mut.hint}</span>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  )
-}
-
 const MODULE_ICONS = { brute_force: KeyRound, xss: Code, cmd_injection: SquareTerminal, dir_traversal: FolderTree, file_upload: Upload, csrf: Repeat }
 const INTENSITY_CHOICES = [
   { id: 'single',     label: 'Single Shift',  desc: '1 shift · 60–180s window' },
@@ -1302,6 +1145,30 @@ function CpuArchitecture({ width = 360, height = 220 }) {
 // ─── Mutation Mode section ─────────────────────────────────────────────────────
 function MutationModeSection() {
   const [phase, setPhase] = useState('intro')
+  const [mutationCatalog, setMutationCatalog] = useState(null)
+  const [catalogError, setCatalogError] = useState(null)
+  const mutationModules = useMemo(() => {
+    const modules = mutationCatalog?.modules
+    const moduleIds = modules ? Object.keys(modules) : []
+    if (moduleIds.length === 0) return MUTATION_MODULES
+    return MUTATION_MODULES.filter(op => modules[op.module])
+  }, [mutationCatalog])
+  const moduleCount = mutationCatalog?.module_count ?? mutationModules.length
+  const mutationCount = mutationCatalog?.total_mutations ?? '...'
+
+  useEffect(() => {
+    let cancelled = false
+    api.mutations.catalog()
+      .then(catalog => {
+        if (cancelled) return
+        setMutationCatalog(catalog)
+        setCatalogError(null)
+      })
+      .catch(err => {
+        if (!cancelled) setCatalogError(err?.message || 'Could not load mutation catalog.')
+      })
+    return () => { cancelled = true }
+  }, [])
 
   if (phase === 'catalog') {
     return (
@@ -1319,8 +1186,8 @@ function MutationModeSection() {
             {/* Stats strip */}
             <div style={{ display: 'flex', gap: 0, overflow: 'hidden', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(10,13,20,0.6)', backdropFilter: 'blur(10px)', width: 'fit-content' }}>
               {[
-                { label: 'MODULES', value: '6' },
-                { label: 'MUTATIONS', value: '13', highlight: true },
+                { label: 'MODULES', value: moduleCount },
+                { label: 'MUTATIONS', value: mutationCount, highlight: true },
                 { label: 'MAX SHIFTS', value: '3' },
               ].map((s, i) => (
                 <div key={s.label} style={{ padding: '12px 22px', background: s.highlight ? 'rgba(245,196,0,0.06)' : 'transparent', borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none', textAlign: 'center' }}>
@@ -1329,13 +1196,18 @@ function MutationModeSection() {
                 </div>
               ))}
             </div>
+            {catalogError && (
+              <div style={{ marginTop: 10, fontFamily: 'monospace', fontSize: 9, color: '#f87171', letterSpacing: '0.08em' }}>
+                {catalogError}
+              </div>
+            )}
           </div>
           <div style={{ opacity: 0.55, flexShrink: 0 }}>
             <CpuArchitecture width={220} height={136} />
           </div>
         </div>
 
-        {MUTATION_MODULES.map((op, i) => (
+        {mutationModules.map((op, i) => (
           <MutationLaunchCard key={op.module} op={op} index={i} />
         ))}
       </motion.div>
@@ -1376,7 +1248,7 @@ function MutationModeSection() {
       {/* Stats strip */}
       <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
         style={{ display: 'flex', gap: 0, marginBottom: 56, overflow: 'hidden', borderRadius: 12, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(10,13,20,0.5)', backdropFilter: 'blur(10px)', zIndex: 1 }}>
-        {[{ label: 'MUTATIONS', value: '13', highlight: false }, { label: 'MODULES AFFECTED', value: '6', highlight: true }, { label: 'MAX DIFFICULTY', value: 'CRITICAL', highlight: false }].map((stat, i) => (
+        {[{ label: 'MUTATIONS', value: 'CATALOG', highlight: false }, { label: 'MODULE SOURCE', value: 'BACKEND', highlight: true }, { label: 'MAX DIFFICULTY', value: 'CONFIG', highlight: false }].map((stat, i) => (
           <div key={stat.label} style={{ padding: '18px 34px', background: stat.highlight ? 'rgba(245,196,0,0.07)' : 'transparent', borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none', textAlign: 'center', minWidth: 150 }}>
             <div style={{ fontFamily: "'Rajdhani', monospace", fontSize: 28, fontWeight: 700, color: stat.highlight ? '#f5c400' : '#d8e0f5', letterSpacing: '0.04em', marginBottom: 6 }}>{stat.value}</div>
             <div style={{ fontFamily: 'monospace', fontSize: 8, letterSpacing: '0.26em', color: '#3e4860' }}>{stat.label}</div>
@@ -1401,7 +1273,7 @@ function MutationModeSection() {
           style={{ position: 'relative', overflow: 'hidden', fontFamily: 'monospace', fontSize: 13, fontWeight: 700, letterSpacing: '0.3em', padding: '18px 64px', borderRadius: 12, border: '1px solid rgba(245,196,0,0.6)', background: 'linear-gradient(135deg, #f5c400 0%, #ffaa00 50%, #ff8c00 100%)', color: '#07090f', cursor: 'pointer', boxShadow: '0 0 40px rgba(245,196,0,0.32), 0 4px 24px rgba(0,0,0,0.45)' }}>
           START MUTATION MODE →
         </motion.button>
-        <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a4560', letterSpacing: '0.22em' }}>VIEW ALL 13 ACTIVE MUTATIONS</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a4560', letterSpacing: '0.22em' }}>VIEW BACKEND MUTATION CATALOG</span>
       </motion.div>
     </motion.div>
   )

@@ -1,5 +1,5 @@
 """
-backend/chain_engine.py - Attack chain session management.
+backend/chain_engine.py — Attack chain session management.
 
 An "attack chain" is a multi-step mission where each module must be completed
 (score >= threshold) before the next step unlocks.
@@ -18,57 +18,57 @@ _log = _logging.getLogger(__name__)
 
 TARGET_AGENT_URL = os.getenv("LAB_EVENTS_URL", "http://target-agent")
 
-# -- Chain definitions -------------------------------------------------------
+# ── Chain definitions ───────────────────────────────────────────────────────
 
 CHAINS: Dict[str, Dict[str, Any]] = {
     "full_compromise": {
         "name": "Full Compromise",
         "description": "Perform a complete network compromise: recon, authentication bypass, XSS, then CSRF.",
         "steps": [
-            {"module_id": "recon", "label": "Recon", "threshold": 60},
-            {"module_id": "brute_force", "label": "Auth Bypass", "threshold": 60},
-            {"module_id": "xss", "label": "XSS", "threshold": 60},
-            {"module_id": "csrf", "label": "CSRF", "threshold": 60},
+            {"module_id": "recon",       "label": "Recon",            "threshold": 60},
+            {"module_id": "brute_force", "label": "Auth Bypass",      "threshold": 60},
+            {"module_id": "xss",         "label": "XSS",              "threshold": 60},
+            {"module_id": "csrf",        "label": "CSRF",             "threshold": 60},
         ],
     },
     "root_the_box": {
         "name": "Root the Box",
         "description": "Escalate privileges from guest to root via command injection and file upload.",
         "steps": [
-            {"module_id": "recon", "label": "Recon", "threshold": 60},
-            {"module_id": "cmd_injection", "label": "Cmd Injection", "threshold": 60},
-            {"module_id": "dir_traversal", "label": "Dir Traversal", "threshold": 60},
-            {"module_id": "file_upload", "label": "File Upload", "threshold": 60},
+            {"module_id": "recon",         "label": "Recon",          "threshold": 60},
+            {"module_id": "cmd_injection", "label": "Cmd Injection",  "threshold": 60},
+            {"module_id": "dir_traversal", "label": "Dir Traversal",  "threshold": 60},
+            {"module_id": "file_upload",   "label": "File Upload",    "threshold": 60},
         ],
     },
     "data_exfiltration": {
         "name": "Data Exfiltration",
         "description": "Exfiltrate sensitive data: recon the target, bypass auth, traverse directories, then forge cross-site requests.",
         "steps": [
-            {"module_id": "recon", "label": "Recon", "threshold": 60},
-            {"module_id": "brute_force", "label": "Auth Bypass", "threshold": 60},
-            {"module_id": "dir_traversal", "label": "Dir Traversal", "threshold": 60},
-            {"module_id": "csrf", "label": "CSRF", "threshold": 60},
+            {"module_id": "recon",         "label": "Recon",          "threshold": 60},
+            {"module_id": "brute_force",   "label": "Auth Bypass",    "threshold": 60},
+            {"module_id": "dir_traversal", "label": "Dir Traversal",  "threshold": 60},
+            {"module_id": "csrf",          "label": "CSRF",           "threshold": 60},
         ],
     },
 }
 
-# -- In-memory chain session store -------------------------------------------
+# ── In-memory chain session store ───────────────────────────────────────────
 
 _CHAIN_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
-# -- Public API ---------------------------------------------------------------
+# ── Public API ───────────────────────────────────────────────────────────────
 
 def list_chains() -> List[Dict[str, Any]]:
     """Return list of chain summaries (id, name, description, step_count)."""
     result = []
     for chain_id, chain in CHAINS.items():
         result.append({
-            "id": chain_id,
-            "name": chain["name"],
+            "id":          chain_id,
+            "name":        chain["name"],
             "description": chain["description"],
-            "step_count": len(chain["steps"]),
+            "step_count":  len(chain["steps"]),
         })
     return result
 
@@ -79,10 +79,10 @@ def get_chain(chain_id: str) -> Dict[str, Any]:
         raise KeyError("Chain not found: " + chain_id)
     chain = CHAINS[chain_id]
     return {
-        "id": chain_id,
-        "name": chain["name"],
+        "id":          chain_id,
+        "name":        chain["name"],
         "description": chain["description"],
-        "steps": chain["steps"],
+        "steps":       chain["steps"],
     }
 
 
@@ -97,16 +97,16 @@ def start_chain(chain_id: str, session_id: str) -> Dict[str, Any]:
 
     chain_session_id = str(uuid.uuid4())
     record: Dict[str, Any] = {
-        "id": chain_session_id,
-        "chain_id": chain_id,
-        "session_id": session_id,
+        "id":                 chain_session_id,
+        "chain_id":           chain_id,
+        "session_id":         session_id,
         "current_step_index": 0,
-        "started_at": time.time(),
-        "completed_at": None,
-        # Persisted per-phase results - keyed by phase index.
+        "started_at":         time.time(),
+        "completed_at":       None,
+        # Persisted per-phase results — keyed by phase index.
         # Populated by advance_chain() before evidence is reset so the
         # final report always shows accurate per-phase scores.
-        "phase_results": {},
+        "phase_results":      {},
     }
     _CHAIN_SESSIONS[chain_session_id] = record
     return dict(record)
@@ -125,16 +125,10 @@ def check_step_complete(chain_session_id: str) -> bool:
 
     Calls lab_progress.compute() with:
       - module_id = current step's module_id
-      - variant_id = None (chains always use default variant)
+      - variant_id = None  (chains always use default variant)
       - mission_started_at = chain session's started_at timestamp
 
-    Returns True if score >= step's threshold AND the module's
-    success_required event types were actually observed. progress_percent
-    alone isn't enough to advance a chain phase: a module's task ladder can
-    cross the threshold without the learner having pulled off the actual
-    exploit (e.g. partial recon credit), so requiring `success` too ensures
-    "advance to next phase" means the same thing as "mission succeeded" in
-    the single-mission flow.
+    Returns True if score >= step's threshold.
     """
     if chain_session_id not in _CHAIN_SESSIONS:
         raise KeyError("Chain session not found: " + chain_session_id)
@@ -157,10 +151,9 @@ def check_step_complete(chain_session_id: str) -> bool:
         module_id=module_id,
         mission_started_at=session["started_at"],
         variant_id=None,
-        session_id=session["session_id"],
     )
     score = int(result.get("progress_percent", 0))
-    return score >= threshold and bool(result.get("success"))
+    return score >= threshold
 
 
 def advance_chain(chain_session_id: str) -> Dict[str, Any]:
@@ -189,8 +182,7 @@ def advance_chain(chain_session_id: str) -> Dict[str, Any]:
         step = chain["steps"][idx]
         raise ValueError(
             "Current step '" + step["label"] + "' is not yet complete. "
-            "Score must reach " + str(step["threshold"]) + "% AND the module's "
-            "exploit must actually be confirmed."
+            "Score must reach " + str(step["threshold"]) + "%."
         )
 
     # Snapshot current phase result BEFORE wiping evidence
@@ -203,26 +195,22 @@ def advance_chain(chain_session_id: str) -> Dict[str, Any]:
         module_id=step["module_id"],
         mission_started_at=session["started_at"],
         variant_id=None,
-        session_id=session["session_id"],
     )
     _score = int(_result.get("progress_percent", 0))
-    _success = bool(_result.get("success"))
     session["phase_results"][idx] = {
-        "phase_index": idx,
-        "module_id": step["module_id"],
-        "label": step["label"],
-        "threshold": step["threshold"],
-        "score": _score,
-        "passed": _score >= step["threshold"] and _success,
-        "success": _success,
-        "evidence": _result.get("evidence", []),
-        "completed_tasks": _result.get("completed_tasks", []),
-        "timestamp": time.time(),
+        "phase_index":       idx,
+        "module_id":         step["module_id"],
+        "label":             step["label"],
+        "threshold":         step["threshold"],
+        "score":             _score,
+        "passed":            _score >= step["threshold"],
+        "evidence":          _result.get("evidence", []),
+        "completed_tasks":   _result.get("completed_tasks", []),
+        "timestamp":         time.time(),
     }
 
-    # Reset this session's target-agent evidence only - swallow any failure
-    import urllib.parse as _up
-    reset_url = TARGET_AGENT_URL + "/lab/events/reset?session_id=" + _up.quote(session["session_id"])
+    # Reset target-agent evidence — swallow any failure
+    reset_url = TARGET_AGENT_URL + "/lab/events/reset"
     try:
         req = urllib.request.Request(
             reset_url, data=b"", method="POST",
@@ -261,17 +249,16 @@ def get_chain_report(chain_session_id: str) -> Dict[str, Any]:
     total = 0
     for i, step in enumerate(chain["steps"]):
         if i in phase_results:
-            # Use persisted snapshot - evidence may have been reset already
+            # Use persisted snapshot — evidence may have been reset already
             stored = phase_results[i]
             score = stored["score"]
             steps_out.append({
-                "module_id": step["module_id"],
-                "label": step["label"],
-                "threshold": step["threshold"],
-                "score": score,
-                "passed": stored["passed"],
-                "success": stored.get("success", False),
-                "evidence": stored.get("evidence", []),
+                "module_id":       step["module_id"],
+                "label":           step["label"],
+                "threshold":       step["threshold"],
+                "score":           score,
+                "passed":          stored["passed"],
+                "evidence":        stored.get("evidence", []),
                 "completed_tasks": stored.get("completed_tasks", []),
             })
         elif i == current_idx:
@@ -280,31 +267,27 @@ def get_chain_report(chain_session_id: str) -> Dict[str, Any]:
                 module_id=step["module_id"],
                 mission_started_at=session["started_at"],
                 variant_id=None,
-                session_id=session["session_id"],
             )
             score = int(result.get("progress_percent", 0))
-            success = bool(result.get("success"))
             steps_out.append({
-                "module_id": step["module_id"],
-                "label": step["label"],
-                "threshold": step["threshold"],
-                "score": score,
-                "passed": score >= step["threshold"] and success,
-                "success": success,
-                "evidence": result.get("evidence", []),
+                "module_id":       step["module_id"],
+                "label":           step["label"],
+                "threshold":       step["threshold"],
+                "score":           score,
+                "passed":          score >= step["threshold"],
+                "evidence":        result.get("evidence", []),
                 "completed_tasks": result.get("completed_tasks", []),
             })
         else:
             # Future phase not yet reached
             score = 0
             steps_out.append({
-                "module_id": step["module_id"],
-                "label": step["label"],
-                "threshold": step["threshold"],
-                "score": 0,
-                "passed": False,
-                "success": False,
-                "evidence": [],
+                "module_id":       step["module_id"],
+                "label":           step["label"],
+                "threshold":       step["threshold"],
+                "score":           0,
+                "passed":          False,
+                "evidence":        [],
                 "completed_tasks": [],
             })
         total += score
@@ -325,13 +308,13 @@ def get_chain_report(chain_session_id: str) -> Dict[str, Any]:
 
     return {
         "chain_session_id": chain_session_id,
-        "chain_id": session["chain_id"],
-        "chain_name": chain["name"],
-        "steps": steps_out,
-        "total_score": total,
-        "avg_score": avg_score,
-        "grade": grade,
-        "completed": session["completed_at"] is not None,
-        "started_at": session["started_at"],
-        "completed_at": session["completed_at"],
+        "chain_id":         session["chain_id"],
+        "chain_name":       chain["name"],
+        "steps":            steps_out,
+        "total_score":      total,
+        "avg_score":        avg_score,
+        "grade":            grade,
+        "completed":        session["completed_at"] is not None,
+        "started_at":       session["started_at"],
+        "completed_at":     session["completed_at"],
     }

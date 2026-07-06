@@ -1,6 +1,4 @@
-import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { SESSION_TOKEN_KEY } from './api/client.js'
 import { RangeLayout }   from './components/RangeLayout.jsx'
 import Login             from './routes/Login.jsx'
 import WhoAreYou         from './routes/WhoAreYou.jsx'
@@ -12,30 +10,10 @@ import Workspace         from './routes/Workspace.jsx'
 import Reports           from './routes/Reports.jsx'
 import Settings          from './routes/Settings.jsx'
 import MissionReport     from './routes/MissionReport.jsx'
-import AttackReport      from './routes/AttackReport.jsx'
 import Gauntlet          from './routes/Gauntlet.jsx'
 import ZapWorkspace      from './routes/ZapWorkspace.jsx'
 
-// Captures ?token=<attense-app session token> from the URL (handed off by
-// the portal after login — see apps/red-team-api/backend/identity.py for how
-// the backend validates it), persists it, then strips it from the address
-// bar so it doesn't linger in browser history / get leaked via Referer.
-function useSessionTokenFromUrl() {
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const token = params.get('token')
-    if (!token) return
-
-    localStorage.setItem(SESSION_TOKEN_KEY, token)
-    params.delete('token')
-    const rest = params.toString()
-    const cleanUrl = window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash
-    window.history.replaceState({}, '', cleanUrl)
-  }, [])
-}
-
 export default function App() {
-  useSessionTokenFromUrl()
   return (
     <BrowserRouter>
       <Routes>
@@ -51,16 +29,18 @@ export default function App() {
         {/* ── Standalone ZAP desktop workspace (opened in its own window) ── */}
         <Route path="/zap-workspace" element={<ZapWorkspace />} />
 
+        {/* ── Full-screen lab — no global top nav; the workspace renders its
+             own toolbar with a top-left exit (goes back to the previous page). ── */}
+        <Route path="/workspace/:sid"        element={<Workspace />}      />
+
         {/* ── Authenticated app (new-UI top nav, no sidebar) ── */}
         <Route element={<RangeLayout />}>
           <Route path="/missions"              element={<Missions />}       />
           <Route path="/modules"               element={<Modules />}        />
           <Route path="/mission/:moduleId"     element={<Mission />}        />
-          <Route path="/workspace/:sid"        element={<Workspace />}      />
           <Route path="/reports"               element={<Reports />}        />
           <Route path="/settings"              element={<Settings />}       />
           <Route path="/report/:sid"           element={<MissionReport />}  />
-          <Route path="/attack-report/:sid"    element={<AttackReport />}   />
           <Route path="/gauntlet"              element={<Gauntlet />}       />
         </Route>
 

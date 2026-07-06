@@ -28,11 +28,17 @@ export default function ZapLauncher({ sessionId, moduleId, mode = 'operator', mi
       module_id:  moduleId || '',
       mode:       mode || 'operator',
     }).toString()
-    window.open(
+    // Reuse the SAME window on every click instead of stacking new ones. The
+    // named target ('attense_zap_workspace') already targets one window, but the
+    // old `noopener` flag defeated that — noopener makes the browser ignore the
+    // name and open a fresh window each time. Without it, a re-click redirects
+    // the existing window to the latest URL; focus() brings it to the front.
+    const win = window.open(
       `/zap-workspace?${q}`,
       'attense_zap_workspace',
-      'noopener,width=1280,height=860',
+      'width=1280,height=860',
     )
+    win?.focus()
   }
 
   const s = STATUS_STYLES[status] || STATUS_STYLES.error

@@ -65,8 +65,6 @@ jobs:
         run: python -m unittest discover -s tests/integration/signal-mapper -p "test_signalmapper_correlation.py" -v
       - name: Integration — red-team-api (TTD anchor + event contract)
         run: python -m unittest discover -s tests/integration/red-team-api -p "test_*.py" -v
-      - name: Zero-day agent (pytest — agent helpers + MITRE scanner + signal-mapper suitability)
-        run: python -m pytest tests/zeroday_agent/ tests/integration/signal-mapper/test_mapper_suitability.py -v
 
   compose-config:
     # Report Phase 7/9: the compose file must merge + validate.
@@ -90,7 +88,22 @@ jobs:
           python-version: "3.12"
       - run: pip install ruff
       - name: Ruff (canonical modules)
-        run: ruff check packages/attense-core/attense_core apps/control-api/ATTENSE_app apps/blue-team-api/blueteam
+        run: ruff check packages/attense-core/attense_core apps/control-api/api apps/control-api/core apps/control-api/pipeline/bridge.py apps/control-api/pipeline/scoring_engine.py apps/control-api/pipeline/report_generator.py apps/blue-team-api/blueteam
+
+  zeroday-report:
+    # Zero-day detection agent: unit helpers, MITRE ATT&CK keyword scanner,
+    # report generation (plain-text fallback, no Gemini required), and
+    # signal-mapper suitability gate.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install zero-day agent dependencies
+        run: pip install httpx tenacity pytest
+      - name: Zero-day agent tests (agent helpers + MITRE scanner + signal-mapper suitability)
+        run: python -m pytest tests/zeroday_agent/ tests/integration/signal-mapper/test_mapper_suitability.py -v
 
   frontend-build:
     # Report Phase 9: frontend lint/build.

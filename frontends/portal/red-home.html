@@ -124,10 +124,10 @@
     </div>
     <div id="tabs-root">
       <div id="tab-pill"></div>
-      <button class="tab-btn is-active" data-tab-btn="0" onclick="scrollTo('hero',0)">Overview</button>
-      <button class="tab-btn" data-tab-btn="1" onclick="scrollTo('benefits-section',1)">Red Team</button>
-      <button class="tab-btn" data-tab-btn="2" onclick="scrollTo('dashboard-section',2)">Dashboard</button>
-      <button class="tab-btn" data-tab-btn="3" onclick="scrollTo('cta-section',3)">Get Started</button>
+      <button class="tab-btn is-active" data-tab-btn="0" onclick="scrollToSection('hero',0)">Overview</button>
+      <button class="tab-btn" data-tab-btn="1" onclick="scrollToSection('benefits-section',1)">Red Team</button>
+      <button class="tab-btn" data-tab-btn="2" onclick="scrollToSection('dashboard-section',2)">Dashboard</button>
+      <button class="tab-btn" data-tab-btn="3" onclick="scrollToSection('cta-section',3)">Get Started</button>
     </div>
     <a href="red-login.html" style="flex-shrink:0;display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 18px;border-radius:9px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#e5e8f5;font-size:13px;font-weight:600;text-decoration:none;">
       Sign In <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -275,12 +275,12 @@
   <!-- Footer -->
   <div style="padding:24px 32px;border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;background:#0d0305;">
     <div style="display:flex;align-items:center;gap:10px;"><img src="assets/ATTENSELOGO.png" style="width:22px;height:22px;object-fit:contain;opacity:.8;mix-blend-mode:screen;" alt="" /><span class="att-word" style="font-size:13px;font-weight:800;letter-spacing:-.02em;">ATTENSE</span><span style="font-size:12px;color:#6f7689;">© 2026</span></div>
-    <div style="display:flex;gap:20px;"><a href="#" style="font-size:12px;color:#6f7689;text-decoration:none;">Privacy</a><a href="#" style="font-size:12px;color:#6f7689;text-decoration:none;">Security</a><a href="red-login.html" style="font-size:12px;color:#6f7689;text-decoration:none;">Sign In</a></div>
+    <div style="display:flex;gap:20px;"><a href="red-login.html" style="font-size:12px;color:#6f7689;text-decoration:none;">Sign In</a></div>
   </div>
 </div>
 
 <script>
-function scrollTo(id, tabIdx) {
+function scrollToSection(id, tabIdx) {
   const el = document.getElementById(id);
   if (!el) return;
   const top = el.getBoundingClientRect().top + window.pageYOffset - 80;
@@ -322,10 +322,15 @@ window.addEventListener('scroll', () => {
   // Active tab from scroll
   const sections = ['hero','benefits-section','dashboard-section','cta-section'];
   let active = 0;
-  sections.forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (el && el.offsetTop <= y + 120) active = i;
-  });
+  const atBottom = y + window.innerHeight >= document.body.scrollHeight - 2;
+  if (atBottom) {
+    active = sections.length - 1;
+  } else {
+    sections.forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (el && el.offsetTop <= y + 120) active = i;
+    });
+  }
   setActiveTab(active);
 }, { passive: true });
 

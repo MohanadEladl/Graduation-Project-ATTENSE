@@ -1,9 +1,0 @@
-# Dev-only image: runs Vite's dev server (HMR) instead of building a static
-# bundle for nginx. Used by infra/compose.dev.yml's hot-reload override —
-# not part of the production build path (see Dockerfile for that).
-FROM node:20-alpine
-WORKDIR /app
-COPY package.json ./
-RUN npm install --no-audit --no-fund
-EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

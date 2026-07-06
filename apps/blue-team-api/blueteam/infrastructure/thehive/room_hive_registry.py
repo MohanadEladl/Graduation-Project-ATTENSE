@@ -10,7 +10,7 @@ Only works when this package runs EMBEDDED inside control-api's process
 (apps/control-api/controller.py starts blueteam.main:app in a background
 thread in the same container) - that's the only deployment where `core` is
 on the PYTHONPATH. The standalone per-room container built from
-apps/blue-team-api/Dockerfile has no `core` package, so the lookup below
+apps/blue-team-api/Dockerfile has no `core` package, so the import below
 fails there and every caller falls back to the global HIVE_API_KEY, matching
 the pre-existing shared-org behaviour.
 """

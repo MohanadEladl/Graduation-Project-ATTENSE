@@ -14,7 +14,6 @@ ALLOWED_EVENT_TYPES = {
     "recovery_validated",
     "dismissal_approved",
     "lessons_learned_recorded",
-    "mission_finished",
 }
 ALLOWED_ACTOR_TYPES = {
     "red_team",
