@@ -95,7 +95,7 @@ def test_cmd_injection_direct_goal_completes(monkeypatch, via):
 # 5. Directory Traversal: direct goal completes on any local via.
 @pytest.mark.parametrize("via", ["browser", "attackbox", "unknown"])
 def test_dir_traversal_direct_goal_completes(monkeypatch, via):
-    events = [_ev("sensitive_file_disclosed", "/op/files/read", via, ts=1.0)]
+    events = [_ev("traversal_plain_success", "/op/files/read", via, ts=1.0)]
     assert _run("dir_traversal", events, monkeypatch)["success"] is True
 
 

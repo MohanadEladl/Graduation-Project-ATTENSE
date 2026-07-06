@@ -42,65 +42,87 @@ _DANGEROUS_BUT_ACCEPTED = (
 
 
 # ── Directory traversal ─────────────────────────────────────────────────────
+# Level-gated (Part 5). ?level=easy|medium|hard. Flask decodes %2e%2e to ..,
+# so encoded-vs-plain is distinguished from the RAW query string, not the
+# decoded value:
+#   Easy   (variant "plain")    → literal ../ allowed              → traversal_plain_success
+#   Medium (variant "encoded")  → literal ../ blocked; %2e-encoded → traversal_encoded_success
+#   Hard   (variant "absolute") → ../ and %2e blocked; /abs path   → traversal_absolute_bypass_success
+_SENSITIVE = ("root:", "/bin/bash", "/bin/sh", "daemon:", "nobody:")
+
+
 @files_op_bp.route("/read")
 def read_file():
-    raw = request.args.get("path", "readme.txt")
-    path = raw
+    raw = request.args.get("path", "readme.txt")          # Flask-decoded
+    qs = request.query_string.decode("latin-1", "ignore").lower()  # raw query
+    level = (request.args.get("level") or "easy").strip().lower()
+    if level in ("absolute", "abs"):
+        level = "hard"
+    elif level in ("encoded",):
+        level = "medium"
+    elif level in ("plain",):
+        level = "easy"
 
     import evidence
     via = current_app.detect_via()
 
     logger.info(json.dumps({
-        "event":      "file_read_request",
-        "endpoint":   "/op/files/read",
-        "path_param": raw,
-        "source_ip":  request.remote_addr,
+        "event": "file_read_request", "endpoint": "/op/files/read",
+        "level": level, "path_param": raw, "source_ip": request.remote_addr,
     }))
-
     evidence.record(
-        "file_viewer_used",
-        module_id="dir_traversal",
-        path="/op/files/read", method="GET",
-        source_ip=request.remote_addr,
-        via=via,
-        extra={"path_param": raw, "backend": "operator"},
+        "file_viewer_used", module_id="dir_traversal", path="/op/files/read",
+        method="GET", source_ip=request.remote_addr, via=via,
+        extra={"path_param": raw, "level": level, "backend": "operator"},
     )
 
+    # How the traversal was expressed, read from the RAW query string.
+    literal_dotdot = ".." in qs
+    encoded_dotdot = "%2e" in qs
+    absolute_path = raw.startswith("/")
+
     low = raw.lower()
-    # Credit the learner for ATTEMPTING traversal even when we reject ..
-    if (".." in raw) or "%2e%2e" in low or path.startswith("/etc/") \
-            or path.startswith("/proc/") or "passwd" in low or "shadow" in low:
+    if literal_dotdot or encoded_dotdot or absolute_path or "passwd" in low or "shadow" in low:
         evidence.record(
-            "traversal_pattern_observed",
-            module_id="dir_traversal",
-            path="/op/files/read", method="GET",
-            source_ip=request.remote_addr,
-            via=via,
-            severity="medium",
-            extra={"path_param": raw[:200], "backend": "operator"},
+            "traversal_pattern_observed", module_id="dir_traversal",
+            path="/op/files/read", method="GET", source_ip=request.remote_addr,
+            via=via, severity="medium",
+            extra={"path_param": raw[:200], "level": level, "backend": "operator"},
         )
 
-    # HARDER: outright reject the obvious traversal token.
-    if ".." in raw:
-        return render_template_string(_READ_PAGE, path=raw,
-                                      content="[ERROR] Path contains forbidden sequence '..'")
+    # Level gate: reject the forms this difficulty is meant to defeat.
+    blocked_reason = None
+    if level == "easy":
+        pass  # literal ../ allowed
+    elif level == "medium":
+        if literal_dotdot and not encoded_dotdot:
+            blocked_reason = "literal '..' is filtered — try URL-encoding it (%2e%2e%2f)"
+    else:  # hard
+        if literal_dotdot or encoded_dotdot:
+            blocked_reason = "traversal sequences are filtered — try an absolute path (/etc/passwd)"
+    if blocked_reason:
+        return render_template_string(_READ_PAGE, path=raw, content=f"[ERROR] {blocked_reason}")
 
-    # Bypass path: absolute paths still work because we just join.
-    full_path = path if path.startswith("/") else os.path.join(BASE_DIR, path)
+    full_path = raw if absolute_path else os.path.join(BASE_DIR, raw)
     try:
         with open(full_path, "r", errors="replace") as f:
             content = f.read(4096)
-        SENSITIVE = ("root:", "/bin/bash", "/bin/sh", "daemon:", "nobody:")
-        if any(s in content for s in SENSITIVE):
-            evidence.record(
-                "sensitive_file_disclosed",
-                module_id="dir_traversal",
-                path="/op/files/read", method="GET",
-                source_ip=request.remote_addr,
-                via=via,
-                severity="critical",
-                extra={"path_param": raw[:200], "backend": "operator"},
-            )
+        if any(s in content for s in _SENSITIVE):
+            # Attribute the disclosure to the technique that this level required.
+            event = None
+            if level == "easy" and literal_dotdot:
+                event = "traversal_plain_success"
+            elif level == "medium" and encoded_dotdot:
+                event = "traversal_encoded_success"
+            elif level == "hard" and absolute_path:
+                event = "traversal_absolute_bypass_success"
+            if event:
+                evidence.record(
+                    event, module_id="dir_traversal", path="/op/files/read",
+                    method="GET", source_ip=request.remote_addr, via=via,
+                    severity="critical",
+                    extra={"path_param": raw[:200], "level": level, "backend": "operator"},
+                )
     except FileNotFoundError:
         content = f"[ERROR] File not found: {full_path}"
     except PermissionError:
