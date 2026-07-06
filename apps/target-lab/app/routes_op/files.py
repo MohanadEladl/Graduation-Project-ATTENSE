@@ -134,17 +134,49 @@ def read_file():
 
 
 # ── File upload ─────────────────────────────────────────────────────────────
+# Level-gated (Part 6). ?level=easy|medium|hard selects how strong the upload
+# filter is, so each difficulty needs a DIFFERENT bypass and emits a DIFFERENT
+# goal event:
+#   Easy   (variant "wrong_extension") → no filter. A .php is accepted.
+#          Goal: upload_basic_dangerous_ext_success.
+#   Medium (variant "mime_spoof")      → exact dangerous extensions blocked, but
+#          bypass extensions (.phtml/.php5/.phar) and double extensions
+#          (shell.php.jpg) slip through.  Goal: upload_extension_bypass_success.
+#   Hard   (variant "polyglot")        → all script extensions blocked, only
+#          image extensions accepted — the bypass is a POLYGLOT (image extension
+#          whose bytes contain <?php / <script).  Goal: upload_polyglot_success.
+_BASIC_DANGEROUS = (".php", ".php3", ".php4", ".exe", ".sh", ".py", ".pl",
+                    ".cgi", ".jsp", ".jspx", ".asp", ".aspx")
+_BYPASS_EXT = (".phtml", ".php5", ".pht", ".phar", ".shtml")
+_IMG_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
+_POLYGLOT_MARKERS = (b"<?php", b"<?=", b"<script", b"<%")
+
+
+def _is_double_ext(fn: str) -> bool:
+    """shell.php.jpg — a script extension hidden before the final one."""
+    parts = fn.split(".")
+    return len(parts) >= 3 and any(
+        ("." + parts[i]) in (_BASIC_DANGEROUS + _BYPASS_EXT)
+        for i in range(1, len(parts) - 1)
+    )
+
+
 @files_op_bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
     import evidence
     via = current_app.detect_via()
+    level = (request.args.get("level") or request.form.get("level") or "easy").strip().lower()
+    if level in ("wrong_extension",):
+        level = "easy"
+    elif level in ("mime_spoof",):
+        level = "medium"
+    elif level in ("polyglot",):
+        level = "hard"
+
     evidence.record(
-        "file_upload_used",
-        module_id="file_upload",
-        path="/op/files/upload", method=request.method,
-        source_ip=request.remote_addr,
-        via=via,
-        extra={"backend": "operator"},
+        "file_upload_used", module_id="file_upload", path="/op/files/upload",
+        method=request.method, source_ip=request.remote_addr, via=via,
+        extra={"level": level, "backend": "operator"},
     )
     if request.method == "GET":
         return render_template_string(_UPLOAD_PAGE, message="")
@@ -152,68 +184,55 @@ def upload_file():
     file = request.files.get("file")
     if not file or file.filename == "":
         return render_template_string(
-            _UPLOAD_PAGE,
-            message='<div class="error-msg">No file selected.</div>',
-        )
+            _UPLOAD_PAGE, message='<div class="error-msg">No file selected.</div>')
 
     filename = file.filename
-    fn_lower = filename.lower()
+    fn = filename.lower()
+    data = file.read()  # bytes — needed for polyglot content inspection
 
-    # HARDER: hard-block obvious server-side execution extensions.
-    if any(fn_lower.endswith(ext) for ext in _HARD_BLOCKED_EXT):
+    # Level-gated policy: reject the trick this difficulty is meant to defeat.
+    reason = None
+    if level == "medium":
+        if any(fn.endswith(e) for e in _BASIC_DANGEROUS) and not _is_double_ext(fn):
+            reason = "Extension blocked by policy (exact dangerous extension)"
+    elif level == "hard":
+        if any(fn.endswith(e) for e in (_BASIC_DANGEROUS + _BYPASS_EXT)) or _is_double_ext(fn):
+            reason = "Only image files are accepted (all script extensions blocked)"
+    if reason:
         return render_template_string(
-            _UPLOAD_PAGE,
-            message=f'<div class="error-msg">Extension blocked by policy: {filename}</div>',
-        ), 400
+            _UPLOAD_PAGE, message=f'<div class="error-msg">{reason}: {filename}</div>'), 400
 
     save_path = os.path.join(UPLOAD_DIR, filename)
-    file.save(save_path)
-
-    logger.warning(json.dumps({
-        "event":     "file_upload_saved",
-        "filename":  filename,
-        "save_path": save_path,
-    }))
-
+    with open(save_path, "wb") as fh:
+        fh.write(data)
+    logger.warning(json.dumps({"event": "file_upload_saved", "filename": filename,
+                               "level": level, "save_path": save_path}))
     evidence.record(
-        "file_saved",
-        module_id="file_upload",
-        path="/op/files/upload", method="POST",
-        source_ip=request.remote_addr,
-        via=via,
+        "file_saved", module_id="file_upload", path="/op/files/upload",
+        method="POST", source_ip=request.remote_addr, via=via,
         extra={"filename": filename, "content_type": file.content_type or "",
-               "backend": "operator"},
+               "level": level, "backend": "operator"},
     )
 
-    if any(fn_lower.endswith(ext) for ext in _DANGEROUS_BUT_ACCEPTED):
+    # Attribute success to the bypass this level required.
+    event = None
+    if level == "easy" and any(fn.endswith(e) for e in (_BASIC_DANGEROUS + _BYPASS_EXT)):
+        event = "upload_basic_dangerous_ext_success"
+    elif level == "medium" and (any(fn.endswith(e) for e in _BYPASS_EXT) or _is_double_ext(fn)):
+        event = "upload_extension_bypass_success"
+    elif level == "hard":
+        imgish = any(fn.endswith(e) for e in _IMG_EXT) or (file.content_type or "").startswith("image/")
+        if imgish and any(m in data.lower() for m in _POLYGLOT_MARKERS):
+            event = "upload_polyglot_success"
+    if event:
         evidence.record(
-            "dangerous_extension_accepted",
-            module_id="file_upload",
-            path="/op/files/upload", method="POST",
-            source_ip=request.remote_addr,
-            via=via,
-            severity="high",
-            extra={"filename": filename, "backend": "operator"},
-        )
-        evidence.record(
-            "unrestricted_upload_detected",
-            module_id="file_upload",
-            path="/op/files/upload", method="POST",
-            source_ip=request.remote_addr,
-            via=via,
-            severity="high",
-            learner_message=(
-                "A bypass-style extension was accepted by the upload form "
-                "even though .php is blocked."
-            ),
-            extra={"filename": filename, "backend": "operator"},
+            event, module_id="file_upload", path="/op/files/upload", method="POST",
+            source_ip=request.remote_addr, via=via, severity="high",
+            extra={"filename": filename, "level": level, "backend": "operator"},
         )
 
     served_url = current_app.lab_url(f"/static/uploads/{filename}")
-    msg = (
-        '<div class="result-msg">&#9989; File saved successfully'
-        f'<br/>Path: {save_path}'
-        f'<br/>Open: <a href="{served_url}">{served_url}</a>'
-        '</div>'
-    )
+    msg = ('<div class="result-msg">&#9989; File saved successfully'
+           f'<br/>Path: {save_path}'
+           f'<br/>Open: <a href="{served_url}">{served_url}</a></div>')
     return render_template_string(_UPLOAD_PAGE, message=msg)

@@ -99,10 +99,9 @@ def test_dir_traversal_direct_goal_completes(monkeypatch, via):
     assert _run("dir_traversal", events, monkeypatch)["success"] is True
 
 
-# 6. File Upload: direct goal completes on any local via.
-@pytest.mark.parametrize("goal", ["dangerous_extension_accepted", "unrestricted_upload_detected"])
-def test_file_upload_direct_goal_completes(monkeypatch, goal):
-    events = [_ev(goal, "/op/files/upload", "browser", ts=1.0)]
+# 6. File Upload: direct goal completes on any local via (default = easy variant).
+def test_file_upload_direct_goal_completes(monkeypatch):
+    events = [_ev("upload_basic_dangerous_ext_success", "/op/files/upload", "browser", ts=1.0)]
     assert _run("file_upload", events, monkeypatch)["success"] is True
 
 
