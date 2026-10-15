@@ -64,3 +64,17 @@ REDTEAM_EVENT_INGESTION_CHANGES.md
 frontends/red-team/_shot.mjs
 frontends/red-team/_*_shot.png
 /.tmp/
+
+# Additional sensitive files (added for public release)
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+*.jks
+credentials*.json
+secrets.*
+*.secret
